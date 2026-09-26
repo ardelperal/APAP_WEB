@@ -10,6 +10,7 @@ Issue #286. Provides:
 
 from __future__ import annotations
 
+import functools
 import ipaddress
 import threading
 from collections.abc import Sequence
@@ -168,23 +169,45 @@ class InProcessRateLimitBackend:
 #: A trusted proxy network parsed from ``Settings.trusted_proxies``.
 _TrustedNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
 
-
-def _parse_trusted_proxies(cidrs: list[str]) -> list[_TrustedNetwork]:
-    """Parse ``Settings.trusted_proxies`` CIDR strings into networks."""
-    return [ipaddress.ip_network(cidr, strict=False) for cidr in cidrs]
+#: A parsed IP address (peer or X-Forwarded-For candidate).
+_IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 
 
-def _is_trusted(ip_str: str, networks: Sequence[_TrustedNetwork]) -> bool:
-    """Return True only when ``ip_str`` parses and falls in a trusted network.
+@functools.lru_cache(maxsize=8)
+def _parse_trusted_proxies(cidrs: tuple[str, ...]) -> tuple[_TrustedNetwork, ...]:
+    """Parse ``Settings.trusted_proxies`` CIDR strings into networks.
 
-    An unparseable entry (e.g. garbage injected into X-Forwarded-For) is
-    treated as untrusted, so it terminates the right-to-left walk instead
-    of letting a forged hop past it.
+    Cached on the tuple of strings (JD-B-007): the same configured list is
+    re-parsed on every request otherwise. ``maxsize=8`` bounds memory for
+    test configurations that mutate settings.
     """
+    return tuple(ipaddress.ip_network(cidr, strict=False) for cidr in cidrs)
+
+
+def _parse_ip(value: str) -> _IPAddress | None:
+    """Parse an IP address string; return None when unparseable."""
     try:
-        addr = ipaddress.ip_address(ip_str)
+        return ipaddress.ip_address(value)
     except ValueError:
-        return False
+        return None
+
+
+def _matchable_address(addr: _IPAddress) -> _IPAddress:
+    """Normalize an IPv4-mapped IPv6 address (``::ffff:a.b.c.d``) to IPv4.
+
+    Without normalization such peers never match IPv4 CIDRs, so every
+    client would collapse into one global rate-limit bucket (JD-B-003).
+    """
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        return addr.ipv4_mapped
+    return addr
+
+
+def _is_trusted_address(
+    addr: _IPAddress, networks: Sequence[_TrustedNetwork]
+) -> bool:
+    """Return True when the (normalized) address falls in a trusted network."""
+    addr = _matchable_address(addr)
     return any(addr in network for network in networks)
 
 
@@ -196,36 +219,69 @@ def _xff_entries(xff: str) -> list[str]:
 def _client_ip_from_xff(
     xff: str, peer: str | None, trusted_networks: Sequence[_TrustedNetwork]
 ) -> str | None:
-    """Walk X-Forwarded-For right-to-left; the first untrusted value wins.
+    """Walk X-Forwarded-For right-to-left; the first untrusted IP wins.
 
     Candidates are the XFF entries (leftmost = claimed original client)
-    followed by the direct peer. Only trusted-proxy hops are skipped, so a
-    forged entry appended by a client behind an untrusted peer can never be
-    reached. When every candidate is trusted, the direct peer wins
-    (fail-closed). See docs/runbooks/trusted-proxies.md.
+    followed by the direct peer. Trusted-proxy hops are skipped and
+    unparseable entries (garbage injected into the header) are skipped
+    too — garbage is never adopted as the identity (JD-B-005). When no
+    usable untrusted IP is found, the direct peer wins (fail-closed).
+    See docs/runbooks/trusted-proxies.md.
     """
     candidates = _xff_entries(xff) + ([peer] if peer else [])
     for candidate in reversed(candidates):
-        if not _is_trusted(candidate, trusted_networks):
-            return candidate
+        addr = _parse_ip(candidate)
+        if addr is None:
+            continue
+        if _is_trusted_address(addr, trusted_networks):
+            continue
+        return candidate
     return peer
+
+
+def _peer_host(request: Request) -> str | None:
+    """Return the direct connection peer host, or None without peer info."""
+    return request.client.host if request.client else None
+
+
+def _is_xff_trust_active(settings: Settings) -> bool:
+    """XFF is trusted only with trust_xff=True AND a non-empty CIDR list."""
+    return settings.trust_xff and bool(settings.trusted_proxies)
+
+
+def _join_xff_lines(request: Request) -> str:
+    """Join every ``X-Forwarded-For`` header line into one walkable value.
+
+    ``headers.get`` would return only the first line, letting a proxy that
+    appends a second line be bypassed (JD-B-002).
+    """
+    return ",".join(filter(None, request.headers.getlist("x-forwarded-for")))
 
 
 def _resolve_client_ip(request: Request, settings: Settings) -> str | None:
     """Resolve the client IP for rate-limit bucketing (issue #920).
 
     ``trust_xff=True`` overrides the client IP ONLY when
-    ``settings.trusted_proxies`` is non-empty; with the default empty list
-    the header is NEVER trusted (no client IP override) and the direct
-    peer is used. See docs/runbooks/trusted-proxies.md.
+    ``settings.trusted_proxies`` is non-empty AND the direct peer is a
+    parseable IP address; without a parseable peer anchor (unix socket,
+    no peer info, or an unparseable peer) the header is NEVER trusted and
+    the direct peer is used. Duplicate ``X-Forwarded-For`` header lines
+    are joined before the walk so a proxy appending a second line cannot
+    be bypassed (JD-B-002). See docs/runbooks/trusted-proxies.md.
     """
-    peer = request.client.host if request.client else None
-    if not settings.trust_xff or not settings.trusted_proxies:
+    peer = _peer_host(request)
+    if (
+        peer is None
+        or not _is_xff_trust_active(settings)
+        or _parse_ip(peer) is None
+    ):
+        # No parseable peer → no trusted anchor for the walk; the header
+        # is never honoured (JD fix W1).
         return peer
     return _client_ip_from_xff(
-        request.headers.get("x-forwarded-for") or "",
+        _join_xff_lines(request),
         peer,
-        _parse_trusted_proxies(settings.trusted_proxies),
+        _parse_trusted_proxies(tuple(settings.trusted_proxies)),
     )
 
 
@@ -234,11 +290,15 @@ def _extract_identity(request: Request, settings: Settings) -> Identity:
 
     IP resolution order:
     1. When ``settings.trust_xff`` is True AND ``settings.trusted_proxies``
-       is configured, ``X-Forwarded-For`` is walked right-to-left and the
-       first value outside the trusted proxy networks is the client IP.
+       is configured AND the direct peer is a parseable IP address,
+       ``X-Forwarded-For`` is walked right-to-left and the first value
+       outside the trusted proxy networks is the client IP. Unparseable
+       entries are skipped; the direct peer wins when no usable untrusted
+       IP is found.
     2. ``request.client.host`` otherwise — including when ``trust_xff`` is
        True but ``trusted_proxies`` is empty (no header trust; issue #920,
-       see docs/runbooks/trusted-proxies.md).
+       see docs/runbooks/trusted-proxies.md), and when the request has no
+       parseable peer (the header is never trusted without an anchor).
 
     user_id: extracted from the signed session cookie when present and valid.
     Returns an empty user_id (None) when no session or invalid.

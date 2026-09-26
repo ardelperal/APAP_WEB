@@ -205,7 +205,7 @@ class TestExtractIdentity:
         request = MagicMock()
         request.cookies.get.return_value = None
         request.client.host = "10.0.0.1"
-        request.headers.get.return_value = None
+        request.headers.getlist.return_value = []
         settings = get_settings()
 
         identity = _extract_identity(request, settings)
@@ -221,7 +221,7 @@ class TestExtractIdentity:
         request = MagicMock()
         request.cookies.get.return_value = None
         request.client.host = "10.0.0.1"
-        request.headers.get.return_value = "203.0.113.50, 10.0.0.1"
+        request.headers.getlist.return_value = ["203.0.113.50, 10.0.0.1"]
         settings = get_settings()
         settings.trust_xff = True
         settings.trusted_proxies = ["10.0.0.0/8"]
@@ -238,7 +238,7 @@ class TestExtractIdentity:
         request = MagicMock()
         request.cookies.get.return_value = None
         request.client.host = "10.0.0.1"
-        request.headers.get.return_value = "203.0.113.50, 10.0.0.1"
+        request.headers.getlist.return_value = ["203.0.113.50, 10.0.0.1"]
         settings = get_settings()
         settings.trust_xff = True
         settings.trusted_proxies = []
@@ -254,7 +254,7 @@ class TestExtractIdentity:
         request = MagicMock()
         request.cookies.get.return_value = None
         request.client.host = "10.0.0.1"
-        request.headers.get.return_value = "203.0.113.50, 10.0.0.1"
+        request.headers.getlist.return_value = ["203.0.113.50, 10.0.0.1"]
         settings = get_settings()
         settings.trust_xff = False
 
@@ -274,7 +274,7 @@ class TestExtractIdentity:
         request = MagicMock()
         request.cookies.get.return_value = session_token
         request.client.host = "10.0.0.1"
-        request.headers.get.return_value = None
+        request.headers.getlist.return_value = []
 
         identity = _extract_identity(request, settings)
 

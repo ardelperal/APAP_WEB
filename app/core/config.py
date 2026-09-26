@@ -71,6 +71,12 @@ def _validate_secrets(settings: Settings) -> None:
         raise StartupConfigError("APAP_SESSION_SECRET", "too_short")
 
 
+# One-shot guard for the XFF no-op advisory (JD-B-004): emitted at most
+# once per process, on the first Settings construction that combines
+# trust_xff=True with an empty trusted_proxies list.
+_xff_noop_advisory_emitted = False
+
+
 class Settings(BaseSettings):
     """Runtime settings for the APAP_WEB application.
 
@@ -223,6 +229,28 @@ class Settings(BaseSettings):
                     f"trusted_proxies entry is not a valid CIDR: {cidr!r}"
                 ) from None
         return value
+
+    def model_post_init(self, __context: object) -> None:  # noqa — pydantic lifecycle hook, invoked by the framework
+        """Emit the one-shot XFF no-op advisory after construction (JD-B-004).
+
+        ``trust_xff=True`` with an empty ``trusted_proxies`` list is a
+        silent no-op for client-IP resolution (issue #920); without this
+        advisory the operator gets no signal that the flag is inert. The
+        module-level guard keeps it to ONE emission per process even when
+        settings are rebuilt (tests, cache clears).
+        """
+        global _xff_noop_advisory_emitted
+        if self.trust_xff and not self.trusted_proxies and not _xff_noop_advisory_emitted:
+            _xff_noop_advisory_emitted = True
+            log_safe(
+                "startup.xff_trust_noop",
+                trust_xff=self.trust_xff,
+                reason=(
+                    "APAP_TRUST_XFF is enabled but APAP_TRUSTED_PROXIES is "
+                    "empty; X-Forwarded-For is never consulted and the direct "
+                    "peer is used as the client IP"
+                ),
+            )
     # Runtime mode: "web" or "test". When "test", the middleware short-circuits
     # without consuming any rate budget.
     mode: str = "web"

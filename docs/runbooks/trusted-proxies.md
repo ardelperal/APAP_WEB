@@ -10,10 +10,12 @@ seguro activarlo, cómo configurarlo y cómo verificarlo tras el despliegue.
 
 ## Contrato operativo
 
-- `APAP_TRUST_XFF=true` por sí solo NO activa la confianza en la cabecera:
+- `APAP_TRUST_XFF=true` por sí solo no activa la confianza en la cabecera:
   con `APAP_TRUSTED_PROXIES` vacío (el valor por defecto) la cabecera
   nunca se consulta y la IP de cliente es la del par directo de la
-  conexión TCP. Es el comportamiento seguro por omisión.
+  conexión TCP. Es el comportamiento seguro por omisión. En ese estado el
+  arranque emite un único aviso `startup.xff_trust_noop` vía `log_safe`
+  para que el operador sepa que el flag está inerte.
 - `APAP_TRUSTED_PROXIES` es una lista JSON de CIDR, por ejemplo:
   `APAP_TRUSTED_PROXIES='["10.0.0.0/8","172.16.0.0/12"]'`.
 - Una entrada que no sea un CIDR válido impide el arranque (validación
@@ -23,19 +25,31 @@ seguro activarlo, cómo configurarlo y cómo verificarlo tras el despliegue.
   confianza (incluido el par directo); gana el primer valor fuera de las
   redes de confianza. Si todos los candidatos son de confianza, se usa el
   par directo (fallo cerrado).
-- Una entrada no parseable (basura inyectada) corta el recorrido: nunca
-  se salta un salto real.
+- El recorrido exige un ancla: si el par directo no es una IP parseable
+  (socket unix sin info de par, o un valor como `testclient`), la cabecera
+  nunca se consulta y la identidad es el par tal cual. Sin par, la
+  identidad es nula.
+- Si un proxy envía varias líneas `X-Forwarded-For`, todas se unen antes
+  del recorrido: el salto que el proxy añadió en la segunda línea gana
+  sobre el valor falsificado de la primera.
+- Una entrada no parseable (basura inyectada) se salta y el recorrido
+  continúa; nunca se adopta como identidad. Si el recorrido no encuentra
+  ninguna IP utilizable fuera de las redes de confianza, se usa el par
+  directo.
+- Los pares reportados como IPv6 mapeado a IPv4 (`::ffff:a.b.c.d`) se
+  normalizan a `a.b.c.d` antes de comparar con los CIDR, de modo que un
+  socket IPv4-mapeado no colapse todos los clientes en un único bucket.
 
 ## Cuándo es seguro activar
 
 Active `APAP_TRUST_XFF=true` + `APAP_TRUSTED_PROXIES` solo si se cumplen
-TODAS las condiciones:
+todas las condiciones:
 
 1. Todas las peticiones llegan a la aplicación a través de los proxies
    declarados (no hay ruta de red directa al puerto de uvicorn desde
    clientes no confiables).
-2. Cada proxy de la cadena SOBRESCRIBE (append) la IP del cliente que vio
-   al final de `X-Forwarded-For` — comportamiento de nginx
+2. Cada proxy de la cadena añade (append) la IP del cliente que vio al
+   final de `X-Forwarded-For` — comportamiento de nginx
    (`proxy_add_x_forwarded_for`), Traefik, Caddy y los balanceadores
    habituales.
 3. Los CIDR declarados cubren exclusivamente los proxies propios. Nunca
@@ -103,15 +117,26 @@ cambia el bucket.
 
 ## Rollback seguro
 
-Establezca `APAP_TRUSTED_PROXIES=''` (o retire la variable) y reinicie:
+Retire la variable `APAP_TRUSTED_PROXIES` del entorno (unset) y reinicie:
 la cabecera deja de consultarse aunque `APAP_TRUST_XFF` siga en `true`.
-El coste es agrupar todas las peticiones que llegan por el proxy en un
-único bucket (limitación global, no por cliente), nunca un bypass.
+No use `APAP_TRUSTED_PROXIES=''`: la cadena vacía no es JSON válido y la
+validación de CIDR impide el arranque. El coste del rollback es agrupar
+las peticiones que llegan por el proxy en un único bucket (limitación
+global, no por cliente), nunca un bypass.
+
+## Cabeceras relacionadas
+
+`X-Request-ID` solo se honra cuando cumple el patrón `[A-Za-z0-9._-]` con
+entre 1 y 128 caracteres (`app/core/request_context.py`). Los gateways
+que generan identificadores con `:` o en base64 (`+`, `/`, `=`) no
+encajan: la aplicación descarta el valor entrante y regenera uno propio,
+que es el que llega en la respuesta y en los logs. Si su gateway
+adelante `X-Request-ID`, configúrelo con el juego de caracteres aceptado.
 
 ## Referencias
 
 - `app/core/rate_limit.py` — helpers `_resolve_client_ip`,
-  `_client_ip_from_xff`, `_is_trusted`.
+  `_client_ip_from_xff`, `_is_trusted_address`.
 - `app/core/config.py` — campos `trust_xff` y `trusted_proxies`.
 - `tests/test_trusted_proxies.py` — contrato de resolución y ataque de
   falsificación a nivel de middleware.
