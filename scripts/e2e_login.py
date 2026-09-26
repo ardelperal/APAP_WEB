@@ -37,6 +37,7 @@ import json
 import os
 import sys
 import time
+from collections.abc import Callable
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from pathlib import Path
@@ -64,6 +65,13 @@ class MissingSecretError(E2eLoginError):
 class LoginFailedError(E2eLoginError):
     """The /e2e/login endpoint rejected the request (non-200)."""
 
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        # Lets callers (e.g. the pytest fixture skip policy) distinguish
+        # benign statuses (404 — e2e mock disabled on the target) from
+        # fatal ones (401 — wrong/stale secret) without parsing messages.
+        self.status_code = status_code
+
 
 class SessionCookieError(E2eLoginError):
     """The response did not carry the expected session cookie."""
@@ -87,26 +95,28 @@ def _read_secret(secret_env: str) -> str:
 def _parse_expires(raw: str, max_age: str) -> int:
     """Convert cookie lifetime attributes to epoch seconds (-1 for session cookies).
 
-    Prefers the ``Expires`` HTTP-date; falls back to ``Max-Age`` so the
-    minted storageState keeps the server's intended lifetime (the mock's
-    session cookie uses ``Max-Age``, and dropping it would downgrade a
-    7-day cookie to a browser-session cookie). Unknown/invalid values
-    degrade to ``-1`` (session cookie), which Playwright accepts.
+    RFC 6265 section 5.2.2 precedence: a valid ``Max-Age`` wins over
+    ``Expires`` when both are present (issue #906 fix round 1 — the
+    previous order inverted the RFC). Falls back to the ``Expires``
+    HTTP-date, then degrades to ``-1`` (session cookie), which Playwright
+    accepts. Honoring ``Max-Age`` matters: the mock's session cookie uses
+    it, and dropping it would downgrade a 7-day cookie to a browser-
+    session cookie.
     """
     from email.utils import parsedate_to_datetime
 
+    try:
+        seconds = int(max_age)
+    except (TypeError, ValueError):
+        seconds = None
+    if seconds is not None and seconds >= 0:
+        return int(time.time()) + seconds
     if raw:
         try:
             return int(parsedate_to_datetime(raw).timestamp())
         except (TypeError, ValueError):
             return -1
-    try:
-        seconds = int(max_age)
-    except (TypeError, ValueError):
-        return -1
-    if seconds < 0:
-        return -1
-    return int(time.time()) + seconds
+    return -1
 
 
 def _same_site(raw: str) -> str:
@@ -123,6 +133,14 @@ def _build_storage_state(response: httpx.Response, request_url: str) -> dict[str
     """
     parsed = urlparse(request_url)
     host = parsed.hostname or "127.0.0.1"
+    # The storageState cookie's Secure flag is derived from the request
+    # URL's scheme, NOT copied from the Set-Cookie header (issue #906,
+    # fix F2): the server sets secure=not settings.debug for its own
+    # deployment, and Chromium silently drops Secure cookies set against
+    # plain-http origins — the minted storageState would authenticate
+    # nothing while the CLI exits 0. The cookie must be valid for the
+    # origin the browser will actually replay it against.
+    secure = parsed.scheme == "https"
     cookies: list[dict[str, object]] = []
     for header in response.headers.get_list("set-cookie"):
         jar: SimpleCookie = SimpleCookie()
@@ -140,7 +158,7 @@ def _build_storage_state(response: httpx.Response, request_url: str) -> dict[str
                     "path": morsel["path"] or "/",
                     "expires": _parse_expires(morsel["expires"], morsel["max-age"]),
                     "httpOnly": bool(morsel["httponly"]),
-                    "secure": bool(morsel["secure"]),
+                    "secure": secure,
                     "sameSite": _same_site(morsel["samesite"]),
                 }
             )
@@ -198,11 +216,80 @@ def mint_storage_state(
         raise LoginFailedError(  # noqa: TRY003 — operator-facing diagnostic
             f"{E2E_LOGIN_PATH} returned {response.status_code} "
             f"(expected {HTTPStatus.OK}); check X-E2E-Secret and that e2e "
-            "auth is enabled on the target"
+            "auth is enabled on the target",
+            status_code=response.status_code,
         )
     state = _build_storage_state(response, base_url)
     _write_0600(Path(out_path), state)
     return state
+
+
+# The server keeps an in-process auth cache with a 300s TTL
+# (``Settings.auth_cache_ttl_seconds``, app/core/config.py) and
+# ``/e2e/login`` is what refreshes it. A storageState older than that
+# still carries a valid 7-day cookie, but requests start bouncing 302
+# to /login once the server-side cache entry expires. The fixture layer
+# therefore re-mints strictly before the server TTL: 240s leaves a 60s
+# safety margin (issue #906, fix F3).
+AUTH_STATE_REFRESH_TTL_SECONDS = 240
+
+
+def is_benign_login_failure(exc: BaseException) -> bool:
+    """True when ``exc`` is benign for the e2e fixture skip policy (issue #906, F1).
+
+    Benign — safe to ``pytest.skip`` — means the secret env var is absent
+    (:class:`MissingSecretError`) or the endpoint answered 404 (the e2e
+    mock is disabled on the target). Everything else — a 401 for a
+    wrong/stale secret, a 503 for an empty server secret, transport
+    errors — must fail the authenticated suite loudly instead of
+    green-skipping. Lives here (not in the conftest) so it is importable
+    without triggering the e2e package's module-level environment setup.
+    """
+    if isinstance(exc, MissingSecretError):
+        return True
+    return isinstance(exc, LoginFailedError) and exc.status_code == HTTPStatus.NOT_FOUND
+
+
+class AuthStateCache:
+    """TTL-aware cache for one minted Playwright storageState (issue #906, F3).
+
+    ``ensure_fresh`` mints on first use and re-mints only when the cached
+    mint is older than ``AUTH_STATE_REFRESH_TTL_SECONDS``, measured with a
+    monotonic clock (``clock`` and ``transport`` are injectable seams for
+    tests). The same output path is rewritten in place, so consumers
+    holding the path keep seeing the freshest state without re-importing
+    anything.
+    """
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        secret_env: str,
+        out_path: str | os.PathLike[str],
+        transport: httpx.BaseTransport | None = None,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.base_url = base_url
+        self.secret_env = secret_env
+        self.out_path = Path(out_path)
+        self.transport = transport
+        self._clock = clock
+        self._minted_at: float | None = None
+
+    def ensure_fresh(self) -> Path:
+        """Return the storageState path, re-minting when past the TTL."""
+        now = self._clock()
+        if self._minted_at is None or now - self._minted_at >= AUTH_STATE_REFRESH_TTL_SECONDS:
+            mint_storage_state(
+                base_url=self.base_url,
+                secret_env=self.secret_env,
+                email=None,
+                out_path=self.out_path,
+                transport=self.transport,
+            )
+            self._minted_at = now
+        return self.out_path
 
 
 def _pin_output_encoding() -> None:
@@ -249,6 +336,17 @@ def main(argv: list[str] | None = None, transport: httpx.BaseTransport | None = 
         )
     except E2eLoginError as exc:
         print(f"e2e_login: {exc}", file=sys.stderr)
+        return 1
+    except (httpx.HTTPError, OSError) as exc:
+        # Transport/connection failures must honor the documented
+        # "exit 1 with a message on stderr" contract instead of escaping
+        # as a raw traceback (issue #906, fix F5). The secret travels in
+        # a request header only — neither the URL nor these exception
+        # messages can contain it.
+        print(
+            f"e2e_login: {E2E_LOGIN_PATH} unreachable at {args.base_url}: {exc}",
+            file=sys.stderr,
+        )
         return 1
     print(f"storageState written to {args.out}")
     return 0

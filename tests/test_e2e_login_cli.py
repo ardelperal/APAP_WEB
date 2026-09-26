@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import stat
 import time
+from email.utils import parsedate_to_datetime
 
 import httpx
 import pytest
@@ -38,6 +39,8 @@ SESSION_COOKIE = "apap_session"
 SET_COOKIE = (
     "apap_session=signed-session-token-value; Path=/; HttpOnly; SameSite=strict; Max-Age=604800"
 )
+SET_COOKIE_SECURE = SET_COOKIE + "; Secure"
+EXPIRES_HTTP_DATE = "Wed, 21 Oct 2026 07:28:00 GMT"
 
 
 def _mint_transport(handler) -> httpx.MockTransport:
@@ -88,7 +91,10 @@ def test_mint_writes_playwright_storage_state_with_0600(tmp_path, monkeypatch) -
     assert cookie["path"] == "/"
     assert cookie["httpOnly"] is True
     assert cookie["sameSite"] == "Strict"
-    assert cookie["domain"], "the cookie needs a domain for Playwright"
+    assert cookie["domain"] == "127.0.0.1", (
+        "a host-only cookie (no Domain attribute) must be scoped to the "
+        "request host, not just any truthy value"
+    )
     # Max-Age=604800 must survive into the storageState: a browser-session
     # cookie (-1) would silently drop the server's 7-day lifetime.
     expected_floor = int(time.time()) + 604800 - 5
@@ -178,6 +184,218 @@ def test_cookieless_success_fails_with_clear_error(tmp_path, monkeypatch) -> Non
             out_path=tmp_path / "state.json",
             transport=_mint_transport(_cookieless_handler),
         )
+    assert not (tmp_path / "state.json").exists()
+
+
+def test_rejected_login_error_carries_status_code(tmp_path, monkeypatch) -> None:
+    """LoginFailedError carries the HTTP status so the fixture skip policy (F1)
+    can tell a benign 404 (mock disabled) from a fatal 401 (wrong secret)."""
+    monkeypatch.setenv(SECRET_ENV, SECRET)
+
+    def _rejecting_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"detail": "invalid"})
+
+    with pytest.raises(e2e_login.LoginFailedError) as excinfo:
+        e2e_login.mint_storage_state(
+            base_url="http://127.0.0.1:8000",
+            secret_env=SECRET_ENV,
+            email=None,
+            out_path=tmp_path / "state.json",
+            transport=_mint_transport(_rejecting_handler),
+        )
+    assert excinfo.value.status_code == 401
+
+
+@pytest.mark.parametrize(
+    ("base_url", "set_cookie", "expected_secure"),
+    [
+        ("http://127.0.0.1:8000", SET_COOKIE_SECURE, False),
+        ("https://apap.example.test", SET_COOKIE, True),
+    ],
+    ids=["http-plus-secure-cookie", "https-plain-cookie"],
+)
+def test_minted_cookie_secure_derives_from_base_url_scheme(
+    tmp_path,
+    monkeypatch,
+    base_url: str,
+    set_cookie: str,
+    expected_secure: bool,
+) -> None:
+    """The storageState cookie's secure flag follows --base-url's scheme (F2).
+
+    Copying the server's Secure flag verbatim onto a plain-http origin
+    makes Chromium silently drop the cookie (judge-reproduced:
+    ``context.cookies() == []`` while the CLI exits 0), so the scheme of
+    the URL the browser will replay the cookie against decides.
+    """
+    monkeypatch.setenv(SECRET_ENV, SECRET)
+    state = e2e_login.mint_storage_state(
+        base_url=base_url,
+        secret_env=SECRET_ENV,
+        email=None,
+        out_path=tmp_path / "state.json",
+        transport=_mint_transport(
+            lambda request: httpx.Response(
+                200, headers=[("Set-Cookie", set_cookie)], json={"authenticated": True}
+            )
+        ),
+    )
+    (cookie,) = state["cookies"]
+    assert cookie["secure"] is expected_secure, (
+        f"secure must derive from the {base_url.split(':')[0]} scheme"
+    )
+
+
+def test_parse_expires_prefers_max_age_over_expires() -> None:
+    """RFC 6265 section 5.2.2: a valid Max-Age wins when both are present (F4)."""
+    expected_floor = int(time.time()) + 3600 - 5
+    expected_ceiling = int(time.time()) + 3600 + 5
+    result = e2e_login._parse_expires(EXPIRES_HTTP_DATE, "3600")
+    assert expected_floor <= result <= expected_ceiling, (
+        "with both attributes present, Max-Age=3600 must decide, not Expires"
+    )
+
+
+def test_parse_expires_uses_expires_when_max_age_absent() -> None:
+    """JD-B-006: the Expires-only branch resolves to the HTTP-date's epoch."""
+    expected = int(parsedate_to_datetime(EXPIRES_HTTP_DATE).timestamp())
+    assert e2e_login._parse_expires(EXPIRES_HTTP_DATE, "") == expected
+
+
+def test_parse_expires_invalid_values_degrade_to_session_cookie() -> None:
+    """Edge paths: unparseable values and negative Max-Age degrade to -1."""
+    assert e2e_login._parse_expires("not-a-date", "not-a-number") == -1
+    assert e2e_login._parse_expires("", "") == -1
+    assert e2e_login._parse_expires("", "-5") == -1
+    assert e2e_login._parse_expires(EXPIRES_HTTP_DATE, "-5") == int(
+        parsedate_to_datetime(EXPIRES_HTTP_DATE).timestamp()
+    )
+
+
+def _counting_transport(counter: list[int]) -> httpx.MockTransport:
+    """A transport that counts mints and answers with a happy 200."""
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        counter.append(1)
+        return httpx.Response(
+            200, headers=[("Set-Cookie", SET_COOKIE)], json={"authenticated": True}
+        )
+
+    return httpx.MockTransport(_handler)
+
+
+def test_auth_state_cache_does_not_re_mint_before_ttl_threshold(
+    tmp_path, monkeypatch
+) -> None:
+    """F3: a cached mint younger than the 240s TTL is reused, not re-minted."""
+    monkeypatch.setenv(SECRET_ENV, SECRET)
+    counter: list[int] = []
+    now = 1_000.0
+    cache = e2e_login.AuthStateCache(
+        base_url="http://127.0.0.1:8000",
+        secret_env=SECRET_ENV,
+        out_path=tmp_path / "state.json",
+        transport=_counting_transport(counter),
+        clock=lambda: now,
+    )
+
+    first = cache.ensure_fresh()
+    assert first == tmp_path / "state.json"
+    assert json.loads(first.read_text(encoding="utf-8"))["origins"] == []
+    assert len(counter) == 1
+
+    now += e2e_login.AUTH_STATE_REFRESH_TTL_SECONDS - 1  # 1s under the threshold
+    assert cache.ensure_fresh() == first
+    assert len(counter) == 1, "a mint inside the TTL window must be reused"
+
+
+def test_auth_state_cache_re_mints_after_ttl_threshold(tmp_path, monkeypatch) -> None:
+    """F3: once the cached mint reaches the 240s threshold, ensure_fresh re-mints."""
+    monkeypatch.setenv(SECRET_ENV, SECRET)
+    counter: list[int] = []
+    now = 1_000.0
+    cache = e2e_login.AuthStateCache(
+        base_url="http://127.0.0.1:8000",
+        secret_env=SECRET_ENV,
+        out_path=tmp_path / "state.json",
+        transport=_counting_transport(counter),
+        clock=lambda: now,
+    )
+
+    first = cache.ensure_fresh()
+    assert len(counter) == 1
+
+    now += e2e_login.AUTH_STATE_REFRESH_TTL_SECONDS  # exactly at the threshold
+    second = cache.ensure_fresh()
+    assert second == first, "the path stays stable; the file is rewritten in place"
+    assert len(counter) == 2, "a mint at/after the TTL threshold must re-mint"
+    assert json.loads(second.read_text(encoding="utf-8"))["origins"] == []
+
+
+def test_authenticated_state_skip_policy_skips_only_benign_failures() -> None:
+    """F1: the fixture skip policy skips ONLY the secret-missing and 404 cases.
+
+    A 401 (wrong/stale secret), a 503 (empty server secret), and transport
+    errors must be classified fatal so the authenticated suite FAILS
+    loudly instead of green-skipping. The classifier lives in
+    ``scripts.e2e_login`` (not the e2e conftest) so importing it never
+    triggers the e2e package's module-level environment setup.
+    """
+    missing_secret = e2e_login.MissingSecretError("environment variable 'X' is not set")
+    assert e2e_login.is_benign_login_failure(missing_secret) is True
+
+    mock_disabled = e2e_login.LoginFailedError("/e2e/login returned 404", status_code=404)
+    assert e2e_login.is_benign_login_failure(mock_disabled) is True
+
+    wrong_secret = e2e_login.LoginFailedError("/e2e/login returned 401", status_code=401)
+    assert e2e_login.is_benign_login_failure(wrong_secret) is False, (
+        "a wrong/stale secret with the env var present must FAIL, not skip"
+    )
+    empty_server_secret = e2e_login.LoginFailedError(
+        "/e2e/login returned 503", status_code=503
+    )
+    assert e2e_login.is_benign_login_failure(empty_server_secret) is False
+    transport_failure = httpx.ConnectError("connection refused")
+    assert e2e_login.is_benign_login_failure(transport_failure) is False
+
+
+@pytest.mark.parametrize(
+    "transport_error",
+    [httpx.ConnectError("Connection refused"), OSError("Network is unreachable")],
+    ids=["httpx-connect-error", "os-error"],
+)
+def test_main_transport_error_exits_1_with_stderr_message(
+    tmp_path, monkeypatch, capsys, transport_error
+) -> None:
+    """F5: transport failures honor the documented exit-1-with-stderr contract.
+
+    No raw traceback may escape main(), and the diagnostic must never
+    echo the secret value.
+    """
+    monkeypatch.setenv(SECRET_ENV, SECRET)
+
+    def _unreachable(request: httpx.Request) -> httpx.Response:
+        raise transport_error
+
+    exit_code = e2e_login.main(
+        [
+            "--base-url",
+            "http://127.0.0.1:8000",
+            "--secret-env",
+            SECRET_ENV,
+            "--out",
+            str(tmp_path / "state.json"),
+        ],
+        transport=httpx.MockTransport(_unreachable),
+    )
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert captured.err.startswith("e2e_login:"), (
+        "the diagnostic must go to stderr prefixed with e2e_login:, not a traceback"
+    )
+    assert SECRET not in captured.err, "the secret value must never be echoed"
+    assert SECRET not in captured.out
     assert not (tmp_path / "state.json").exists()
 
 
