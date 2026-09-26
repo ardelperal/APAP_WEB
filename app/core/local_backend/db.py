@@ -22,6 +22,7 @@ from contextlib import contextmanager
 from typing import Any, NoReturn
 
 import psycopg
+from psycopg import sql
 
 from app.core.data_access import NestedTransactionError, SqlExecutor
 
@@ -165,7 +166,14 @@ class LocalPostgresExecutor:
         conn = psycopg.connect(self._dsn)
         if self._search_path:
             with conn.cursor() as cur:
-                cur.execute(f'SET search_path TO "{self._search_path}"')
+                # ``sql.Identifier`` escapes embedded double quotes so a
+                # hostile ``Settings.local_db_schema`` cannot break out of
+                # the identifier (issue #920, finding A-08).
+                cur.execute(
+                    sql.SQL("SET search_path TO {}").format(
+                        sql.Identifier(self._search_path)
+                    )
+                )
             conn.commit()
         return conn
 

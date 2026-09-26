@@ -10,7 +10,9 @@ Issue #286. Provides:
 
 from __future__ import annotations
 
+import ipaddress
 import threading
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -163,13 +165,80 @@ class InProcessRateLimitBackend:
 
 # --- Identity resolution -----------------------------------------------------
 
+#: A trusted proxy network parsed from ``Settings.trusted_proxies``.
+_TrustedNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
+
+
+def _parse_trusted_proxies(cidrs: list[str]) -> list[_TrustedNetwork]:
+    """Parse ``Settings.trusted_proxies`` CIDR strings into networks."""
+    return [ipaddress.ip_network(cidr, strict=False) for cidr in cidrs]
+
+
+def _is_trusted(ip_str: str, networks: Sequence[_TrustedNetwork]) -> bool:
+    """Return True only when ``ip_str`` parses and falls in a trusted network.
+
+    An unparseable entry (e.g. garbage injected into X-Forwarded-For) is
+    treated as untrusted, so it terminates the right-to-left walk instead
+    of letting a forged hop past it.
+    """
+    try:
+        addr = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    return any(addr in network for network in networks)
+
+
+def _xff_entries(xff: str) -> list[str]:
+    """Split ``X-Forwarded-For`` into stripped, non-empty entries."""
+    return [entry.strip() for entry in xff.split(",") if entry.strip()]
+
+
+def _client_ip_from_xff(
+    xff: str, peer: str | None, trusted_networks: Sequence[_TrustedNetwork]
+) -> str | None:
+    """Walk X-Forwarded-For right-to-left; the first untrusted value wins.
+
+    Candidates are the XFF entries (leftmost = claimed original client)
+    followed by the direct peer. Only trusted-proxy hops are skipped, so a
+    forged entry appended by a client behind an untrusted peer can never be
+    reached. When every candidate is trusted, the direct peer wins
+    (fail-closed). See docs/runbooks/trusted-proxies.md.
+    """
+    candidates = _xff_entries(xff) + ([peer] if peer else [])
+    for candidate in reversed(candidates):
+        if not _is_trusted(candidate, trusted_networks):
+            return candidate
+    return peer
+
+
+def _resolve_client_ip(request: Request, settings: Settings) -> str | None:
+    """Resolve the client IP for rate-limit bucketing (issue #920).
+
+    ``trust_xff=True`` overrides the client IP ONLY when
+    ``settings.trusted_proxies`` is non-empty; with the default empty list
+    the header is NEVER trusted (no client IP override) and the direct
+    peer is used. See docs/runbooks/trusted-proxies.md.
+    """
+    peer = request.client.host if request.client else None
+    if not settings.trust_xff or not settings.trusted_proxies:
+        return peer
+    return _client_ip_from_xff(
+        request.headers.get("x-forwarded-for") or "",
+        peer,
+        _parse_trusted_proxies(settings.trusted_proxies),
+    )
+
 
 def _extract_identity(request: Request, settings: Settings) -> Identity:
     """Resolve per-request IP and user_id for rate-limit bucket keying (D4, REQ-6).
 
     IP resolution order:
-    1. ``X-Forwarded-For`` first entry — ONLY when ``settings.trust_xff`` is True.
-    2. ``request.client.host`` otherwise.
+    1. When ``settings.trust_xff`` is True AND ``settings.trusted_proxies``
+       is configured, ``X-Forwarded-For`` is walked right-to-left and the
+       first value outside the trusted proxy networks is the client IP.
+    2. ``request.client.host`` otherwise — including when ``trust_xff`` is
+       True but ``trusted_proxies`` is empty (no header trust; issue #920,
+       see docs/runbooks/trusted-proxies.md).
 
     user_id: extracted from the signed session cookie when present and valid.
     Returns an empty user_id (None) when no session or invalid.
@@ -178,17 +247,8 @@ def _extract_identity(request: Request, settings: Settings) -> Identity:
     ``log_safe("ratelimit.rejected", path=..., reason=..., scope=...,
     user_id=...)`` without passing IP.
     """
-    # IP resolution
-    ip: str | None
-    if settings.trust_xff:
-        xff = request.headers.get("x-forwarded-for") or ""
-        first_xff = xff.split(",")[0].strip()
-        if first_xff:
-            ip = first_xff
-        else:
-            ip = request.client.host if request.client else None
-    else:
-        ip = request.client.host if request.client else None
+    # IP resolution (trusted-proxy aware; issue #920)
+    ip: str | None = _resolve_client_ip(request, settings)
 
     # User ID from session
     user_id: str | None = None

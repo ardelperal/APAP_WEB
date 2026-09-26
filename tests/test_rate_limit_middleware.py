@@ -214,19 +214,38 @@ class TestExtractIdentity:
         assert identity.user_id is None
 
     def test_extract_identity_with_xff_trusted(self) -> None:
-        """XFF present + trust_xff=True → first XFF entry is IP."""
+        """XFF present + trust_xff=True + trusted proxy configured → the first
+        value outside the trusted networks is the IP (issue #920)."""
         from app.core.rate_limit import _extract_identity
 
         request = MagicMock()
         request.cookies.get.return_value = None
+        request.client.host = "10.0.0.1"
         request.headers.get.return_value = "203.0.113.50, 10.0.0.1"
         settings = get_settings()
-        # Monkeypatch trust_xff via a settings mock
         settings.trust_xff = True
+        settings.trusted_proxies = ["10.0.0.0/8"]
 
         identity = _extract_identity(request, settings)
 
         assert identity.ip == "203.0.113.50"
+
+    def test_extract_identity_with_xff_trusted_but_no_proxies(self) -> None:
+        """trust_xff=True with EMPTY trusted_proxies → header never trusted
+        (no client IP override); direct peer wins (issue #920)."""
+        from app.core.rate_limit import _extract_identity
+
+        request = MagicMock()
+        request.cookies.get.return_value = None
+        request.client.host = "10.0.0.1"
+        request.headers.get.return_value = "203.0.113.50, 10.0.0.1"
+        settings = get_settings()
+        settings.trust_xff = True
+        settings.trusted_proxies = []
+
+        identity = _extract_identity(request, settings)
+
+        assert identity.ip == "10.0.0.1"
 
     def test_extract_identity_with_xff_untrusted(self) -> None:
         """XFF present but trust_xff=False → request.client.host wins."""
@@ -477,17 +496,23 @@ class TestRateLimitMiddlewareIntegration:
     ) -> None:
         """Under-limit write request → 200/302 AND all X-RateLimit-* headers.
 
-        Uses trust_xff=True + unique XFF IP so this test's IP bucket is
-        isolated from write-bucket exhaustion in previous tests.
+        Uses trust_xff=True + configured trusted proxy + unique XFF IP so
+        this test's IP bucket is isolated from write-bucket exhaustion in
+        previous tests.
         """
-        # Enable XFF trust for this test's IP isolation
+        # Enable XFF trust for this test's IP isolation. The proxy CIDR
+        # must cover the ASGI transport's peer (127.0.0.1) so the walk
+        # honours the XFF value (issue #920).
         from app.core import config as config_module
 
         base_settings = config_module.get_settings()
         monkeypatch.setattr(
             config_module,
             "get_settings",
-            lambda: base_settings.__class__.model_copy(base_settings, update={"trust_xff": True}),
+            lambda: base_settings.__class__.model_copy(
+                base_settings,
+                update={"trust_xff": True, "trusted_proxies": ["127.0.0.1/32"]},
+            ),
         )
 
         _login(client, user_id="u-headers-fresh")
