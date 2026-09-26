@@ -18,7 +18,7 @@
 - **Speed (default `pytest` run)**: dominated by ~250+ unit files; order of magnitude: full default suite ~ tens of seconds; integration suite ~ tens of seconds per file; E2E ~ minutes.
 - **Critical gaps** (areas with no integration / E2E coverage):
   1. **Auth revalidation round-trip against a real DB** — `test_auth.py` uses `httpx.MockTransport`; no integration atom for "INSERT user, mark inactive, hit protected route, observe 302 → /unauthorized."
-  2. **Cascade / FK delete paths** — chip cascade, animal soft-delete cascade are unit-tested (no SQL on the cascade path).
+  2. **Cascade / FK delete paths** — the chip cascade now has real-schema integration atoms (see `tests/integration/test_chip_cascade_integration.py`, #635/#916); the animal soft-delete cascade remains unit-tested (no SQL on the cascade path).
   3. **CSRF middleware + live Postgres session lifecycle** — no end-to-end test that the CSRF token round-trips through a real session against a real DB.
   4. **Rate-limit middleware with concurrent requests** — unit-level only.
   5. **Migration ETL against a real `.accdb`** — by design, never tested here.
@@ -96,7 +96,7 @@
 | `tests/test_check_spec_drift.py` | meta | n/a | yes | fast | keep |
 | `tests/test_check_vulture_guard.py` | meta | n/a | yes | fast | keep |
 | `tests/test_check_workflows.py` | meta | n/a | yes | fast | keep |
-| `tests/test_chip_cascade.py` | adapter unit | fake client | yes | fast | keep — **extend** with integration atom (FK cascade) |
+| `tests/test_animals_chip_cascade_saga.py` | adapter unit | fake transactional executor | yes | fast | keep — integration atom landed (#635, reworked #916) |
 | `tests/test_ci_workflow.py` | meta | workflow YAML scan | yes | fast | keep |
 | `tests/test_config.py` | config unit | env monkeypatch | yes | fast | keep |
 | `tests/test_coolify_webhook.py` | route unit | spy | yes | fast | keep — **extend** with signed-payload happy path |
@@ -233,7 +233,7 @@
   - **D-24 date validation**: tested at the builder level, but not at the route level with a foreign-session attack.
 
 ### `animals` (`app/modules/animals/`)
-- **Covered by**: 11 `test_animals_application_*.py` (port-stub layer), `test_animals_local_backend_adapter.py`, `test_animals_domain.py`, `test_animals_port.py`, `test_animals_routes.py` / `_redirects` / `_foto_route`, `test_animals_public_api.py`, `test_chip_cascade.py`, `test_animal_search.py`, `tests/e2e/test_animales_crud.py`.
+- **Covered by**: 11 `test_animals_application_*.py` (port-stub layer), `test_animals_local_backend_adapter.py`, `test_animals_domain.py`, `test_animals_port.py`, `test_animals_routes.py` / `_redirects` / `_foto_route`, `test_animals_public_api.py`, `test_animals_chip_cascade_saga.py`, `test_animal_search.py`, `tests/e2e/test_animales_crud.py`.
 - **Gaps**:
   - **Public search rate-limit**: no 429 path tested against `/animales/search`.
   - **Photo bucket private-vs-public invariant** not asserted at the animales slice boundary (only at migration slice).
@@ -311,7 +311,7 @@ After reading ~25 representative files, **no obvious source of non-determinism**
 |---|---|---|
 | `tests/test_entradas_batch.py` | `tests/integration/test_entradas_queries_integration.py::test_batch_rollback_on_midway_unique_violation` | CTE rollback unverifiable against fake |
 | `tests/test_acogidas_lifecycle_events.py`, `test_adopciones_lifecycle_events.py` | `tests/integration/test_lifecycle_append_only_trigger.py` | Append-only trigger never asserted |
-| `tests/test_chip_cascade.py` | `tests/integration/test_chip_cascade_integration.py` | FK cascade across multiple tables |
+| `tests/test_animals_chip_cascade_saga.py` | `tests/integration/test_chip_cascade_integration.py` | Real-schema atomicity (FK `animal_id`, real `transaction()`) the fake executor cannot pin |
 | `tests/test_auth.py` deactivate path | `tests/integration/test_auth_queries_integration.py` (closed #634) | Real cookie + DB revalidation |
 | `tests/test_animales_local_backend_adapter.py` chip cascade + photo | `tests/integration/test_animals_photo_bucket_invariant.py` | Bucket invariant at slice boundary |
 | `tests/test_cesiones.py` conflict path | `tests/integration/test_cesiones_queries_integration.py` (closed #633) | Real unique constraints |
@@ -342,7 +342,7 @@ After reading ~25 representative files, **no obvious source of non-determinism**
 1. ✅ `tests/integration/test_auth_queries_integration.py` — landed 2026-08-31 via PR closing #634. Four atoms: active user revalidation, post-deactivation revalidation (None), case-insensitive email, missing user. The cookie + DB revalidation path now has a real-Postgres atom alongside the unit-test mock.
 2. ✅ `tests/integration/test_lifecycle_append_only_trigger.py` — landed 2026-08-31 via PR closing #636. Two atoms: UPDATE rejected, DELETE rejected. The append-only trigger ships in the production schema; this atom pins the contract against real Postgres.
 3. ✅ `tests/integration/test_entradas_queries_integration.py` — landed 2026-08-31 via PR closing #632. Three atoms: UNIQUE rollback (entrada pre-existing collides with staged row), FK rollback (ghost animal_id), happy-path control.
-4. ✅ `tests/integration/test_chip_cascade_integration.py` — landed 2026-08-31 via PR closing #635. Three atoms: atomic rollback on failure, atomic commit when all succeed, drift documented. The atom surfaces a real schema/SQL drift — the production cascade's first UPDATE references ``"NCHIP"`` (uppercase quoted) but the schema has ``nchip`` (lowercase); the other five UPDATEs target a ``chip`` column that does not exist on any of the five target tables. The cascade as-shipped is silent dead code today.
+4. ✅ `tests/integration/test_chip_cascade_integration.py` — landed 2026-08-31 via PR closing #635; reworked by issue #916 (A-04, D-43) after the audit exposed the old cascade as dead code: none of the five dependent tables carries a chip column (they reference the animal through the `animal_id` FK) and the fake `BEGIN`/`COMMIT` via `execute_sql` protected nothing. Four atoms on the current saga: success with related entities active, real rollback on a forced failure after the `animales` update, absence of a chip column on the dependent tables, and a static source pin (no chip-column writes, no fake transactions). The saga helpers are unit-tested in `tests/test_animals_chip_cascade_saga.py` (happy path inside one transaction, both preflight short-circuits, guarded-update no-row rollback, event-failure rollback with empty `updated_tables`).
 
 **P1** (operational risk):
 5. `tests/e2e/test_rate_limit_concurrent.py` — concurrent burst against `/animales/search`.
