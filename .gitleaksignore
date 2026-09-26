@@ -18,7 +18,8 @@
 #   - tests/test_maildev_helper.py:77 and :83 — fake hex/urlsafe tokens
 #     used to test `VERIFY_URL_RE` regex matching, not real magic-link
 #     tokens issued by `secrets.token_hex`/`secrets.token_urlsafe`.
-tests/integration/test_magic_link_routes.py:generic-api-key:79
+tests/integration/test_magic_link_routes.py:generic-api-key:83
+tests/integration/test_magic_link_real_app.py:generic-api-key:115
 tests/test_maildev_helper.py:generic-api-key:77
 tests/test_maildev_helper.py:generic-api-key:83
 
