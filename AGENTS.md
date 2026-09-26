@@ -48,15 +48,15 @@ Revisar esto recién cuando el PR ya está armado llega tarde: el presupuesto de
 
 | Skill | Trigger | Path |
 |---|---|---|
-| `apap-architecture` | Routes, services, queries layer, límites de capa, validación, migración a slices hexagonales (§33). | [`skills/apap-architecture/SKILL.md`](skills/apap-architecture/SKILL.md) |
-| `apap-security` | Auth (§6, §29), CSRF (§10), secrets (§8), log_safe (§9), PII. | [`skills/apap-security/SKILL.md`](skills/apap-security/SKILL.md) |
-| `apap-testing` | CRITICAL_HELPERS (§11), cobertura (§19), configuración pytest. | [`skills/apap-testing/SKILL.md`](skills/apap-testing/SKILL.md) |
+| `apap-architecture` | Routes, services, queries layer, límites de capa, validación, migración a slices hexagonales (§33). | [`~/.config/opencode/skills/apap-architecture/SKILL.md`](~/.config/opencode/skills/apap-architecture/SKILL.md) |
+| `apap-security` | Auth (§6, §29), CSRF (§10), secrets (§8), log_safe (§9), PII. | [`~/.config/opencode/skills/apap-security/SKILL.md`](~/.config/opencode/skills/apap-security/SKILL.md) |
+| `apap-testing` | CRITICAL_HELPERS (§11), cobertura (§19), configuración pytest. | [`~/.config/opencode/skills/apap-testing/SKILL.md`](~/.config/opencode/skills/apap-testing/SKILL.md) |
 | `apap-testing-strategy` | Decidir tipo de test (unit / integration / e2e / migration), auditar gaps de cobertura real vs mock, refactorizar mocks a integration con Postgres real cuando aplique. Basada en [docs/quality/test-audit.md](../docs/quality/test-audit.md). Complementaria a `apap-testing` (gates y cobertura). | [`skills/apap-testing-strategy/SKILL.md`](skills/apap-testing-strategy/SKILL.md) |
 | `apap-migration` | `app/core/migration/`, sync bidireccional, `python -m migration reconcile`. | [`skills/apap-migration/SKILL.md`](skills/apap-migration/SKILL.md) |
 | `apap-merge-workflow` | Política pre-MVP single-branch (§15), ciclo de vida de rama, autorización standing de merge. | [`skills/apap-merge-workflow/SKILL.md`](skills/apap-merge-workflow/SKILL.md) |
 | `apap-orchestrator-discipline` | Coordinación de subagents (§17), patrones de delegación, lentes de revisión. | [`skills/apap-orchestrator-discipline/SKILL.md`](skills/apap-orchestrator-discipline/SKILL.md) |
 
-> Las skills del proyecto viven en [`skills/`](skills/README.md) versionadas con el código (fuente canónica). Las skills con prefijo `apap-` en `~/.config/opencode/skills/` de una máquina local son fallback legacy. Si necesitás editar una skill versionada, editá la copia en `skills/`. Si una skill listada no existe en `skills/`, créala primero siguiendo `skill-creator` o `skill-improver`.
+> Las skills del proyecto viven en [`skills/`](skills/README.md) versionadas con el código (fuente canónica). Excepción 2026-09-26: `apap-architecture`, `apap-security` y `apap-testing` no existen en `skills/` del repo — resuelven desde `~/.config/opencode/skills/` (fallback legacy global de máquina local). Si necesitás editar una skill versionada, editá la copia en `skills/`. Si una skill listada no existe ni en `skills/` ni en el fallback global, créala siguiendo `skill-creator` o `skill-improver`.
 
 ## Cross-cutting skills (de otros repos)
 
