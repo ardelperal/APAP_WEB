@@ -131,6 +131,7 @@ Las 33 reglas de AGENTS (numeradas §1-§33) viven ahora en `docs/codebase/`. Es
 | Decisiones de proyecto | [`docs/architecture/decisiones-proyecto.md`](docs/architecture/decisiones-proyecto.md) | Divergencias formales con el legacy. |
 | Auditorías | [`docs/audits/`](docs/audits/) | Un documento por slice sensible. |
 | Runbooks | [`docs/runbooks/`](docs/runbooks/) | Procedimientos que exigen acción del operador. |
+| Gate e2e en producción | [`docs/runbooks/e2e-production.md`](docs/runbooks/e2e-production.md) | Ciclo de encendido, baterías e2e y apagado contra producción como release gate (épica #909). |
 | Hardening del arnés de calidad | [`docs/quality/hardening-roadmap.md`](docs/quality/hardening-roadmap.md) | Estado de los gates automáticos. |
 
 <!-- personal-skills:slice:APAP_WEB @ v985a74e -->

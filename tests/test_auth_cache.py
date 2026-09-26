@@ -307,14 +307,39 @@ def test_invalidate_all_write_after_invalidate_is_unreachable() -> None:
 # --- Issue #278: case-folding ghost users -----------------------------------
 
 
-def test_invalidate_auth_cascades_to_case_variants() -> None:
-    """Invalidating one case form invalidates all case variants.
+def test_case_variants_helper_is_removed() -> None:
+    """Issue #921: ``_case_variants`` is dead code and must not come back.
 
-    When the admin deactivates a user whose email was stored in mixed case,
-    the cache must be invalidated for the canonical form AND all other
-    casings of the same local-part + domain, otherwise a cache lookup using
-    a different casing (e.g. after OAuth normalizes to lowercase) would hit a
-    stale cached verdict and skip re-validation (issue #278).
+    ``InProcessAuthCache.get``/``.set``/``.invalidate`` normalize with
+    ``email.lower()`` (issue #278), so entries at non-normalized casings
+    cannot exist and per-variant invalidation is unnecessary.
+    """
+    assert not hasattr(auth_cache, "_case_variants")
+
+
+def test_invalidate_auth_mixed_case_email_invalidates_normalized_entry() -> None:
+    """``invalidate_auth("A@B.com")`` invalidates the ``a@b.com`` entry.
+
+    The backend normalizes with ``email.lower()`` on write and on
+    invalidation (issue #278), so a mixed-case invalidation call must
+    reach the lowercase entry without any variant enumeration.
+    """
+    auth_cache._reset_backend_for_testing()
+    auth_cache.set_cached_auth("a@b.com", is_authorized=True, rol="key_user")
+    assert auth_cache.get_cached_auth("a@b.com", ttl_seconds=300) is not None
+
+    auth_cache.invalidate_auth("A@B.com")
+
+    assert auth_cache.get_cached_auth("a@b.com", ttl_seconds=300) is None
+
+
+def test_invalidate_auth_cascades_to_case_variants() -> None:
+    """Invalidating one case form invalidates every case form.
+
+    Entries are stored under the lowercase-normalized email (issue #278)
+    and every lookup normalizes too, so a single invalidation of one
+    casing makes ALL casings miss — no per-variant enumeration needed
+    (issue #921 removed the now-dead ``_case_variants`` helper).
     """
     # Prime cache entries at several case variants of the same email
     auth_cache.set_cached_auth("Maria.Lopez@Example.COM", is_authorized=True, rol="key_user")
