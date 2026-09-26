@@ -7,12 +7,12 @@ executed against a real Postgres engine.
 CI supplies ``APAP_TEST_POSTGRES_DSN`` via the service container.
 The job MUST NOT silently skip when the DSN is absent.
 
-catalogos_* CREATE TABLE statements are inlined here (issue #329 follow-up:
-#379 re-applied the conftest without these, so the FK from ``contratos``
-to ``catalogos_tipos_contrato`` failed on a fresh service container and
-poisoned the rest of the transaction). Keeping them inline (rather than a
-new ``app/core/domain_catalogos.py``) preserves the conftest's "stdlib-only,
-no LocalBackend coupling" property and matches the close-scope fix.
+catalogos_* CREATE TABLE statements live in ``app.core.catalogos.ddl``
+(issue #921, finding A-09: production ``schema_provisioning`` must not
+import the test tree, so the constants moved to an app/ module imported
+from BOTH sides; formerly inlined here since issue #329 follow-up #379,
+when the missing FK from ``contratos`` to ``catalogos_tipos_contrato``
+poisoned the rest of the transaction on a fresh service container).
 """
 
 from __future__ import annotations
@@ -29,6 +29,13 @@ import pytest
 from psycopg import sql
 from psycopg.rows import dict_row
 
+from app.core.catalogos.ddl import (
+    CATALOGOS_MOTIVOS_CREATE_TABLE_SQL,
+    CATALOGOS_ORIGENES_CREATE_TABLE_SQL,
+    CATALOGOS_PERIODICIDAD_CREATE_TABLE_SQL,
+    CATALOGOS_PRUEBAS_CREATE_TABLE_SQL,
+    CATALOGOS_TIPOS_CONTRATO_CREATE_TABLE_SQL,
+)
 from app.core.domain_adopciones import ADOPCIONES_CREATE_TABLE_SQL
 from app.core.domain_animales import ANIMALS_CREATE_TABLE_SQL
 from app.core.domain_casas_acogida import CASAS_ACOGIDA_CREATE_TABLE_SQL
@@ -147,91 +154,6 @@ def _expand_params_for_placeholder_style(
     highest = max((int(n) for n in _DOLLAR_PLACEHOLDER.findall(query)), default=0)
     padded = [*params, *([None] * max(0, highest - len(params)))]
     return _to_client_placeholders(query, padded)
-
-# catalogos_* CREATE TABLE statements (issue #329 follow-up).
-# Schemas verified 2026-08-01 against the LocalBackend project's underlying
-# Postgres via `local_backend.get-table-schema` MCP. The integration tests use raw
-# psycopg against the service container — these CREATE TABLE IF NOT EXISTS
-# statements are the only thing needed to make the ephemeral schema match
-# the LocalBackend domain + catalogos layout.
-CATALOGOS_MOTIVOS_CREATE_TABLE_SQL = """\
-CREATE TABLE IF NOT EXISTS catalogos_motivos (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    codigo TEXT NOT NULL,
-    nombre TEXT NOT NULL,
-    especie TEXT NOT NULL,
-    activo BOOLEAN NOT NULL DEFAULT true,
-    orden INTEGER,
-    fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
-    updated_at TIMESTAMP NOT NULL DEFAULT now()
-);
-CREATE UNIQUE INDEX IF NOT EXISTS catalogos_motivos_natural_key
-    ON catalogos_motivos (codigo, especie);
-"""
-
-CATALOGOS_ORIGENES_CREATE_TABLE_SQL = """\
-CREATE TABLE IF NOT EXISTS catalogos_origenes (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    codigo TEXT NOT NULL,
-    nombre TEXT NOT NULL,
-    descripcion TEXT,
-    activo BOOLEAN NOT NULL DEFAULT true,
-    orden INTEGER,
-    fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
-    updated_at TIMESTAMP NOT NULL DEFAULT now()
-);
-CREATE UNIQUE INDEX IF NOT EXISTS catalogos_origenes_codigo_key
-    ON catalogos_origenes (codigo);
-"""
-
-CATALOGOS_PERIODICIDAD_CREATE_TABLE_SQL = """\
-CREATE TABLE IF NOT EXISTS catalogos_periodicidad (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    codigo TEXT NOT NULL,
-    nombre TEXT NOT NULL,
-    periodicidad_meses INTEGER NOT NULL,
-    activo BOOLEAN NOT NULL DEFAULT true,
-    orden INTEGER,
-    fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
-    updated_at TIMESTAMP NOT NULL DEFAULT now()
-);
-CREATE UNIQUE INDEX IF NOT EXISTS catalogos_periodicidad_codigo_key
-    ON catalogos_periodicidad (codigo);
-"""
-
-CATALOGOS_PRUEBAS_CREATE_TABLE_SQL = """\
-CREATE TABLE IF NOT EXISTS catalogos_pruebas (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    codigo TEXT NOT NULL,
-    nombre TEXT NOT NULL,
-    especie TEXT NOT NULL,
-    observaciones TEXT,
-    activo BOOLEAN NOT NULL DEFAULT true,
-    orden INTEGER,
-    fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
-    updated_at TIMESTAMP NOT NULL DEFAULT now()
-);
-CREATE UNIQUE INDEX IF NOT EXISTS catalogos_pruebas_natural_key
-    ON catalogos_pruebas (codigo, especie);
-"""
-
-CATALOGOS_TIPOS_CONTRATO_CREATE_TABLE_SQL = """\
-CREATE TABLE IF NOT EXISTS catalogos_tipos_contrato (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    codigo TEXT NOT NULL,
-    nombre TEXT NOT NULL,
-    iniciales TEXT,
-    descripcion TEXT,
-    tabla_legacy TEXT,
-    campo_legacy TEXT,
-    activo BOOLEAN NOT NULL DEFAULT true,
-    orden INTEGER,
-    fecha_alta TIMESTAMP NOT NULL DEFAULT now(),
-    updated_at TIMESTAMP NOT NULL DEFAULT now()
-);
-CREATE UNIQUE INDEX IF NOT EXISTS catalogos_tipos_contrato_codigo_key
-    ON catalogos_tipos_contrato (codigo);
-"""
 
 _DSN_ENV = "APAP_TEST_POSTGRES_DSN"
 
