@@ -6,9 +6,12 @@ mounted under ``/api``. Two endpoints:
 - ``POST /auth/magic/start`` with JSON ``{"email": "..."}`` mints a
   token via ``MagicLinkPortImpl`` and asks ``SMTPMailTransport`` to
   send a verify URL. Returns ``{"status": "queued"}``.
-- ``GET /auth/magic/verify?token=...`` consumes the token and sets
-  the ``apap_session`` cookie; redirects to ``/`` on success or
-  ``/login?reason=invalid_or_expired`` on failure.
+- ``GET /auth/magic/verify?token=...`` consumes the token, resolves the
+  ACTIVE user for the email via the ``AuthUsersPort`` seam (issue #917)
+  and sets the ``apap_session`` cookie with the OAuth-parity payload;
+  redirects to ``/`` on success, ``/unauthorized`` (no cookie) when the
+  email is not an active user, or ``/login?reason=invalid_or_expired``
+  on token failure.
 
 These tests pin the contract with real Postgres (the integration
 conftest's ``self_host_schema`` fixture) and a fake SMTP transport
@@ -25,6 +28,7 @@ Hard rules (apap-testing HR-2 + web-tdd-philosophy Rule 8):
 """
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -106,6 +110,20 @@ async def magic_link_client(self_host_schema, monkeypatch: pytest.MonkeyPatch) -
             yield client, fake_smtp, app.state.public_base_url
         finally:
             await client.aclose()
+
+
+def _seed_active_user(self_host_schema, email: str) -> None:
+    """Insert an active ``usuarios_autorizados`` row for ``email``.
+
+    Issue #917: the verify endpoint resolves the user from the auth
+    table before minting a session (fail closed on unknown email), so
+    every happy-path verify test needs its email seeded.
+    """
+    self_host_schema.execute_sql(
+        "INSERT INTO usuarios_autorizados (email, rol, activo) "
+        "VALUES ($1, 'key_user', true)",
+        [email],
+    )
 
 
 # --- POST /auth/magic/start -------------------------------------------------
@@ -191,10 +209,12 @@ async def test_magic_verify_consumes_token_and_sets_session_cookie(
     magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
     self_host_schema,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """The happy path: start mints a token, verify consumes it, the
     response carries ``apap_session`` with the canonical payload."""
     client, fake_smtp, base_url = magic_link_client
+    _seed_active_user(self_host_schema, "ana@test.com")
     # Mint a token via the start endpoint so the test exercises the
     # full path, not a back-door create.
     start = await client.post("/auth/magic/start", json={"email": "ana@test.com"})
@@ -210,9 +230,23 @@ async def test_magic_verify_consumes_token_and_sets_session_cookie(
     # Fresh context: the start response may have set cookies; clear
     # them so the verify response is the only cookie source.
     client.cookies.clear()
-    response = await client.get(f"/auth/magic/verify?token={token}", follow_redirects=False)
+    with caplog.at_level(logging.INFO, logger="app"):
+        response = await client.get(
+            f"/auth/magic/verify?token={token}", follow_redirects=False
+        )
     assert response.status_code == 302
     assert response.headers["location"] == "/"
+
+    # Judgment-day JD-B-003: a successful verify emits the SAME
+    # ``auth.login`` audit event as the OAuth callback
+    # (app/core.auth_flow), so magic-link logins land in one stream.
+    logins = [r for r in caplog.records if r.msg == "auth.login"]
+    assert logins, "expected an auth.login audit event on successful verify"
+    caller_fields = getattr(logins[0], "_caller_fields", {})
+    # ``email`` is on log_safe's closed PII redaction list: the event
+    # must carry the redacted marker, never the raw address.
+    assert caller_fields.get("email") == "[REDACTED]"
+    assert caller_fields.get("user_id")
 
     # The cookie has the right flags and a signed payload with the
     # canonical email.
@@ -242,6 +276,36 @@ async def test_magic_verify_consumes_token_and_sets_session_cookie(
     # request after the redirect without a DB round-trip. The DB
     # revalidation still runs on subsequent requests.
     assert payload.get("is_authorized") is True
+    # Issue #917: the payload now carries the OAuth-parity identity
+    # (user_id / rol from the auth_users row) plus the session-bound
+    # csrf_token CsrfMiddleware compares against.
+    assert payload.get("csrf_token")
+    assert payload.get("user_id")
+    assert payload.get("rol") == "key_user"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_magic_verify_unknown_email_fails_closed(
+    magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
+) -> None:
+    """A valid token whose email is NOT an active user must NOT mint a
+    session: 302 to /unauthorized, no ``apap_session`` cookie (issue
+    #917, fail-closed with the same no-oracle generic redirect)."""
+    client, fake_smtp, base_url = magic_link_client
+    # NOTE: ana@test.com is NOT seeded in this test.
+    await client.post("/auth/magic/start", json={"email": "ana@test.com"})
+    body = fake_smtp.sent[0]["body"]
+    prefix = f"{base_url}/auth/magic/verify?token="
+    token = body.split(prefix, 1)[1].split()[0]
+
+    client.cookies.clear()
+    response = await client.get(
+        f"/auth/magic/verify?token={token}", follow_redirects=False
+    )
+    assert response.status_code == 302
+    assert response.headers["location"] == "/unauthorized"
+    assert "apap_session=" not in response.headers.get("set-cookie", "")
 
 
 @pytest.mark.integration
@@ -264,10 +328,12 @@ async def test_magic_verify_returns_302_to_login_on_invalid_token(
 @pytest.mark.asyncio
 async def test_magic_verify_rejects_already_consumed_token(
     magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
+    self_host_schema,
 ) -> None:
     """One-time use: a second consume of the same token returns the
     same redirect-to-login, never a second session."""
     client, fake_smtp, base_url = magic_link_client
+    _seed_active_user(self_host_schema, "ana@test.com")
     await client.post("/auth/magic/start", json={"email": "ana@test.com"})
     body = fake_smtp.sent[0]["body"]
     prefix = f"{base_url}/auth/magic/verify?token="

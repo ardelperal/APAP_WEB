@@ -159,10 +159,18 @@ async def test_get_auth_magic_verify_is_not_403(
 
     The middleware short-circuits because the path is in
     ``_CSRF_EXEMPT_PATHS``. The handler consumes the fake token,
-    sets the ``apap_session`` cookie, and 302-redirects to ``/``.
-    The atom proves the exemption works WITHOUT depending on the
-    cookie payload shape (verified by the dedicated
-    ``test_magic_link_routes.py`` integration atoms).
+    resolves the ACTIVE user via the default conftest spy (which now
+    answers ``GET_USER_BY_EMAIL_SQL``, judgment-day JD-B-002), sets the
+    ``apap_session`` cookie, and 302-redirects to ``/``. This atom pins
+    the full cookie-minting contract — not just the NOT-403 shape:
+
+    - status 302 with ``location: /`` (the happy-path redirect);
+    - ``Set-Cookie`` carrying ``apap_session`` (the session mint).
+
+    The detailed payload-shape assertions live in the dedicated
+    ``test_magic_link_routes.py`` integration atoms; here we only pin
+    that the exemption lets the verify handler run to completion and
+    mint the session.
     """
     response = await client.get(
         "/auth/magic/verify?token=test-token",
@@ -173,20 +181,27 @@ async def test_get_auth_magic_verify_is_not_403(
         f"{response.status_code}; the path must be exempt. "
         f"Body: {response.text!r}"
     )
-    # Sanity: the handler ran (the redirect was issued by the
-    # route, not the auth middleware). The status is either 200/302
-    # (happy path) or 422 (Pydantic validation); both are NOT-403
-    # AND not the auth middleware's 302 to ``/login``.
-    if response.status_code == 302:
-        location = response.headers.get("location", "")
-        # The auth middleware's redirect to ``/login`` would mean
-        # the route was NOT reached; that's a regression.
-        assert location != "/login", (
-            f"/auth/magic/verify was redirected to /login "
-            f"({location!r}); the magic-link handler did not run. "
-            f"Either the exemption is not active or the magic_link_port "
-            f"fixture did not wire correctly."
-        )
+    # Full contract (no longer vacuous): the handler ran AND minted the
+    # session. A 302 to ``/login`` would mean the route was NOT reached
+    # (auth-gate or fail-closed regression); a missing ``apap_session``
+    # Set-Cookie would mean the cookie-minting branch was skipped.
+    assert response.status_code == 302, (
+        f"expected the verify handler's 302, got "
+        f"{response.status_code}: {response.text!r}"
+    )
+    assert response.headers["location"] == "/", (
+        f"verify redirected to {response.headers.get('location')!r}, "
+        f"not '/'; either the auth gate intercepted the request or the "
+        f"handler failed closed (default spy did not answer "
+        f"GET_USER_BY_EMAIL_SQL with an active user)."
+    )
+    set_cookie = response.headers.get("set-cookie", "")
+    assert "apap_session=" in set_cookie, (
+        f"verify did not mint the apap_session cookie; "
+        f"set-cookie={set_cookie!r}. The cookie-minting branch requires "
+        f"the auth lookup to succeed (default spy must answer "
+        f"GET_USER_BY_EMAIL_SQL with an active user row)."
+    )
 
 
 # --- parametrized negative coverage -------------------------------------
