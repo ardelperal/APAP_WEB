@@ -5,6 +5,7 @@ Spec coverage: REQ-1 through REQ-7.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 from typing import Any
 from unittest.mock import MagicMock
@@ -12,8 +13,9 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 from fastapi import FastAPI  # noqa: F401 — type annotation only, evaluated lazily
+from fastapi.testclient import TestClient
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.session import session_cookie_name, write_session
 
 # ---------------------------------------------------------------------------
@@ -546,3 +548,294 @@ class TestRateLimitMiddlewareOrdering:
             f"app.user_middleware = outer) so 403 rejections don't consume rate "
             f"budget. user_middleware order: {names}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Issue #904 — route-specific /e2e/login rate limit (5/min/IP)
+# ---------------------------------------------------------------------------
+
+
+class TestE2ELoginRateLimit:
+    """RED: GET /e2e/login is IP-rate-limited to 5/min; 6th hit gets 429."""
+
+    @pytest.fixture(autouse=True)
+    def _web_mode(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+        """Activate the middleware: APAP_MODE must not be the test bypass."""
+        monkeypatch.setenv("APAP_MODE", "web")
+        get_settings.cache_clear()
+        yield
+        get_settings.cache_clear()
+
+    @staticmethod
+    def _make_e2e_app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
+        """Minimal app: the mock route registered + a fresh rate-limit backend.
+
+        Mirrors the production composition (route + RateLimitMiddleware with
+        an ``InProcessRateLimitBackend``) without the full ``create_app``
+        stack, so the bucket state is isolated per test. The e2e flag is
+        forced ON via env-var because the middleware reads
+        ``Settings.e2e_auth_enabled`` at request time through the real
+        ``app.core.config.get_settings`` to decide whether the bucket
+        applies (issue #904 fix round 1: flag off → bare 404, no bucket).
+        """
+        import app.core.e2e_auth as e2e_module
+        from app.core.e2e_auth import register_e2e_auth_routes
+        from app.core.rate_limit import InProcessRateLimitBackend
+        from app.core.rate_limit_middleware import RateLimitMiddleware
+
+        monkeypatch.setenv("APAP_E2E_AUTH_ENABLED", "true")
+        get_settings.cache_clear()
+        original = e2e_module.get_settings
+        e2e_module.get_settings = lambda: Settings(  # type: ignore[assignment]
+            e2e_auth_enabled=True,
+            e2e_auth_secret="test-secret",
+            session_secret="test-session-secret",
+        )
+        try:
+            app = FastAPI()
+            register_e2e_auth_routes(app)
+        finally:
+            e2e_module.get_settings = original
+        app.add_middleware(RateLimitMiddleware, backend=InProcessRateLimitBackend())
+        return app
+
+    @staticmethod
+    def _make_flag_off_app() -> FastAPI:
+        """Minimal app mirroring production with the e2e flag OFF.
+
+        ``register_e2e_auth_routes`` no-ops (route NOT registered) but the
+        ``RateLimitMiddleware`` is still installed — exactly the
+        production composition when ``APAP_E2E_AUTH_ENABLED`` is unset.
+        """
+        import app.core.e2e_auth as e2e_module
+        from app.core.e2e_auth import register_e2e_auth_routes
+        from app.core.rate_limit import InProcessRateLimitBackend
+        from app.core.rate_limit_middleware import RateLimitMiddleware
+
+        original = e2e_module.get_settings
+        e2e_module.get_settings = lambda: Settings(  # type: ignore[assignment]
+            e2e_auth_enabled=False,
+        )
+        try:
+            app = FastAPI()
+            register_e2e_auth_routes(app)
+        finally:
+            e2e_module.get_settings = original
+        app.add_middleware(RateLimitMiddleware, backend=InProcessRateLimitBackend())
+        return app
+
+    def test_sixth_request_within_minute_returns_429(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """5 attempts pass through (401, no secret); the 6th gets 429 + Retry-After."""
+        client = TestClient(self._make_e2e_app(monkeypatch))
+
+        for _ in range(5):
+            response = client.get("/e2e/login", headers={"X-E2E-Secret": "wrong"})
+            assert response.status_code == 401, "first 5 attempts must reach the route"
+
+        response = client.get("/e2e/login", headers={"X-E2E-Secret": "wrong"})
+        assert response.status_code == 429
+        assert "Retry-After" in response.headers
+        assert response.headers["X-RateLimit-Limit"] == "5"
+        assert response.headers["X-RateLimit-Remaining"] == "0"
+        assert "error" in response.json()
+
+    def test_burst_429_emits_one_ip_bearing_forensic_record(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Issue #904 fix round 1 (JD-B-003): the e2e 429 leaves an IP trail.
+
+        ``ratelimit.rejected`` carries no IP by design (REQ-5/D6), so a
+        brute-force burst against the gate would lose source IP and
+        attempted email. For scope ``e2e_login`` ONLY, the 429 additionally
+        emits one forensic ``e2e.login`` record with ``outcome=rate_limited``
+        and ``client_ip``; ``ratelimit.rejected`` stays unchanged.
+        """
+        client = TestClient(self._make_e2e_app(monkeypatch))
+
+        # The whole burst runs inside the capture context: the ambient
+        # "app" logger level depends on which tests ran before (some
+        # call configure_logging), so records must be counted by outcome,
+        # not by capture-window position.
+        with caplog.at_level(logging.INFO, logger="app"):
+            for _ in range(5):
+                allowed = client.get(
+                    "/e2e/login?email=burst@probe.example",
+                    headers={"X-E2E-Secret": "wrong"},
+                )
+                assert allowed.status_code == 401
+            response = client.get(
+                "/e2e/login?email=burst@probe.example",
+                headers={"X-E2E-Secret": "wrong"},
+            )
+
+        assert response.status_code == 429
+        records = [r for r in caplog.records if r.name == "app"]
+        forensic = [
+            r
+            for r in records
+            if getattr(r, "_caller_fields", {}).get("event") == "e2e.login"
+            and getattr(r, "_caller_fields", {}).get("outcome") == "rate_limited"
+        ]
+        assert len(forensic) == 1, "exactly one forensic record on the 429"
+        fields = forensic[0]._caller_fields
+        assert fields["outcome"] == "rate_limited"
+        assert fields["client_ip"]
+        assert fields["target_email"] == "burst@probe.example"
+        # ratelimit.rejected unchanged: still emitted, still IP-free.
+        rejected = [
+            r
+            for r in records
+            if getattr(r, "_caller_fields", {}).get("event") == "ratelimit.rejected"
+        ]
+        assert len(rejected) == 1
+        assert not {k for k in rejected[0]._caller_fields if "ip" in k.lower()}
+
+    async def test_oauth_429_does_not_emit_forensic_record(
+        self,
+        client: httpx.AsyncClient,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """The forensic event is e2e_login-only: oauth 429s stay IP-free."""
+        from app.core import config as config_module
+
+        base_settings = config_module.get_settings()
+        monkeypatch.setattr(
+            config_module,
+            "get_settings",
+            lambda: base_settings.__class__.model_copy(
+                base_settings, update={"trust_xff": True}
+            ),
+        )
+
+        with caplog.at_level(logging.INFO, logger="app"):
+            # Exhaust the oauth IP bucket (limit 10/min) for a unique IP.
+            for _ in range(10):
+                await client.get(
+                    "/auth/callback",
+                    headers={"X-Forwarded-For": "10.9.9.7"},
+                    follow_redirects=False,
+                )
+            response = await client.get(
+                "/auth/callback",
+                headers={"X-Forwarded-For": "10.9.9.7"},
+                follow_redirects=False,
+            )
+
+        assert response.status_code == 429
+        records = [r for r in caplog.records if r.name == "app"]
+        forensic = [
+            r
+            for r in records
+            if getattr(r, "_caller_fields", {}).get("event") == "e2e.login"
+        ]
+        assert len(forensic) == 0, "oauth rejections must not emit e2e.login"
+        # Sanity: the oauth rejection did log ratelimit.rejected.
+        rejected = [
+            r
+            for r in records
+            if getattr(r, "_caller_fields", {}).get("event") == "ratelimit.rejected"
+        ]
+        assert len(rejected) >= 1
+
+    def test_bucket_key_ignores_client_supplied_xff_when_untrusted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Issue #904 fix round 1 (JD-B-004/JD-A-005, disposition pin).
+
+        With ``APAP_TRUST_XFF`` unset/false (the default; no manifest sets
+        it true), a client-supplied multi-hop ``X-Forwarded-For`` must NOT
+        reset the bucket key: rotating the leftmost entry does not give a
+        fresh 5-attempt budget. ``_extract_identity`` ignores XFF when
+        trust is off — this test pins that behaviour at the bucket level
+        so a future XFF redesign cannot silently flip it. XFF redesign is
+        deferred to a follow-up issue (not this fix round).
+        """
+        client = TestClient(self._make_e2e_app(monkeypatch))
+
+        # 5 attempts, each trying to rotate identity via a fresh
+        # client-supplied leftmost XFF entry (multi-hop style).
+        for i in range(5):
+            response = client.get(
+                "/e2e/login",
+                headers={
+                    "X-E2E-Secret": "wrong",
+                    "X-Forwarded-For": f"203.0.113.{i}, 10.0.0.1",
+                },
+            )
+            assert response.status_code == 401, (
+                f"attempt {i + 1} must reach the route regardless of XFF rotation"
+            )
+
+        # 6th attempt: the bucket is still keyed by the real client host,
+        # so the rotated XFF entries did not reset it → 429.
+        response = client.get(
+            "/e2e/login",
+            headers={
+                "X-E2E-Secret": "wrong",
+                "X-Forwarded-For": "203.0.113.99, 10.0.0.1",
+            },
+        )
+        assert response.status_code == 429, (
+            "rotating client-supplied XFF entries must NOT reset the bucket"
+        )
+
+    def test_flag_off_probes_get_bare_404_without_rate_limit_headers(self) -> None:
+        """Issue #904 fix round 1 (JD-B-001/JD-A-003): flag off → bare 404s.
+
+        With the e2e flag off the route is not registered, so probes to
+        ``GET /e2e/login`` must answer the same bare 404 as any unknown
+        path: no ``X-RateLimit-*`` headers, no ``Retry-After``, and no
+        bucket consumption (the endpoint is not fingerprintable via a
+        6th-request 429).
+        """
+        client = TestClient(self._make_flag_off_app())
+
+        for i in range(6):
+            response = client.get("/e2e/login")
+            assert response.status_code == 404, f"probe {i + 1} must be a bare 404"
+            assert "X-RateLimit-Limit" not in response.headers
+            assert "X-RateLimit-Remaining" not in response.headers
+            assert "X-RateLimit-Reset" not in response.headers
+            assert "Retry-After" not in response.headers
+
+    def test_flag_on_still_returns_429_on_sixth_request(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Positive control: the bare-404 change keeps the flag-on 429 intact."""
+        client = TestClient(self._make_e2e_app(monkeypatch))
+
+        for _ in range(5):
+            response = client.get("/e2e/login", headers={"X-E2E-Secret": "wrong"})
+            assert response.status_code == 401
+
+        response = client.get("/e2e/login", headers={"X-E2E-Secret": "wrong"})
+        assert response.status_code == 429
+        assert "X-RateLimit-Limit" in response.headers
+
+    def test_limit_is_per_ip(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Exhausting one IP's bucket does not exhaust another IP's."""
+        monkeypatch.setenv("APAP_TRUST_XFF", "true")
+        get_settings.cache_clear()
+        client = TestClient(self._make_e2e_app(monkeypatch))
+
+        for _ in range(5):
+            client.get(
+                "/e2e/login",
+                headers={"X-E2E-Secret": "wrong", "X-Forwarded-For": "203.0.113.9"},
+            )
+        exhausted = client.get(
+            "/e2e/login",
+            headers={"X-E2E-Secret": "wrong", "X-Forwarded-For": "203.0.113.9"},
+        )
+        assert exhausted.status_code == 429
+
+        fresh_ip = client.get(
+            "/e2e/login",
+            headers={"X-E2E-Secret": "wrong", "X-Forwarded-For": "203.0.113.10"},
+        )
+        assert fresh_ip.status_code == 401, "a different IP must have its own bucket"

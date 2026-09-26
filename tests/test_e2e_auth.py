@@ -12,6 +12,9 @@ next request from the same browser context pass
 """
 from __future__ import annotations
 
+import logging
+from collections.abc import Iterator
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -22,6 +25,7 @@ from app.core.auth_cache import (
 )
 from app.core.config import (
     Settings,
+    get_settings,
 )
 from app.core.e2e_auth import (
     MOCK_USER_ID,
@@ -40,6 +44,22 @@ def _clean_auth_cache() -> None:
     invalidate_all()
     yield
     invalidate_all()
+
+
+@pytest.fixture(autouse=True)
+def _restore_e2e_get_settings() -> Iterator[None]:
+    """Restore the ``e2e_auth.get_settings`` test seam after every test.
+
+    Several tests below replace ``e2e_module.get_settings`` with a lambda
+    and never restore it, so the replacement leaked into any later test
+    that reads the real settings (issue #904: the composition-level 404
+    test saw the flag enabled because of this leak).
+    """
+    import app.core.e2e_auth as e2e_module
+
+    original = e2e_module.get_settings
+    yield
+    e2e_module.get_settings = original
 
 
 def _build_app_disabled() -> FastAPI:
@@ -274,3 +294,308 @@ def test_empty_email_with_no_default_returns_400(
     )
 
     assert response.status_code == 400
+
+
+def test_audit_log_emitted_on_success(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #904 AC1: every successful attempt emits one audit entry.
+
+    The entry carries ``outcome='ok'``, the target email and the origin
+    IP — and never the secret value. Field names deliberately avoid the
+    closed redaction list (``email``/``ip_address``) because the issue
+    mandates those values in the audit trail (``target_email``/
+    ``client_ip``).
+    """
+    import app.core.e2e_auth as e2e_module
+
+    e2e_module.get_settings = lambda: Settings(  # type: ignore[assignment]
+        e2e_auth_enabled=True,
+        e2e_auth_secret="test-secret-value",
+        session_secret="test-session-secret-for-mock",
+    )
+    app = FastAPI()
+    register_e2e_auth_routes(app)
+    client = TestClient(app)
+
+    with caplog.at_level(logging.INFO, logger="app"):
+        response = client.get(
+            "/e2e/login?email=audit@apap.local",
+            headers={"X-E2E-Secret": "test-secret-value"},
+        )
+
+    assert response.status_code == 200
+    audit_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "_caller_fields", {}).get("event") == "e2e.login"
+    ]
+    assert len(audit_records) == 1, "expected exactly one audit entry on success"
+    record = audit_records[0]
+    fields = record._caller_fields
+    assert fields["outcome"] == "ok"
+    assert fields["target_email"] == "audit@apap.local"
+    assert fields["client_ip"]
+    # The secret value must never appear in the audit entry.
+    assert "test-secret-value" not in record.getMessage()
+    assert "test-secret-value" not in str(fields)
+
+
+def test_audit_log_emitted_on_invalid_secret(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #904 AC1: a failed attempt also emits one audit entry.
+
+    Outcome is ``invalid_secret`` for both a wrong and a missing header;
+    the attempted email (raw query param) and origin IP are recorded and
+    the secret value never reaches the log.
+    """
+    import app.core.e2e_auth as e2e_module
+
+    e2e_module.get_settings = lambda: Settings(  # type: ignore[assignment]
+        e2e_auth_enabled=True,
+        e2e_auth_secret="test-secret-value",
+        session_secret="test-session-secret-for-mock",
+    )
+    app = FastAPI()
+    register_e2e_auth_routes(app)
+    client = TestClient(app)
+
+    with caplog.at_level(logging.INFO, logger="app"):
+        response = client.get(
+            "/e2e/login?email=probe@apap.local",
+            headers={"X-E2E-Secret": "wrong-secret"},
+        )
+
+    assert response.status_code == 401
+    audit_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "_caller_fields", {}).get("event") == "e2e.login"
+    ]
+    assert len(audit_records) == 1, "expected exactly one audit entry on failure"
+    record = audit_records[0]
+    fields = record._caller_fields
+    assert fields["outcome"] == "invalid_secret"
+    assert fields["target_email"] == "probe@apap.local"
+    assert fields["client_ip"]
+    assert "wrong-secret" not in record.getMessage()
+    assert "wrong-secret" not in str(fields)
+
+
+def test_non_ascii_secret_header_lands_on_invalid_secret_with_audit(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A raw non-ASCII byte in ``X-E2E-Secret`` must land on 401, not 500.
+
+    ASGI decodes header bytes with latin-1, so a probe sending a raw
+    latin-1 byte (e.g. ``0xE9``) reaches the handler as a non-ASCII str.
+    ``hmac.compare_digest`` raises ``TypeError`` for non-ASCII str inputs,
+    which produced an unhandled 500 with NO audit entry. The hardened
+    handler treats any non-ASCII probe as an invalid secret: 401 plus
+    exactly one ``e2e.login`` audit record, and the probe bytes never
+    reach the log.
+    """
+    import app.core.e2e_auth as e2e_module
+
+    e2e_module.get_settings = lambda: Settings(  # type: ignore[assignment]
+        e2e_auth_enabled=True,
+        e2e_auth_secret="test-secret-value",
+        session_secret="test-session-secret-for-mock",
+    )
+    app = FastAPI()
+    register_e2e_auth_routes(app)
+    client = TestClient(app)
+
+    with caplog.at_level(logging.INFO, logger="app"):
+        response = client.get(
+            "/e2e/login?email=probe@apap.local",
+            headers={"X-E2E-Secret": b"\xe9"},
+        )
+
+    assert response.status_code == 401
+    audit_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "_caller_fields", {}).get("event") == "e2e.login"
+    ]
+    assert len(audit_records) == 1, "expected exactly one audit entry on the probe"
+    fields = audit_records[0]._caller_fields
+    assert fields["outcome"] == "invalid_secret"
+    # The raw probe bytes must never reach the log.
+    assert "\xe9" not in audit_records[0].getMessage()
+    assert "\xe9" not in str(fields)
+
+
+def test_audit_log_emitted_on_empty_email_400(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #904 fix round 1 (JD-B-002/JD-A-002): the 400 branch is audited.
+
+    AC1 requires one ``e2e.login`` entry on EVERY attempt — including the
+    400 empty-target-email branch (valid secret). Outcome taxonomy:
+    ``invalid_request``.
+    """
+    import app.core.e2e_auth as e2e_module
+
+    e2e_module.get_settings = lambda: Settings(  # type: ignore[assignment]
+        e2e_auth_enabled=True,
+        e2e_auth_secret="test-secret-value",
+        e2e_auth_default_email="",
+        session_secret="test-session-secret-for-mock",
+    )
+    app = FastAPI()
+    register_e2e_auth_routes(app)
+    client = TestClient(app)
+
+    with caplog.at_level(logging.INFO, logger="app"):
+        response = client.get(
+            "/e2e/login?email= ",
+            headers={"X-E2E-Secret": "test-secret-value"},
+        )
+
+    assert response.status_code == 400
+    audit_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "_caller_fields", {}).get("event") == "e2e.login"
+    ]
+    assert len(audit_records) == 1, "expected exactly one audit entry on 400"
+    fields = audit_records[0]._caller_fields
+    assert fields["outcome"] == "invalid_request"
+    assert "test-secret-value" not in str(fields)
+
+
+def test_audit_log_emitted_on_misconfigured_503(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #904 fix round 1 (JD-B-002/JD-A-002): the 503 branch is audited.
+
+    An enabled flag with an empty configured secret answers 503 — that
+    attempt must also leave one ``e2e.login`` entry (outcome
+    ``server_misconfigured``) so AC1 holds for every attempt.
+    """
+    import app.core.e2e_auth as e2e_module
+
+    e2e_module.get_settings = lambda: Settings(  # type: ignore[assignment]
+        e2e_auth_enabled=True,
+        e2e_auth_secret="",
+    )
+    app = FastAPI()
+    register_e2e_auth_routes(app)
+    client = TestClient(app)
+
+    with caplog.at_level(logging.INFO, logger="app"):
+        response = client.get(
+            "/e2e/login?email=probe@apap.local",
+            headers={"X-E2E-Secret": "anything"},
+        )
+
+    assert response.status_code == 503
+    audit_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "_caller_fields", {}).get("event") == "e2e.login"
+    ]
+    assert len(audit_records) == 1, "expected exactly one audit entry on 503"
+    fields = audit_records[0]._caller_fields
+    assert fields["outcome"] == "server_misconfigured"
+    assert fields["target_email"] == "probe@apap.local"
+
+
+def test_audit_target_email_is_capped(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #904 fix round 1 (JD-B-006): the raw email is capped in the audit.
+
+    The unvalidated ``?email=`` query param must be truncated before it
+    reaches ``log_safe`` so an unbounded probe value cannot bloat the
+    audit trail. Pinned on the rejected path with a 300-char probe.
+    """
+    import app.core.e2e_auth as e2e_module
+
+    e2e_module.get_settings = lambda: Settings(  # type: ignore[assignment]
+        e2e_auth_enabled=True,
+        e2e_auth_secret="test-secret-value",
+        session_secret="test-session-secret-for-mock",
+    )
+    app = FastAPI()
+    register_e2e_auth_routes(app)
+    client = TestClient(app)
+    oversized_email = "a" * 300 + "@probe.example"
+
+    with caplog.at_level(logging.INFO, logger="app"):
+        response = client.get(
+            f"/e2e/login?email={oversized_email}",
+            headers={"X-E2E-Secret": "wrong-secret"},
+        )
+
+    assert response.status_code == 401
+    audit_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "_caller_fields", {}).get("event") == "e2e.login"
+    ]
+    assert len(audit_records) == 1
+    recorded_email = audit_records[0]._caller_fields["target_email"]
+    assert len(recorded_email) <= 120
+
+
+def test_production_app_answers_404_when_flag_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #904 AC3: the real ``create_app`` answers 404 with the flag off.
+
+    Composition-level pin: the existing module-level test covers
+    ``register_e2e_auth_routes`` directly; this one proves the production
+    factory wiring (issue #904 validation plan step: flag off -> 404 in
+    production without the flag).
+
+    The flag is forced to an explicit ``false`` env-var value rather than
+    deleted: ``Settings`` reads ``env_file='.env'`` and
+    ``monkeypatch.delenv`` cannot clear a developer-local ``.env`` entry,
+    which flipped this test red spuriously (issue #904 fix round 1,
+    JD-A-006). The env var takes precedence over ``.env`` in
+    pydantic-settings, so ``setenv('false')`` is deterministic.
+    """
+    from app.main import create_app
+
+    monkeypatch.setenv("APAP_E2E_AUTH_ENABLED", "false")
+    get_settings.cache_clear()
+    try:
+        client = TestClient(create_app())
+        response = client.get("/e2e/login")
+    finally:
+        get_settings.cache_clear()
+
+    assert response.status_code == 404
+
+
+def test_production_app_registers_route_when_flag_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Positive control for AC3: with the flag + secret set the route exists (401).
+
+    The flag and secret are set via ``monkeypatch.setenv`` — env vars take
+    precedence over ``Settings.env_file('.env')``, so this composition
+    test is deterministic regardless of a developer-local ``.env``
+    (issue #904 fix round 1, JD-A-006).
+    """
+    from app.main import create_app
+
+    monkeypatch.setenv("APAP_E2E_AUTH_ENABLED", "true")
+    monkeypatch.setenv("APAP_E2E_AUTH_SECRET", "composition-test-secret")
+    get_settings.cache_clear()
+    try:
+        client = TestClient(create_app())
+        response = client.get("/e2e/login")
+    finally:
+        get_settings.cache_clear()
+
+    assert response.status_code == 401
