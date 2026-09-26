@@ -7,9 +7,10 @@ the route handler translates that into a 409 / 422 / 500
 depending on the error class without leaking ``BackendError``
 shape up to the application layer.
 
-The ``updated_tables`` dict carries the row counts per table
-(``"animals"``, ``"entradas"``, etc.) so the operator can audit
-the blast radius of a successful change without re-querying.
+The ``updated_tables`` dict carries the row counts per touched table.
+Since issue #916 (A-04) the saga touches only ``animales`` (the dependent
+tables reference the animal through the ``animal_id`` FK and carry no chip
+copy), so a successful change reports ``{"animals": <rows>}``.
 """
 from __future__ import annotations
 
@@ -20,10 +21,11 @@ from dataclasses import dataclass, field
 class ChangeChipResult:
     """Resultado del saga de cambio de chip.
 
-    ``success=True``: todos los registros se actualizaron atómicamente.
-    ``success=False``: la operación se revirtió; ``error`` contiene
-    la causa. ``updated_tables`` carries the per-table row counts
-    even on failure (the dict reflects what was rolled back).
+    ``success=True``: la unidad de trabajo se confirmó atómicamente.
+    ``success=False``: la operación se revirtió (rollback real vía
+    ``transaction()``); ``error`` contiene la causa.
+    ``updated_tables`` carries the per-touched-table row counts
+    (only ``"animals"`` since issue #916).
     """
 
     success: bool

@@ -401,7 +401,7 @@ def change_chip_view(
     user: Annotated[Response | dict, Depends(_require_write_animales)],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
-    """PATCH /animales/{id}/chip — cambia el chip en cascada a 6 tablas."""
+    """PATCH /animales/{id}/chip — cambia animales.nchip y registra el evento CHIP_CHANGED en una transacción (D-43)."""
     if (early := return_early_if_response(user)) is not None:
         return early
 
