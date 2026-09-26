@@ -137,9 +137,12 @@ def _drop_ephemeral_schema(dsn: str, schema: str) -> None:
     never at risk because the schema name is unique per run.
     """
     import psycopg
+    from psycopg import sql
 
     with psycopg.connect(dsn, autocommit=True) as conn:
-        conn.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+        conn.execute(
+            sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(schema))
+        )
 
 
 

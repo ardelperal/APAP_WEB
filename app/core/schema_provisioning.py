@@ -26,6 +26,7 @@ import importlib
 from pathlib import Path
 
 import psycopg
+from psycopg import sql
 
 # Domain DDL constants — same imports the integration conftest uses so the
 # helper produces an identical schema. Imported at module level so the
@@ -219,11 +220,17 @@ def provision_apap_schema(dsn: str, schema: str) -> None:
 
     Mirrors the integration conftest's ``_EphemeralPostgres._provision``:
     same DDL list, same M1 migration order, same auth core table.
+
+    The schema name is rendered through ``psycopg.sql.Identifier`` so a
+    name containing a double quote (or any other character) is safely
+    escaped instead of breaking the statement (issue #920, finding A-08).
     """
     statements = _load_domain_statements()
     with psycopg.connect(dsn, autocommit=True) as conn:
-        conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
-        conn.execute(f'SET search_path TO "{schema}"')
+        conn.execute(
+            sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema))
+        )
+        conn.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
         for stmt in statements:
             for piece in _split_statements(stmt):
                 conn.execute(piece)

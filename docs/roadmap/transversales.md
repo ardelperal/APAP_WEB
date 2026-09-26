@@ -78,7 +78,20 @@ Un slice puede necesitar 1 o 4 ficheros según su complejidad. Lo mínimo es `*_
 | Cadencia release-only para mutation/security-deep/e2e | cerrado (`bb476a5`, PR #798 sobre origin/main) | #780 |
 | Firma Cosign keyless del digest publicado | cerrado (cosign sign + verify en deploy.yml) | #783 |
 
-Decisiones: [d-33-tdd-estricto.md](../architecture/decisiones/d-33-tdd-estricto.md), [d-35-presupuesto-400-lineas-pr.md](../architecture/decisiones/d-35-presupuesto-400-lineas-pr.md).
+### Auditoría de código 2026-09-24
+
+Auditoría de solo lectura sobre `main` en `b048c64` (núcleo y seguridad, dominio y datos, tests y tooling) con sus hallazgos convertidos en issues del label `audit-2026-09-24`. Informe con la tabla de trazabilidad hallazgo → issue → PR: [docs/audits/code-audit-2026-09-24.md](../audits/code-audit-2026-09-24.md). Épica: [#911](https://github.com/ardelperal/APAP_WEB/issues/911).
+
+| Ola | Contenido | Estado |
+|---|---|---|
+| Ola 0 — base y quick wins | Informe D-00 (#912) y drift de tooling A-06 (#918) | en curso |
+| Ola 1 — integridad de datos y auth | A-01 (#913), A-12 (#944), A-13 (#945), A-14 (#947), A-02 (#914), A-03 (#915), A-04 (#916), A-05 (#917) | cerrado |
+| Ola 2 — endurecimiento | A-07 borrado cruzado de material (#919), A-08 inputs (#920) | cerrado |
+| Ola 3 — deuda interna y tests | A-09 (#921), A-10 (#922), A-11 RBAC legacy (#923, requiere decisión) | pendiente |
+
+Dependencias: A-02, A-03 y A-04 dependen de A-01; A-09 y A-10 comparten `app/core/schema_provisioning.py` con A-08 y van después de su PR; A-11 se bloquea por una decisión de producto registrada en su issue.
+
+Decisiones: [d-33-tdd-estricto.md](../architecture/decisiones/d-33-tdd-estricto.md), [d-35-presupuesto-400-lineas-pr.md](../architecture/decisiones/d-35-presupuesto-400-lineas-pr.md)., [d-35-presupuesto-400-lineas-pr.md](../architecture/decisiones/d-35-presupuesto-400-lineas-pr.md).
 
 ## Dev workflow
 
