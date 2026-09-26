@@ -285,9 +285,11 @@ def test_build_junction_list_for_estancia_all_omits_active_filter() -> None:
 
 
 def test_build_junction_deactivate_flips_activo_for_id() -> None:
-    sql, params = queries.build_junction_deactivate("jun-uuid-1")
+    """Deactivate SQL is ownership-scoped (issue #919: WHERE estancia_id = $1)."""
+    sql, params = queries.build_junction_deactivate("est-uuid-1", "jun-uuid-1")
     assert "UPDATE estancia_materiales" in sql
     assert "activo = false" in sql
-    assert "WHERE id = $1" in sql
+    assert "WHERE estancia_id = $1" in sql
+    assert "id = $2" in sql
     assert "activo = true" in sql
-    assert params == ["jun-uuid-1"]
+    assert params == ["est-uuid-1", "jun-uuid-1"]

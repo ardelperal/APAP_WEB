@@ -434,7 +434,8 @@ def test_adapter_remove_material_from_estancia_returns_flag() -> None:
     adapter = LocalBackendMaterialesAdapter(stub)
     assert (
         adapter.remove_material_from_estancia(
-            "00000000-0000-0000-0000-000000000010"
+            "00000000-0000-0000-0000-000000000001",
+            "00000000-0000-0000-0000-000000000010",
         )
         is True
     )
