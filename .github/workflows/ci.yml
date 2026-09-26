@@ -1064,11 +1064,11 @@ jobs:
         # from pinned MinIO CE source by minio-replica.yml instead. The
         # package is private, so the pull authenticates with the
         # ephemeral GITHUB_TOKEN (service containers accept expressions
-        # in credentials). The digest pin lands once the first replica
-        # build records it — dispatch minio-replica.yml and read the
-        # digest from its job summary. Runbook:
+        # in credentials). The image is pinned by digest, recorded from
+        # replica build run 36249625652. To refresh it: re-run
+        # minio-replica.yml and update this pin. Runbook:
         # docs/operations/minio-replica.md.
-        image: ghcr.io/ardelperal/minio:ci
+        image: ghcr.io/ardelperal/minio@sha256:6140fe7015bd97e4e6340c9a8ead775c09bc1a226b7c36e41d24852f839dae8f
         credentials:
           username: ${{ github.actor }}
           password: ${{ github.token }}

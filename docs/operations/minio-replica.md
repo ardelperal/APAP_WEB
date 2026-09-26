@@ -1,6 +1,18 @@
 # MinIO replica for CI — `ghcr.io/ardelperal/minio`
 
-> Last updated: 2026-09-26 — issue #973 (build-from-source follow-up).
+> Last updated: 2026-09-27 — issue #973 (digest pin landed).
+
+## Recorded digest
+
+The first successful replica build
+([36249625652](https://github.com/ardelperal/APAP_WEB/actions/runs/36249625652))
+published the image pinned by digest in the e2e job:
+
+- Image: `ghcr.io/ardelperal/minio@sha256:6140fe7015bd97e4e6340c9a8ead775c09bc1a226b7c36e41d24852f839dae8f`
+  (both tags `RELEASE.2025-10-15T17-29-55Z` and `ci` point to this digest).
+- The digest is pinned in two places, which must move together:
+  `.github/workflows/ci.yml` (e2e `minio` service `image:` line) and
+  `MINIO_REPLICA_DIGEST` in `tests/test_ci_workflow.py`.
 
 ## Why this exists
 
@@ -48,7 +60,8 @@ source and publishes it to this repository's GHCR namespace:
    2026-09-26 with `git ls-remote --tags https://github.com/minio/minio`
    as the highest existing `RELEASE.2025-*` tag.
 3. It pushes two tags: `ghcr.io/ardelperal/minio:<RELEASE_TAG>` (immutable
-   pin) and `ghcr.io/ardelperal/minio:ci` (moving tag the e2e job pulls).
+   pin) and `ghcr.io/ardelperal/minio:ci` (moving convenience tag). The
+   e2e job does not pull the moving tag: it pulls the image by digest.
 4. Login uses the ephemeral `GITHUB_TOKEN` of the run — no personal access
    token, no repository secret.
 
@@ -66,16 +79,14 @@ pull with `github.actor` / `github.token`, and the e2e job grants
 
 ## How the digest pin gets updated
 
-The e2e job currently pulls the moving `ghcr.io/ardelperal/minio:ci` tag.
-The digest pin is the follow-up, not a prerequisite:
+The e2e job pulls `ghcr.io/ardelperal/minio@sha256:6140fe...dae8f`,
+recorded from build run 36249625652 (issue #973). To refresh it:
 
-1. Dispatch `minio-replica.yml` once; the job summary records the digest.
-2. Replace `image: ghcr.io/ardelperal/minio:ci` in ci.yml with
-   `image: ghcr.io/ardelperal/minio@sha256:<digest>`, following the
+1. Dispatch `minio-replica.yml`; the job summary records the new digest.
+2. Replace the pinned digest in `.github/workflows/ci.yml`
+   (e2e `minio` service `image:` line) and in `MINIO_REPLICA_DIGEST`
+   (`tests/test_ci_workflow.py`) in the same commit, following the
    repository's digest-pinning rule (issue #338).
-3. After each future `RELEASE_TAG` bump, re-run the workflow and update the
-   digest in the same commit. The `:ci` tag and the digest always refer to
-   the same image content at that point.
 
 ## Rollback
 
