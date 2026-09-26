@@ -2139,3 +2139,124 @@ def test_bare_pytest_excludes_every_suite_the_ci_test_job_excludes() -> None:
     assert ci_ignores <= local_ignores, (
         f"addopts must also ignore {sorted(ci_ignores - local_ignores)} (issue #940)"
     )
+
+# --- issue #973: repo-owned GHCR MinIO replica ------------------------------
+#
+# MinIO Community Edition went source-only in late 2025 and its binary images
+# were removed from Docker Hub, quay.io, and every public mirror, so
+# `minio/minio:latest` cannot be pulled at all — not even with Docker Hub
+# credentials (minio/minio#21662). The e2e service must instead pull a
+# replica built from pinned MinIO CE source by
+# .github/workflows/minio-replica.yml.
+
+MINIO_REPLICA_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "minio-replica.yml"
+#: The MinIO CE release tag the replica is built from. Verified against
+#: `git ls-remote --tags https://github.com/minio/minio` on 2026-09-26:
+#: the highest existing RELEASE.2025-* tag.
+MINIO_REPLICA_RELEASE_TAG = "RELEASE.2025-10-15T17-29-55Z"
+
+
+def _e2e_minio_service_section(workflow: str) -> str:
+    """Return the ``minio:`` service block of the e2e job, comments excluded."""
+    e2e = _job_block(workflow, "e2e")
+    section = e2e[e2e.index("      minio:") : e2e.index("    steps:")]
+    return "\n".join(
+        line for line in section.splitlines() if not line.lstrip().startswith("#")
+    )
+
+
+def test_ci_workflow_e2e_minio_service_pulls_repo_owned_ghcr_replica() -> None:
+    """Issue #973: the e2e MinIO service must pull the repo-owned GHCR replica.
+
+    The previous fix (authenticate the Docker Hub pull with
+    DOCKERHUB_USERNAME/DOCKERHUB_TOKEN secrets) is dead by design: the
+    binary images no longer exist upstream, so authentication cannot
+    help. The service must reference `ghcr.io/ardelperal/minio:ci` —
+    the replica built from pinned MinIO CE source by minio-replica.yml —
+    and pull it with the ephemeral GITHUB_TOKEN, since the package is
+    private. Every DOCKERHUB reference must be gone.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    service = _e2e_minio_service_section(workflow)
+
+    image_line = next(
+        line.strip() for line in service.splitlines() if line.strip().startswith("image:")
+    )
+    assert image_line == "image: ghcr.io/ardelperal/minio:ci", (
+        f"the e2e minio service must pull the repo-owned GHCR replica; got {image_line!r}"
+    )
+    # The GHCR package is private: the service container pull needs the
+    # ephemeral GITHUB_TOKEN (service containers accept expressions in
+    # credentials).
+    assert "username: ${{ github.actor }}" in service
+    assert "password: ${{ github.token }}" in service
+    # The Docker Hub approach is removed everywhere, comments included.
+    assert "DOCKERHUB" not in workflow
+    assert "docker-hub-anonymous-pull" not in workflow
+
+
+def test_ci_workflow_e2e_job_grants_packages_read_for_ghcr_replica() -> None:
+    """Issue #973: the e2e job needs `packages: read` to pull the private replica.
+
+    The repo scopes permissions per job (issue #879); the e2e job used to
+    declare only `contents: read`, which is not enough to pull a private
+    GHCR package with the ephemeral GITHUB_TOKEN.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    block = _job_block(workflow, "e2e")
+
+    permissions = block[block.index("permissions:") : block.index("services:")]
+    assert "packages: read" in permissions, (
+        "the e2e job must grant packages: read to pull the private "
+        "ghcr.io/ardelperal/minio replica (issue #973)"
+    )
+
+
+def test_minio_replica_workflow_is_dispatch_only_and_pushes_pinned_replica() -> None:
+    """Issue #973: minio-replica.yml builds and publishes the pinned replica.
+
+    The workflow must be manual-dispatch only (it publishes a package, so
+    it must never run on untrusted PR code), pin a MinIO CE `RELEASE.`
+    tag (the upstream binary images are gone, so the replica is built
+    from source), grant `packages: write`, push both the release tag and
+    the `ci` tag to ghcr.io/ardelperal/minio, and report the resulting
+    image digest both as a step output and in the job summary — the
+    digest is what a later commit pins in ci.yml.
+    """
+    workflow = MINIO_REPLICA_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    triggers = _trigger_lines(workflow)
+    assert set(triggers) == {"workflow_dispatch:"}, (
+        f"minio-replica.yml must be dispatch-only; got {sorted(triggers)}"
+    )
+
+    # The build is pinned to exactly one MinIO CE release tag.
+    release_tags = set(
+        re.findall(r"RELEASE\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z", workflow)
+    )
+    assert release_tags == {MINIO_REPLICA_RELEASE_TAG}, (
+        f"minio-replica.yml must pin MinIO CE {MINIO_REPLICA_RELEASE_TAG}; got {release_tags}"
+    )
+
+    # It builds and pushes the replica under the repo's GHCR namespace.
+    assert "ghcr.io/ardelperal/minio:" in workflow
+    assert "docker build" in workflow
+    assert "docker push" in workflow
+    assert "ghcr.io/ardelperal/minio:ci" in workflow
+
+    # Least privilege, workflow level and job level (issue #879 convention).
+    workflow_permissions = workflow[: workflow.index("\njobs:")]
+    assert "contents: read" in workflow_permissions
+    assert "packages: write" in workflow_permissions
+    job = _job_block(workflow, "build-and-push")
+    assert "packages: write" in job
+
+    # The digest is the handoff to ci.yml: recorded as a step output and
+    # published to the job summary.
+    digest_output = re.search(
+        r'echo "digest=\$?\{?[A-Za-z_]*\}?"\s*>>\s*"\$GITHUB_OUTPUT"', workflow
+    )
+    assert digest_output, "the workflow must expose a step output named digest"
+    assert "GITHUB_STEP_SUMMARY" in workflow, (
+        "the workflow must print the image digest to the job summary"
+    )

@@ -1,0 +1,92 @@
+name: minio-replica
+
+# Issue #973: the upstream `minio/minio` binary images no longer exist.
+# MinIO Community Edition went source-only in late 2025 and its images
+# were removed from Docker Hub, quay.io, and every public mirror
+# (minio/minio#21662), so the e2e job in ci.yml cannot pull MinIO from
+# any registry. This workflow rebuilds the image from pinned MinIO CE
+# source and publishes the replica to this repository's GHCR namespace,
+# where the e2e service container pulls it as
+# `ghcr.io/ardelperal/minio:ci`.
+#
+# Manual dispatch only: this workflow pushes a package, so it must never
+# run on untrusted pull-request code. Run it with:
+#   gh workflow run minio-replica.yml
+# Runbook: docs/operations/minio-replica.md.
+on:
+  workflow_dispatch:
+
+# Stale replica builds are worthless: a newer dispatch supersedes the
+# one still running, so cancel it instead of spending capacity on an
+# image nobody will push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: build-and-push
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Issue #879 convention: the job declares its own minimal block
+    # instead of silently inheriting the workflow-level default.
+    permissions:
+      contents: read
+      packages: write
+    env:
+      # Issue #973: pinned MinIO CE release the replica is built from.
+      # Verified on 2026-09-26 against
+      # `git ls-remote --tags https://github.com/minio/minio` as the
+      # highest existing RELEASE.2025-* tag. Bumping this value is the
+      # whole update procedure — see docs/operations/minio-replica.md.
+      RELEASE_TAG: RELEASE.2025-10-15T17-29-55Z
+    steps:
+      - name: Check out the pinned MinIO CE release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: minio/minio
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - name: Log in to ghcr.io
+        # The ephemeral GITHUB_TOKEN of this run is enough to push a
+        # package under this repository's namespace; no PAT is involved.
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build the replica image from the official Dockerfile
+        run: >-
+          docker build
+          -t "ghcr.io/ardelperal/minio:${RELEASE_TAG}"
+          -t "ghcr.io/ardelperal/minio:ci"
+          .
+
+      - name: Push both tags and capture the digest
+        id: push
+        run: |
+          set -euo pipefail
+          out=$(docker push "ghcr.io/ardelperal/minio:${RELEASE_TAG}")
+          echo "$out"
+          docker push "ghcr.io/ardelperal/minio:ci"
+          digest=$(printf '%s\n' "$out" | grep -oE 'sha256:[a-f0-9]{64}' | tail -1)
+          if [ -z "$digest" ]; then
+            echo "::error::docker push output contained no digest; refusing to report an empty pin" >&2
+            exit 1
+          fi
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the image digest
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          echo "MinIO replica published: ghcr.io/ardelperal/minio:${RELEASE_TAG}" >> "$GITHUB_STEP_SUMMARY"
+          echo "digest: ${DIGEST}" >> "$GITHUB_STEP_SUMMARY"
+          echo ""
+          echo "Pin this digest in .github/workflows/ci.yml once the e2e job" >> "$GITHUB_STEP_SUMMARY"
+          echo "records it (issue #973)." >> "$GITHUB_STEP_SUMMARY"
+          echo "ghcr.io/ardelperal/minio:${RELEASE_TAG} pushed as ${DIGEST}"
