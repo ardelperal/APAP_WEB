@@ -20,9 +20,12 @@ the Access/VBA legacy auth model.  They never share sessions or user tables.
 Web login is Google OAuth; legacy auth is its own separate system.
 
 Backward compatibility: legacy roles (DEVELOPER, KEY_USER, READER from
-``app.core.roles.Rol``) are handled by a fallback that preserves the
-pre-RBAC auth behaviour (issue #66 coexists with the existing auth
+``app.core.roles.Rol``) are handled by an explicit mapping that preserves
+the pre-RBAC behaviour (issue #66 coexists with the existing auth
 infrastructure, not replacing it).  New roles use the PERMISSIONS matrix.
+Issue #923 (decision D-44): each legacy role receives an explicit set of
+read permissions (:data:`_LEGACY_READ_MATRIX`); any other unrecognized
+role string is denied on reads too (fail-closed).
 """
 
 from __future__ import annotations
@@ -66,6 +69,10 @@ _LEGACY_WRITER_ROLES: frozenset[str] = frozenset({
     "admin",  # admin is also in new Role; handled by new matrix first
     "key_user",
 })
+
+#: Legacy roles handled by the explicit read mapping in
+#: :data:`_LEGACY_READ_MATRIX` (issue #923, decision D-44).
+_LEGACY_READ_ROLES: frozenset[str] = frozenset({"developer", "key_user", "reader"})
 
 
 class Permission(StrEnum):
@@ -158,6 +165,51 @@ PERMISSIONS: dict[Role, frozenset[Permission]] = {
     }),
 }
 
+#: Explicit read-permission grant per legacy role (issue #923, D-44).
+#: Written literally on purpose: adding a new ``read:*`` permission to the
+#: enum without extending these sets fails the guard test
+#: ``test_legacy_read_matrix_covers_every_read_permission`` in
+#: ``tests/test_rbac.py``.  Unknown/unrecognized role strings resolve to an
+#: empty set here and are therefore denied on reads too (fail-closed).
+_LEGACY_READ_MATRIX: dict[str, frozenset[Permission]] = {
+    "developer": frozenset({
+        Permission.READ_ANIMALES,
+        Permission.READ_VOLUNTARIOS,
+        Permission.READ_ADOPCIONES,
+        Permission.READ_ACOGIDAS,
+        Permission.READ_CASAS_ACOGIDA,
+        Permission.READ_ENTRADAS,
+        Permission.READ_CESIONES,
+        Permission.READ_MATERIALES,
+        Permission.READ_SALUD,
+        Permission.READ_REPORTES,
+    }),
+    "key_user": frozenset({
+        Permission.READ_ANIMALES,
+        Permission.READ_VOLUNTARIOS,
+        Permission.READ_ADOPCIONES,
+        Permission.READ_ACOGIDAS,
+        Permission.READ_CASAS_ACOGIDA,
+        Permission.READ_ENTRADAS,
+        Permission.READ_CESIONES,
+        Permission.READ_MATERIALES,
+        Permission.READ_SALUD,
+        Permission.READ_REPORTES,
+    }),
+    "reader": frozenset({
+        Permission.READ_ANIMALES,
+        Permission.READ_VOLUNTARIOS,
+        Permission.READ_ADOPCIONES,
+        Permission.READ_ACOGIDAS,
+        Permission.READ_CASAS_ACOGIDA,
+        Permission.READ_ENTRADAS,
+        Permission.READ_CESIONES,
+        Permission.READ_MATERIALES,
+        Permission.READ_SALUD,
+        Permission.READ_REPORTES,
+    }),
+}
+
 
 def require_permission(
     permission: Permission,
@@ -176,10 +228,10 @@ def require_permission(
     2. Look up ``user["rol"]`` in :data:`PERMISSIONS`.
        - Role in new ``Role`` enum and has ``permission`` → return user.
        - Role NOT in new ``Role`` enum (legacy role):
-         * For read permissions (``read:*``): allow any authenticated legacy role.
-         * For write/delete permissions (``write:*``, ``delete:*``):
-           allow only legacy writer roles (DEVELOPER, KEY_USER).
-           ADMIN is handled by the new matrix (above).
+         * Read permissions granted by :data:`_LEGACY_READ_MATRIX` → return user.
+         * Write/delete permissions: allow only legacy writer roles
+           (DEVELOPER, KEY_USER).
+         * Anything else (including unknown role strings) → HTTPException(403).
        - Role lacks ``permission`` → raise HTTPException(403).
 
     Args:
@@ -231,10 +283,11 @@ def require_permission(
                 detail="Permisos insuficientes",
             )
 
-        # Legacy role fallback (backward compatibility):
-        # - Read permissions (read:*): any authenticated legacy role allowed
+        # Legacy role fallback (explicit mapping, fail-closed — issue #923):
+        # - Read permissions: only the grants in _LEGACY_READ_MATRIX.
         # - Write/delete permissions: only legacy writer roles allowed
-        #   (DEVELOPER, KEY_USER — not ADMIN, which is in new Role enum)
+        #   (DEVELOPER, KEY_USER — not ADMIN, which is in new Role enum).
+        # - Everything else, including unknown role strings, is denied.
         if rol_str is None:
             # Unauthenticated / no role
             log_safe(
@@ -249,12 +302,7 @@ def require_permission(
             )
 
         permission_value = permission.value
-        is_read = permission_value.startswith("read:")
         is_write_or_delete = permission_value.startswith("write:") or permission_value.startswith("delete:")
-
-        if is_read:
-            # Any authenticated role can read (pre-RBAC behaviour)
-            return payload  # type: ignore[return-value]
 
         if is_write_or_delete:
             # Only legacy writer roles can write/delete
@@ -271,6 +319,11 @@ def require_permission(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Permisos insuficientes para escribir.",
             )
+
+        # Read/manage permission: explicit legacy read mapping only.
+        # Unknown roles resolve to an empty set here and are denied.
+        if permission in _LEGACY_READ_MATRIX.get(rol_str, frozenset()):
+            return payload  # type: ignore[return-value]
 
         # Role not in new model and lacks required legacy permission
         log_safe(
