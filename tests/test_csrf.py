@@ -178,11 +178,15 @@ async def test_get_auth_magic_verify_is_not_403(
     ``test_magic_link_routes.py`` integration atoms; here we only pin
     that the exemption lets the verify handler run to completion and
     mint the session. The URL carries the state pre-bound by the
-    fixture (issue #1004): a stateless verify now fails closed.
+    fixture (issue #1004) AND the request presents the matching
+    ``apap_magic_state`` cookie as an explicit header: since the
+    round-1 fix, the browser binding requires cookie == URL state, and
+    the unit-test client never ran ``/start`` to earn it.
     """
+    state = _fake_magic_link_port[1]
     response = await client.get(
-        "/auth/magic/verify?token=test-token&state="
-        + _fake_magic_link_port[1],
+        "/auth/magic/verify?token=test-token&state=" + state,
+        headers={"Cookie": f"apap_magic_state={state}"},
         follow_redirects=False,
     )
     assert response.status_code != 403, (

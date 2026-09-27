@@ -33,7 +33,10 @@ import httpx
 import pytest
 
 from app.core.local_backend.app import create_app
-from tests.integration.test_magic_link_routes import _seed_active_user
+from tests.integration.test_magic_link_routes import (
+    _extract_token_and_state,
+    _seed_active_user,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -81,28 +84,12 @@ async def ml_client(
         app.state.public_base_url = "https://apap.romancaba.com"
         client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
-            base_url="http://test",
+            base_url="https://test",
         )
         try:
             yield client, fake_smtp, app.state.public_base_url
         finally:
             await client.aclose()
-
-_USER = "ana@test.com"
-
-
-def _extract_token_and_state(body: str, base_url: str) -> tuple[str, str]:
-    """Parse ``(token, state)`` from the emailed verify URL.
-
-    Fails the test when the link does not carry the ``state`` query
-    parameter — the parameter IS the fix under test.
-    """
-    prefix = f"{base_url}/auth/magic/verify?token="
-    assert prefix in body, "email body must contain the verify URL"
-    query = body.split(prefix, 1)[1].split()[0]
-    token, sep, state = query.partition("&state=")
-    assert sep and state, "verify URL must carry a non-empty state parameter"
-    return token, state
 
 
 async def _start(client: httpx.AsyncClient, smtp: _FakeSMTPTransport, base_url: str) -> tuple[str, str]:
@@ -130,6 +117,29 @@ async def test_magic_start_embeds_state_in_verify_url(
     assert all(c.isalnum() or c in "-_" for c in state)
 
 
+@pytest.mark.asyncio
+async def test_start_sets_browser_binding_state_cookie(
+    ml_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
+) -> None:
+    """POST /start set-cookies ``apap_magic_state`` in the initiating
+    browser: HttpOnly, Secure, SameSite=lax, scoped to /auth/magic and
+    with the state-binding TTL as Max-Age (issue #1004 round-1 fix)."""
+    client, fake_smtp, base_url = ml_client
+    start = await client.post("/auth/magic/start", json={"email": _USER})
+    assert start.status_code == 200
+    set_cookie = start.headers.get("set-cookie", "")
+    assert "apap_magic_state=" in set_cookie
+    assert "HttpOnly" in set_cookie
+    assert "Secure" in set_cookie
+    assert "SameSite=lax" in set_cookie
+    assert "Path=/auth/magic" in set_cookie
+    assert "Max-Age=1800" in set_cookie
+    # The cookie value is the same state that travels in the emailed
+    # URL — verify compares them for equality.
+    _, state = _extract_token_and_state(fake_smtp.sent[0]["body"], base_url)
+    assert client.cookies.get("apap_magic_state") == state
+
+
 # --- attacker scenario: verify without / with wrong state ---------------------
 
 
@@ -138,14 +148,17 @@ async def test_verify_without_state_mints_no_session_and_preserves_token(
     ml_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
     self_host_schema,
 ) -> None:
-    """A verify URL stripped of its ``state`` (the attacker-crafted
-    shape) must NOT mint a session and must NOT consume the token —
-    the legit URL with the correct state still works afterwards."""
+    """A verify URL stripped of its ``state`` must NOT mint a session and
+    must NOT consume the token — even when the browser presents its
+    legitimate state cookie (the URL half of the binding is missing).
+    The legit full URL still works afterwards."""
     client, fake_smtp, base_url = ml_client
     _seed_active_user(self_host_schema, _USER)
     token, state = await _start(client, fake_smtp, base_url)
 
-    client.cookies.clear()
+    # The initiating browser keeps its state cookie (set by /start);
+    # only the URL half is missing.
+    assert client.cookies.get("apap_magic_state") == state
     attack = await client.get(
         f"/auth/magic/verify?token={token}", follow_redirects=False
     )
@@ -168,13 +181,16 @@ async def test_verify_with_wrong_state_fails_closed_and_preserves_token(
     ml_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
     self_host_schema,
 ) -> None:
-    """A verify URL with a mismatched state fails closed with the
-    no-oracle redirect and keeps the token usable for the legit link."""
+    """A verify URL with a state that does not match the browser's state
+    cookie fails closed with the no-oracle redirect and keeps the
+    token usable for the legit link."""
     client, fake_smtp, base_url = ml_client
     _seed_active_user(self_host_schema, _USER)
     token, state = await _start(client, fake_smtp, base_url)
 
-    client.cookies.clear()
+    # The browser presents its real cookie; the URL carries a foreign
+    # state. compare_digest must reject the mismatch.
+    assert client.cookies.get("apap_magic_state") == state
     attack = await client.get(
         f"/auth/magic/verify?token={token}&state={'A' * 43}",
         follow_redirects=False,
@@ -201,12 +217,13 @@ async def test_verify_with_correct_state_mints_session(
     self_host_schema,
 ) -> None:
     """The one-click legit flow: the link straight from the email
-    (token + state) still mints the session cookie."""
+    (token + state) in the browser that requested it (holding the
+    state cookie) mints the session cookie and EXPIRES the state
+    cookie (Set-Cookie with Max-Age=0)."""
     client, fake_smtp, base_url = ml_client
     _seed_active_user(self_host_schema, _USER)
     token, state = await _start(client, fake_smtp, base_url)
 
-    client.cookies.clear()
     response = await client.get(
         f"/auth/magic/verify?token={token}&state={state}",
         follow_redirects=False,
@@ -217,6 +234,12 @@ async def test_verify_with_correct_state_mints_session(
     assert "apap_session=" in set_cookie
     assert "HttpOnly" in set_cookie
     assert "SameSite=lax" in set_cookie
+    # The spent state cookie is expired in the same response (the
+    # delete_cookie header uses ``apap_magic_state=""`` with Max-Age=0;
+    # the expires date's comma makes per-attribute parsing brittle, so
+    # assert on the whole header).
+    assert 'apap_magic_state=""' in set_cookie
+    assert "Max-Age=0" in set_cookie
 
 
 # --- single-use state ----------------------------------------------------------
@@ -228,12 +251,20 @@ async def test_state_is_single_use_replay_fails_closed(
     self_host_schema,
 ) -> None:
     """A consumed state cannot be replayed: the second verify of the
-    same (token, state) pair gets the no-oracle redirect, no cookie."""
+    same (token, state) pair gets the no-oracle redirect, no cookie.
+
+    Deliberate choice (issue #1004 round-1, task item 3): the state
+    cookie captured from /start is RE-SENT explicitly on the second
+    request (the successful verify expired it in the browser jar), so
+    the replay failure is provably the server-side single-use state
+    binding, NOT the missing-cookie gate."""
     client, fake_smtp, base_url = ml_client
     _seed_active_user(self_host_schema, _USER)
     token, state = await _start(client, fake_smtp, base_url)
+    state_cookie = client.cookies.get("apap_magic_state")
+    assert state_cookie == state
+    cookie_header = {"Cookie": f"apap_magic_state={state_cookie}"}
 
-    client.cookies.clear()
     first = await client.get(
         f"/auth/magic/verify?token={token}&state={state}",
         follow_redirects=False,
@@ -243,6 +274,7 @@ async def test_state_is_single_use_replay_fails_closed(
 
     second = await client.get(
         f"/auth/magic/verify?token={token}&state={state}",
+        headers=cookie_header,
         follow_redirects=False,
     )
     assert second.status_code == 302
@@ -268,7 +300,9 @@ async def test_expired_state_fails_closed(
     assert set(store.keys()) == {state}
     store[state] = store[state]._replace(expires_at=0.0)
 
-    client.cookies.clear()
+    # The browser still presents its state cookie, so the failure is
+    # provably the expired server-side binding, not the cookie gate.
+    assert client.cookies.get("apap_magic_state") == state
     response = await client.get(
         f"/auth/magic/verify?token={token}&state={state}",
         follow_redirects=False,
@@ -276,3 +310,89 @@ async def test_expired_state_fails_closed(
     assert response.status_code == 302
     assert response.headers["location"] == "/login?reason=invalid_or_expired"
     assert "apap_session=" not in response.headers.get("set-cookie", "")
+
+
+# --- AC1: the emailed URL is not a bearer capability across browsers --------
+
+
+@pytest.fixture
+async def ml_two_clients(
+    self_host_schema,
+    monkeypatch: pytest.MonkeyPatch,
+) -> AsyncIterator[tuple[httpx.AsyncClient, httpx.AsyncClient, _FakeSMTPTransport, str]]:
+    """One app, two ASGI clients with INDEPENDENT cookie jars.
+
+    Models two distinct browsers: client A (the initiator, which holds
+    the ``apap_magic_state`` cookie set by ``/auth/magic/start``) and
+    client B (the victim, which only ever sees the URL the attacker
+    forwards). Each ``httpx.AsyncClient`` keeps its own cookie jar, so
+    this is the exact browser-boundary shape of acceptance criterion 1
+    of issue #1004.
+    """
+    monkeypatch.setenv("APAP_LOCAL_DB_URL", os.environ["APAP_TEST_POSTGRES_DSN"])
+    monkeypatch.setenv("APAP_LOCAL_DB_SCHEMA", self_host_schema.schema)
+    monkeypatch.setenv("APAP_SESSION_SECRET", "integration-test-secret-64-chars-long-padding-x")
+    monkeypatch.setenv(
+        "APAP_RAWSQL_AUTH_TOKEN",
+        "integration-test-rawsql-token-64-chars-padding-xyz-aaaaaa",
+    )
+
+    app = create_app()
+    fake_smtp = _FakeSMTPTransport()
+    async with app.router.lifespan_context(app):
+        app.state.smtp_transport = fake_smtp
+        app.state.public_base_url = "https://apap.romancaba.com"
+        client_a = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="https://test"
+        )
+        client_b = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="https://test"
+        )
+        try:
+            yield client_a, client_b, fake_smtp, app.state.public_base_url
+        finally:
+            await client_a.aclose()
+            await client_b.aclose()
+
+
+@pytest.mark.asyncio
+async def test_emailed_url_forwarded_to_another_browser_mints_no_session(
+    ml_two_clients: tuple[httpx.AsyncClient, httpx.AsyncClient, _FakeSMTPTransport, str],
+    self_host_schema,
+) -> None:
+    """AC1 (issue #1004): the full emailed URL — token AND state — is NOT
+    a bearer capability.
+
+    An attacker requests a link for their OWN account and forwards the
+    complete URL (both secrets it carries) to the victim. The victim's
+    browser (client B) has no ``apap_magic_state`` cookie, so the URL
+    must fail closed with NO session minted. The initiator's browser
+    (client A), which holds the cookie from ``/auth/magic/start``, can
+    still complete the login with the same URL.
+    """
+    client_a, client_b, fake_smtp, base_url = ml_two_clients
+    _seed_active_user(self_host_schema, _USER)
+
+    start = await client_a.post("/auth/magic/start", json={"email": _USER})
+    assert start.status_code == 200, start.text
+    assert len(fake_smtp.sent) == 1
+    token, state = _extract_token_and_state(fake_smtp.sent[0]["body"], base_url)
+    full_url = f"/auth/magic/verify?token={token}&state={state}"
+
+    # Victim's browser: has the full URL but not the initiating
+    # browser's state cookie. Must get the fail-closed redirect and NO
+    # session cookie.
+    victim = await client_b.get(full_url, follow_redirects=False)
+    assert victim.status_code == 302
+    assert victim.headers["location"] == "/login?reason=invalid_or_expired"
+    assert "apap_session=" not in victim.headers.get("set-cookie", ""), (
+        "client B (no state cookie) must NOT mint a session from the "
+        "forwarded full URL — login CSRF is still open"
+    )
+
+    # Initiator's browser: same URL, holds the state cookie from the
+    # POST that started the flow → session minted.
+    initiator = await client_a.get(full_url, follow_redirects=False)
+    assert initiator.status_code == 302
+    assert initiator.headers["location"] == "/"
+    assert "apap_session=" in initiator.headers.get("set-cookie", "")

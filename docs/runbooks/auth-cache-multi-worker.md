@@ -11,7 +11,7 @@ Este runbook cubre la evolución de la caché de autorización entre un worker �
 | Cuándo abrir este runbook | Disparadores que justifican la apertura del runbook |
 | Estado actual de producción | Tabla de propiedades confirmadas del despliegue en Coolify |
 | Lista de comprobación previa | Verificaciones de configuración previas al escalado |
-| Pasos de despliegue | Procedimiento para uno o varios workers/replicas |
+| Pasos de despliegue | Procedimiento para uno o varios workers/replicas (incluye la restricción del almacén de estado del magic-link, #1004) |
 | Verificación | Señales de éxito: healthz, procesos y registros de arranque |
 | Reversión | Vuelta al worker único con TTL positiva |
 
@@ -23,6 +23,7 @@ Abra este runbook en las siguientes situaciones:
 - Antes de incrementar el número de replicas de la aplicación Coolify por encima de uno.
 - Cuando un usuario desactivado permanece autorizado en otro worker.
 - Cuando se modifiquen `APAP_AUTH_CACHE_TTL_SECONDS` o `APAP_AUTH_CACHE_BACKEND`.
+- Antes de escalar, si el login magic-link forma parte del flujo activo: el almacén de estados del magic-link es local al worker (ver «Restricción del almacén de estado del magic-link» en Pasos de despliegue).
 
 ## Estado actual de producción
 
@@ -68,6 +69,17 @@ El despliegue actual, por tanto, no requiere invalidación entre workers. `inval
 5. Redespliegue de nuevo y complete la verificación siguiente.
 
 El TTL cero invalida cada consulta a la caché, de modo que cada petición autenticada consulta `usuarios_autorizados`. Esto preserva la revocación inmediata entre workers independientes sin reivindicar invalidación para todo el clúster.
+
+### Restricción del almacén de estado del magic-link (issue #1004)
+
+El binding estado↔token del magic-link (issue #1004) vive en un almacén **en proceso, por worker** (`app.state._magic_link_states`, TTL derivado del TTL del token, 30 minutos por defecto). Esta restricción es independiente de la caché de autorización anterior y `APAP_AUTH_CACHE_TTL_SECONDS=0` **NO la cubre**: ese ajuste solo desactiva la caché de veredictos de autorización, no mueve el almacén de estados a un backend compartido.
+
+Con `N > 1` workers o réplicas, sin backend compartido:
+
+- El `POST /auth/magic/start` que emite el estado y el `GET /auth/magic/verify` que lo consume pueden aterrizar en workers distintos. El worker que recibe el verify no encuentra el binding → redirección fail-closed a `/login?reason=invalid_or_expired` → el login legítimo de un solo clic se rompe de forma intermitente (probabilidad 1/N por petición según el balanceo).
+- El single-use del estado deja de ser global: el mismo `(token, state)` podría consumirse una vez por worker mientras el binding siga vivo en otro.
+
+Regla operativa: **no escale a varios workers sin migrar antes el almacén de estados a un backend compartido** (p. ej. la misma Postgres que ya usa el `MagicLinkPortImpl`, con TTL y borrado atómico). El escalado de la caché de auth con TTL cero no autoriza por sí solo el escalado del flujo magic-link.
 
 ## Verificación
 

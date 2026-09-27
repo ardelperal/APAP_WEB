@@ -32,11 +32,31 @@ attacker could hand to a victim to force the attacker's session into
 the victim's browser. Every token minted by ``/auth/magic/start`` is
 now bound server-side to a random single-use ``state`` value embedded
 in the emailed verify URL (see :func:`_issue_state` for the storage
-decision). Verify requires the exact ``state`` BEFORE consuming the
-token: missing / wrong / expired / replayed state gets the same
-no-oracle ``/login?reason=invalid_or_expired`` redirect with the token
-NOT consumed, so the binding cannot be probed without burning a
+decision) AND to the initiating browser via a ``apap_magic_state``
+cookie (product decision of #1004, round-1 fix). Verify requires the
+exact ``state`` in the URL AND a cookie equal to it (timing-safe
+comparison) BEFORE consuming the token: missing / wrong / expired /
+replayed state gets the same no-oracle
+``/login?reason=invalid_or_expired`` redirect with the token NOT
+consumed, so the binding cannot be probed without burning a
 legitimately received URL.
+
+Browser binding: the emailed URL carries both secrets (token and
+state), so the URL alone is still a bearer capability — the cookie is
+what makes it non-forwardable. ``/auth/magic/start`` set-cookies
+``apap_magic_state`` (HttpOnly, Secure, SameSite=Lax, Path=/auth/magic,
+same TTL as the state binding) in the browser that requested the
+link; ``/auth/magic/verify`` demands that cookie. A URL forwarded to
+a DIFFERENT browser (the login-CSRF attack) fails closed there, and
+the attacker cannot plant the cookie in the victim's browser because
+cookies are only set by responses to requests the victim's browser
+itself made. ACCEPTED LIMITATION (operator decision, issue #1004):
+the link is NOT portable across devices — a user who requests the
+link on their phone and opens it on their laptop gets the fail-closed
+redirect and must re-request the link from the target device. The
+cookie TTL matches the state TTL so both halves of the binding expire
+together (see :mod:`app.core.local_backend.state_cookie` for the
+cookie contract).
 
 The router is THIN: parsing + guards + delegation only; the SQL
 lives in :class:`MagicLinkPortImpl`, the SMTP send lives in
@@ -70,6 +90,11 @@ from app.core.csrf import issue_csrf_to_session
 from app.core.data_access import BackendError
 from app.core.local_backend.auth_adapter import LocalBackendAuthUsersAdapter
 from app.core.local_backend.db import DatabaseError, QueryError
+from app.core.local_backend.state_cookie import (
+    expire_state_cookie,
+    set_state_cookie,
+    state_cookie_matches,
+)
 from app.core.logging import log_safe
 from app.core.session import write_session
 
@@ -91,9 +116,14 @@ router = APIRouter()
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 _STATE_TTL_SECONDS = 1800
-"""TTL of the verify-state binding, mirroring the magic-link token
-default TTL (30 min) the port issues with. Both expire together: a
-state outliving its token (or vice versa) would break the pairing."""
+"""Fallback TTL of the verify-state binding.
+
+The EFFECTIVE TTL is derived from the wired port's token TTL at
+binding creation (see :func:`_state_ttl_for`) so a state can never
+outlive the token it authorises; this constant is the fallback for a
+port that does not expose its TTL and the value unit tests pin the
+equality against (issue #1004, JD-B-005).
+"""
 
 
 class _StateBinding(NamedTuple):
@@ -134,14 +164,33 @@ def _state_store(app: FastAPI) -> dict[str, _StateBinding]:
     return store
 
 
-def _issue_state(app: FastAPI, raw_token: str) -> str:
+def _state_ttl_for(port: MagicLinkPort) -> int:
+    """Return the state-binding TTL derived from the wired port's token TTL.
+
+    Coupling (issue #1004, JD-B-005): the state and the token it
+    authorises must expire together, so the TTL is read from the port
+    at binding creation instead of being an independent constant. The
+    ``MagicLinkPort`` protocol does not expose a TTL, so this reads the
+    concrete adapter's ``_ttl`` attribute (set by ``MagicLinkPortImpl``
+    from the lifespan wiring) with a fallback to ``_STATE_TTL_SECONDS``
+    for any port that does not carry one. Equality with the adapter
+    default is pinned in ``tests/test_magic_link_state_ttl.py``.
+    """
+    ttl = getattr(port, "_ttl", None)
+    if isinstance(ttl, int) and ttl > 0:
+        return ttl
+    return _STATE_TTL_SECONDS
+
+
+def _issue_state(app: FastAPI, raw_token: str, *, ttl_seconds: int = _STATE_TTL_SECONDS) -> str:
     """Bind a fresh single-use ``state`` to ``raw_token`` and return it.
 
     The value is 256 bits of URL-safe entropy, embedded in the emailed
     verify URL (issue #1004). Only the token HASH is stored — the raw
     token never touches the binding, mirroring the port's "only the
     SHA-256 is persisted" posture. Expired bindings are pruned on each
-    issue so the store cannot grow without bound.
+    issue so the store cannot grow without bound. The TTL derives from
+    the wired port's token TTL (see :func:`_state_ttl_for`).
     """
     store = _state_store(app)
     now = time.monotonic()
@@ -150,7 +199,7 @@ def _issue_state(app: FastAPI, raw_token: str) -> str:
     state = secrets.token_urlsafe(32)
     store[state] = _StateBinding(
         token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
-        expires_at=now + _STATE_TTL_SECONDS,
+        expires_at=now + ttl_seconds,
     )
     return state
 
@@ -307,7 +356,9 @@ def _set_apap_session_cookie(response: Response, payload: dict[str, object], sec
 
 
 @router.post("/auth/magic/start")
-async def start_magic_link(request: Request, payload: dict[str, object]) -> dict:
+async def start_magic_link(
+    request: Request, response: Response, payload: dict[str, object]
+) -> dict:
     """Mint a magic-link token and queue the verify email.
 
     The handler reads the canonical email from the body, validates the
@@ -331,8 +382,11 @@ async def start_magic_link(request: Request, payload: dict[str, object]) -> dict
     raw_token = port.create_token(email)
     # Login CSRF fix (issue #1004): bind the token to a single-use
     # state that travels ONLY in the emailed link, so the verify URL
-    # cannot be reconstructed from the token alone.
-    state = _issue_state(request.app, raw_token)
+    # cannot be reconstructed from the token alone, and set the state
+    # cookie in the initiating browser so the URL is not forwardable.
+    state_ttl = _state_ttl_for(port)
+    state = _issue_state(request.app, raw_token, ttl_seconds=state_ttl)
+    set_state_cookie(response, state, max_age=state_ttl)
     verify_url = f"{base_url}/auth/magic/verify?token={raw_token}&state={state}"
     transport.send(
         to_addr=email,
@@ -380,7 +434,16 @@ async def verify_magic_link(
     port: MagicLinkPort = request.app.state.magic_link_port
     secret: str = request.app.state.session_secret
 
-    # State first (issue #1004): a state failure never burns the token.
+    # Browser binding first (issue #1004): the URL state and the state
+    # cookie must both be present and equal. A mismatch never burns the
+    # server-side binding, so nothing is consumed on the fail path.
+    if not state_cookie_matches(request, state):
+        return Response(
+            status_code=302,
+            headers={"location": "/login?reason=invalid_or_expired"},
+        )
+
+    # State second (a state failure never burns the token).
     if not _consume_state(request.app, state, token):
         return Response(
             status_code=302,
@@ -410,6 +473,9 @@ async def verify_magic_link(
         headers={"location": "/"},
     )
     _set_apap_session_cookie(redirect, _build_session_payload(user), secret)
+    # The binding is spent: expire the state cookie so the browser
+    # drops it together with the consumed server-side state.
+    expire_state_cookie(redirect)
     # Mirror the OAuth callback's ``auth.login`` event (app.core.auth_flow)
     # so magic-link logins appear in the same audit stream. ``email`` is
     # redacted by ``log_safe``'s closed PII list.
