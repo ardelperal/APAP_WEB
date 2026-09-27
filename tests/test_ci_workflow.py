@@ -103,10 +103,9 @@ def test_ci_workflow_defines_lint_test_and_build_jobs() -> None:
 
 
 def test_ci_workflow_runs_release_e2e_job_with_playwright() -> None:
-    """Issue #780: E2E has no feature flag but runs only for release events.
-
-    Tags and manual dispatch must execute the Playwright suite; pull requests,
-    regular pushes, and the removed schedule trigger must not reach the job.
+    """E2E executes the Playwright suite on release events and, since issue
+    #895, on any pull_request / branch push whose ui-detection job detected
+    a UI-path change.
     """
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
@@ -125,6 +124,59 @@ def test_ci_workflow_runs_release_e2e_job_with_playwright() -> None:
     assert "playwright" in workflow.lower()
     # And it must actually execute the suite.
     assert "pytest tests/e2e_ci/" in workflow
+
+
+# --- issue #895: UI e2e gate ------------------------------------------------
+
+
+def test_ci_workflow_defines_ui_detection_job_consuming_the_checker() -> None:
+    """Issue #895 (design D1/D2): ci.yml must define a ``ui-detection`` job
+    whose UI path list comes from the single source of truth in
+    scripts/check_required_jobs.py (``--print-ui-paths``), never from an
+    inline copy that could drift from the checker and the deploy gate.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    block = _job_block(workflow, "ui-detection")
+
+    assert "scripts/check_required_jobs.py --print-ui-paths" in block
+    # The marker is published as a job output so `required`'s checker can
+    # verify the skip semantics structurally from toJSON(needs).
+    assert "ui_changed:" in block
+    assert 'echo "ui_changed=' in block
+    # The diff needs the full history.
+    assert "fetch-depth: 0" in block
+    # pull_request: merge-base diff against the event base ref (same shape
+    # as pr-size.yml, issue #525); push/dispatch: parent-commit diff.
+    assert "github.base_ref" in block
+    assert "merge-base" in block
+    assert "HEAD^" in block
+
+
+def test_ci_workflow_e2e_runs_when_ui_changed_or_on_release_events() -> None:
+    """Issue #895 (design D2): the e2e job must run on the SHA under test
+    when ui-detection reports ui_changed=true, in addition to the release
+    events from issue #780. A UI change can no longer reach a merge with a
+    silently skipped e2e.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    start = workflow.index("\n  e2e:")
+    section = workflow[start : workflow.index("\n  required:", start)]
+
+    assert "needs: [build, ui-detection]" in section
+    if_clause = section[section.index("if:") : section.index("services:")]
+    assert "needs.ui-detection.outputs.ui_changed == 'true'" in if_clause
+
+
+def test_ci_workflow_required_consumes_the_ui_detection_output() -> None:
+    """Issue #895: ``required`` must depend on ui-detection so its
+    ``ui_changed`` output is part of the ``toJSON(needs)`` payload the
+    checker reads structurally (no second, drift-prone env channel).
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    required = _job_block(workflow, "required")
+
+    assert "\n      - ui-detection" in required
+    assert "CI_NEEDS_JSON: ${{ toJSON(needs) }}" in required
 
 
 def test_ci_workflow_does_not_include_diagnostic_secret_leak_scan() -> None:

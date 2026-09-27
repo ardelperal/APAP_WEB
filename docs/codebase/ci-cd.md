@@ -35,14 +35,29 @@ pull request
 
 | Evento | Comportamiento |
 |---|---|
-| Pull request | Ejecuta todos los checks obligatorios, incluido el smoke Playwright. |
-| Tag `v*` | Ejecuta controles profundos y la matriz de release. |
+| Pull request | Ejecuta los checks obligatorios. `e2e` corre solo cuando `ui-detection` detecta cambios de UI en la revisión; con `ui_changed=false` el job se omite de forma explícita y `required` acepta ese skip únicamente porque el run lleva el marcador (issue #895). |
+| Push a `staging` | Mismo contrato de e2e que el pull request: corre solo si el diff contra el commit padre toca una ruta de UI (issue #895). |
+| Tag `v*` | Ejecuta controles profundos y la matriz de release; `e2e` debe terminar en `success` y el marcador de no-UI no lo exime. |
 | Push a `main` | Ejecuta `deploy.yml`; no reconstruye una segunda CI. |
 | Ejecución manual | Permite validar CI o despliegue sin cambiar el contrato de evidencia; también sirve como ensayo previo a un tag para `mutation`, `security-deep` y `e2e`. |
 
 `ci.yml` no declara ningún trigger `schedule`: los controles pesados
-(`mutation`, `security-deep`, `e2e`) se reservan para el push de un tag `v*`
-o para `workflow_dispatch` (issue #780).
+(`mutation`, `security-deep`) se reservan para el push de un tag `v*`
+o para `workflow_dispatch` (issue #780). `e2e` corre en esos eventos de
+release y, además, en cualquier pull request o push a `staging` cuyo
+diff toque una ruta de UI (issue #895).
+
+## Superficie de UI
+
+La lista de prefijos de rutas que cuentan como cambio de UI vive en
+`scripts/check_required_jobs.py` (`UI_PATH_PREFIXES`): `app/templates/`
+(plantillas Jinja2), `app/static/` (CSS y JS que carga el navegador;
+`css/output.css` se compila desde Tailwind) y `tailwindcss/` (estilos
+fuente y build inputs). La consumen `ci.yml` (`ui-detection`) y
+`deploy.yml` (`ui-e2e-gate`) mediante `python
+scripts/check_required_jobs.py --print-ui-paths`, de modo que las tres
+piezas no pueden divergir. Quedan fuera deliberadamente los módulos de
+backend, `migration/`, `tests/` y `docs/`.
 
 ## Jobs de CI
 
@@ -59,7 +74,8 @@ o para `workflow_dispatch` (issue #780).
 | `integration` | SQL real contra PostgreSQL efímero. |
 | `verify-fallback-ready` | Condiciones automáticas del fallback legacy. |
 | `build` | Wheel, sdist y Dockerfile reproducible. |
-| `e2e` | Aplicación real, PostgreSQL y Chromium sin skips implícitos. |
+| `ui-detection` | Calcula `ui_changed` (diff contra la base del PR o el commit padre) consumiendo la lista de rutas UI del checker; publica el marcador que condiciona `e2e` y que `required` verifica (issue #895). |
+| `e2e` | Aplicación real, PostgreSQL y Chromium sin skips implícitos; corre en eventos de release y cuando la revisión cambia UI (issue #895). |
 | `required` | Valida resultados según el evento y produce el veredicto único. |
 
 El contexto visible es `ci / required`. La API de protección de ramas usa el
