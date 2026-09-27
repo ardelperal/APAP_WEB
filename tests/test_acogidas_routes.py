@@ -331,6 +331,186 @@ async def test_new_acogida_form_renders_with_csrf(
     assert "Fecha de inicio" in body
 
 
+# --- 4b. GET /acogidas/new?<query> — asignar redirect prefill (issue #1008) --
+
+
+class _FakePrefillAnimalsPort:
+    """Animals port stub backing the /new prefill validation (issue #1008).
+
+    The real ``get_animal_by_id`` application function delegates to this
+    port, so the stub decides whether the queried animal "exists".
+    """
+
+    def __init__(self, animal: object | None) -> None:
+        self._animal = animal
+        self.requested_ids: list[str] = []
+
+    def get_animal_by_id(self, animal_id: str) -> object | None:
+        self.requested_ids.append(animal_id)
+        return self._animal
+
+
+_ANIMAL_UUID = "11111111-1111-1111-1111-111111111111"
+_CASA_UUID = "33333333-3333-3333-3333-333333333333"
+_OVERRIDE_UUID = "44444444-4444-4444-4444-444444444444"
+
+
+async def test_new_acogida_form_prefills_animal_and_casa_from_query_params(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+) -> None:
+    """GET /acogidas/new?animal_id=X&casa_acogida_id=Y prefills the form.
+
+    Issue #1008: the /asignar 303 redirect carries the operator's ids as
+    query params; the /new handler must consume them so the form renders
+    with those values (previously form_data={} ignored them entirely).
+    """
+    _login_as_key_user(client)
+    app.dependency_overrides[get_animals_port] = lambda: _FakePrefillAnimalsPort(
+        object()
+    )
+
+    response = await client.get(
+        "/acogidas/new",
+        params={"animal_id": _ANIMAL_UUID, "casa_acogida_id": _CASA_UUID},
+    )
+
+    assert response.status_code == 200
+    body = response.text
+    assert f'name="animal_id" value="{_ANIMAL_UUID}"' in body
+    assert f'name="casa_acogida_id" value="{_CASA_UUID}"' in body
+    # No override in the query -> no hidden override field.
+    assert 'name="override_id"' not in body
+
+
+async def test_new_acogida_form_prefills_hidden_override_id(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+) -> None:
+    """A well-formed override_id query param renders the hidden field.
+
+    Issue #142 contract: the override recorded at /asignar must survive
+    into the create POST so ``create_acogida`` can link the
+    ``foster_capacity_overrides`` row (issue #1008 makes the redirect
+    contract real downstream).
+    """
+    _login_as_key_user(client)
+
+    response = await client.get(
+        "/acogidas/new", params={"override_id": _OVERRIDE_UUID}
+    )
+
+    assert response.status_code == 200
+    assert f'name="override_id" value="{_OVERRIDE_UUID}"' in response.text
+
+
+async def test_new_acogida_form_drops_malformed_override_id(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+) -> None:
+    """A malformed override_id is never echoed into the form.
+
+    Reflected-garbage guard: a hand-crafted ?override_id=<garbage> must
+    not surface in the rendered HTML (neither in the hidden field nor
+    anywhere else).
+    """
+    _login_as_key_user(client)
+    garbage = 'not-a-uuid"><script>alert(1)</script>'
+
+    response = await client.get("/acogidas/new", params={"override_id": garbage})
+
+    assert response.status_code == 200
+    body = response.text
+    assert garbage not in body
+    assert 'name="override_id"' not in body
+
+
+async def test_new_acogida_form_returns_404_for_unknown_animal_id(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+) -> None:
+    """A well-formed but nonexistent animal_id 404s (detail-route parity).
+
+    Consistency rule (issue #1008): GET /acogidas/{id} 404s unknown ids;
+    the prefill params identify real entities, so an unknown animal_id
+    gets the same treatment instead of silently rendering an empty form.
+    """
+    _login_as_key_user(client)
+    app.dependency_overrides[get_animals_port] = lambda: _FakePrefillAnimalsPort(
+        None
+    )
+
+    response = await client.get("/acogidas/new", params={"animal_id": _ANIMAL_UUID})
+
+    assert response.status_code == 404
+
+
+async def test_new_acogida_form_prefills_wellformed_unknown_casa_acogida_id(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+) -> None:
+    """A well-formed but nonexistent casa_acogida_id still prefills.
+
+    Documented asymmetry (issue #1008): the animal check runs through
+    the slice's injected ``AnimalsPort``, but the foster slice does not
+    expose its casa lookup via its public package root (check_layers
+    slice-internals rule) and this lane does not own foster/**, so casa
+    existence is enforced at submit time — ``create_acogida`` fails
+    closed with a 422 on an unknown casa. The producer only ever
+    redirects with a casa it just evaluated, so this only fires on
+    hand-crafted URLs. Malformed casa ids still 404 (see the malformed
+    parametrized test).
+    """
+    _login_as_key_user(client)
+    app.dependency_overrides[get_animals_port] = lambda: _FakePrefillAnimalsPort(
+        object()
+    )
+
+    response = await client.get(
+        "/acogidas/new",
+        params={"animal_id": _ANIMAL_UUID, "casa_acogida_id": _CASA_UUID},
+    )
+
+    assert response.status_code == 200
+    assert f'name="casa_acogida_id" value="{_CASA_UUID}"' in response.text
+
+
+@pytest.mark.parametrize(
+    ("params", "label"),
+    [
+        ({"animal_id": "garbage-not-a-uuid"}, "animal_id"),
+        (
+            {"animal_id": _ANIMAL_UUID, "casa_acogida_id": "garbage-not-a-uuid"},
+            "casa_acogida_id",
+        ),
+    ],
+)
+async def test_new_acogida_form_returns_404_for_malformed_entity_ids(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+    params: dict[str, str],
+    label: str,
+) -> None:
+    """A non-UUID animal_id/casa_acogida_id 404s; nothing is reflected.
+
+    The /asignar producer only ever emits real UUIDs, so a malformed id
+    means a hand-crafted URL: fail closed with 404 — a non-UUID can
+    never reference a row, so this mirrors the detail routes' not-found
+    outcome — and never echo the value.
+    """
+    _login_as_key_user(client)
+    app.dependency_overrides[get_animals_port] = lambda: _FakePrefillAnimalsPort(
+        object()
+    )
+
+    response = await client.get("/acogidas/new", params=params)
+
+    assert response.status_code == 404, f"malformed {label} must 404"
+    for value in params.values():
+        assert value not in response.text
+
+
 # --- 5. POST /acogidas (create, happy path) -------------------------------
 
 
