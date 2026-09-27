@@ -63,4 +63,13 @@ The allowlist is module-level in `tests/test_rbac.py` (the audit file). Routes o
 - [ ] Docs updated
 - [ ] Verification commands clean
 
+## Fence decision (PR #1033 unblock)
+
+The PR-diff `test` job still fails on pre-existing repo-wide reader-403 test rot that this PR does NOT cover. The PR scope fence is set on commit `4a9401b`:
+
+- IN scope: `tests/test_voluntarios_routes.py::test_create_voluntario_rejects_reader_with_403` and `::test_deactivate_voluntario_rejects_reader_with_403` (and the sibling pattern in `tests/test_voluntarios_role_routes.py`). Fixed in `4a9401b`.
+- OUT of scope: `tests/test_salud_routes.py::test_salud_write_routes_reject_reader_with_403` (6 parametrized cases) and any other reader-403 test in modules this PR does not touch. Same family (conftest default spy hardcodes `rol=key_user` for the auth reval), same shape, but lives in `tests/test_salud_routes.py` which is not in the #1019 PR's edit surfaces.
+
+Family tracked in #1041. PR #1033 lands without waiting for the family-level fix.
+
 <!-- odd:1019-role-guards-initial -->
