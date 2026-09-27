@@ -22,6 +22,8 @@ CHECK_RULES_SCRIPT_PATH = REPO_ROOT / "scripts" / "check_rules.py"
 BRANCH_PROTECTION_PATH = REPO_ROOT / ".github" / "branch-protection.md"
 DEVELOPMENT_GUIDE_PATH = REPO_ROOT / "docs" / "development.md"
 CI_CD_GUIDE_PATH = REPO_ROOT / "docs" / "codebase" / "ci-cd.md"
+MERGE_WORKFLOW_PATH = REPO_ROOT / "docs" / "codebase" / "merge-workflow.md"
+PROCESS_PATH = REPO_ROOT / "docs" / "proceso.md"
 
 
 def _workflow_job_names(path: Path) -> set[str]:
@@ -2405,3 +2407,47 @@ def test_main_audit_script_implements_detection_rule() -> None:
     assert "merge_commit_sha" in script
     assert "second_parents" in script or "rev-list" in script
     assert "Authorization" in script and "Bearer" in script
+
+
+def test_branch_protection_documents_the_post_hoc_audit() -> None:
+    """branch-protection.md must cite the audit and pin the verified state.
+
+    Combines the references to the audit, the verified live state
+    snapshot, the disabled ruleset reminder, and the multi-session
+    framing — the file is the contract readers reach first when they
+    ask "can a direct push land on main?" (issue #986).
+    """
+    note = BRANCH_PROTECTION_PATH.read_text(encoding="utf-8")
+    assert "main-audit" in note or "main_history_audit" in note
+    assert "issue #986" in note or "#986" in note
+    assert "2026-09-27" in note
+    assert "enforce_admins" in note
+    assert "disabled" in note
+
+
+def test_merge_workflow_documents_the_multi_session_norm() -> None:
+    """merge-workflow.md must add the multi-session norm (§16) and keep §15.
+
+    The norm spells out that N agent sessions share one admin credential,
+    so a direct push from one session destroys the PR+CI trail the other
+    sessions rely on. The §15 narrative stays intact (issue #986).
+    """
+    guide = MERGE_WORKFLOW_PATH.read_text(encoding="utf-8")
+    assert "issue #986" in guide or "#986" in guide
+    assert "main-audit" in guide
+    section = guide.split("### §15.5", 1)[1].split("###", 1)[0]
+    assert "main-audit" in section or "main_history_audit" in section
+    for marker in ("§15.1", "§15.2", "§15.4", "§15.5", "§15.7"):
+        assert marker in guide
+
+
+def test_process_doc_records_no_direct_push_invariant() -> None:
+    """docs/proceso.md must carry the P5 invariant (no direct push).
+
+    The invariant sits alongside P1–P4 so a session that loads
+    proceso.md sees the push-direct prohibition at the top (issue #986).
+    """
+    process = PROCESS_PATH.read_text(encoding="utf-8")
+    assert "P5-no-direct-push-multi-session" in process
+    assert "main-audit" in process
+    assert "push directo" in process
