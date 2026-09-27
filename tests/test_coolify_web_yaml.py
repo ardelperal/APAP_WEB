@@ -130,6 +130,12 @@ class TestEnvContract:
     REQUIRED_ENV_VARS = (
         "APAP_MODE",
         "APAP_SESSION_SECRET",
+        # Issue #1005 (fix round 1, JD-A-001/JD-B-004): the deploy contract
+        # MUST carry the magic-link flag explicitly (default-deny would
+        # answer /auth/magic/* with a fail-closed 404 and break
+        # magic-link login). Removing the yaml line fails
+        # ``test_required_env_vars_present``.
+        "APAP_AUTH_ENABLE_MAGIC_LINK",
         "APAP_LOCAL_BACKEND",
         "APAP_LOCAL_DB_URL",
         "APAP_SMTP_HOST",

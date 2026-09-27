@@ -144,7 +144,8 @@ def test_flag_off_probes_receive_fail_closed_404(monkeypatch) -> None:  # type: 
         )
         empty_start_response = client.post("/auth/magic/start", json={})
         verify_response = client.get(
-            "/auth/magic/verify?token=0" * 64, follow_redirects=False
+            "/auth/magic/verify?" + "token=" + "0" * 64,
+            follow_redirects=False,
         )
     finally:
         get_settings.cache_clear()
@@ -161,6 +162,105 @@ def test_flag_off_probes_receive_fail_closed_404(monkeypatch) -> None:  # type: 
     assert verify_response.status_code == 404, (
         f"GET /auth/magic/verify returned {verify_response.status_code} "
         f"with the flag off; expected the fail-closed 404"
+    )
+
+
+# --- middleware gate unit atom (JD-A-003, fix round 1) --------------------
+
+
+def test_flag_off_gate_short_circuits_before_routing() -> None:
+    """The middleware gate itself answers the 404 — not just the outcome.
+
+    JD-A-003 (fix round 1): ``test_flag_off_probes_receive_fail_closed_404``
+    passes identically with the gate deleted (router absent +
+    ``PUBLIC_PATHS`` passthrough produce the same unknown-route 404).
+    This atom exercises the gate directly: a router that WOULD answer
+    ``/auth/magic/start`` is registered on the app, so if the gate in
+    ``install_auth_middleware`` were removed the request would fall
+    through ``PUBLIC_PATHS`` and reach the stub handler (200). The gate
+    must short-circuit with the fail-closed 404 BEFORE routing, and the
+    stub must never run. Deleting the gate block in
+    ``app/core/middleware.py`` turns this atom RED.
+    """
+    from fastapi import FastAPI
+
+    from app.core.config import Settings
+    from app.core.middleware import install_auth_middleware
+
+    stub_hits: list[str] = []
+
+    probe_app = FastAPI()
+
+    @probe_app.post("/auth/magic/start")
+    def _stub_start() -> dict[str, str]:  # pragma: no cover - gate must prevent this
+        stub_hits.append("start")
+        return {"detail": "stub-reached"}
+
+    settings = Settings(
+        _env_file=None,
+        auth_enable_magic_link=False,
+        csrf_enabled=False,
+    )
+    install_auth_middleware(probe_app, settings)
+
+    client = TestClient(probe_app)
+    response = client.post("/auth/magic/start", json={"email": "ana@test.com"})
+
+    assert response.status_code == 404, (
+        f"POST /auth/magic/start with the flag off returned "
+        f"{response.status_code}; the middleware gate must answer the "
+        f"fail-closed 404 even when a handler is registered"
+    )
+    assert response.json() == {"detail": "Not Found"}, (
+        "the gate must emit the same 404 body FastAPI uses for an "
+        "unknown route"
+    )
+    assert stub_hits == [], (
+        "the stub handler ran: the middleware gate did NOT short-circuit "
+        "the request before routing"
+    )
+
+
+# --- fail-closed 404 observability (JD-B-005, fix round 1) ----------------
+
+
+def test_flag_off_404_logs_magic_link_disabled(
+    monkeypatch, caplog  # type: ignore[no-untyped-def]
+) -> None:
+    """The flag-off 404 logs ``auth.magic_link_disabled`` with the path.
+
+    JD-B-005 (fix round 1): a silent fail-closed 404 is indistinguishable
+    from a mis-deploy that dropped the router. The middleware must emit
+    the structured event (mirroring the ``csrf.disabled`` naming style)
+    with the probe path — and NOTHING else: no tokens, no emails.
+    """
+    from app.main import create_app
+
+    monkeypatch.setenv(FLAG_ENV_VAR, "false")
+    get_settings.cache_clear()
+    try:
+        client = TestClient(create_app())
+        with caplog.at_level("INFO", logger="app"):
+            response = client.post(
+                "/auth/magic/start", json={"email": "ana@test.com"}
+            )
+    finally:
+        get_settings.cache_clear()
+
+    assert response.status_code == 404
+    records = [
+        rec
+        for rec in caplog.records
+        if rec._caller_fields.get("event") == "auth.magic_link_disabled"
+    ]
+    assert records, (
+        "expected an auth.magic_link_disabled log record for the "
+        "fail-closed 404; got events: "
+        f"{[r._caller_fields.get('event') for r in caplog.records]}"
+    )
+    assert records[0]._caller_fields.get("path") == "/auth/magic/start", (
+        "the event must carry the probed path so an operator can "
+        "diagnose a mis-deploy"
     )
 
 
