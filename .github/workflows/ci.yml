@@ -611,9 +611,31 @@ jobs:
           set -euo pipefail
           images=$(grep -oE '^FROM [^ ]+@sha256:[a-f0-9]+' Dockerfile \
                    | awk '{print $2}' | sort -u)
-          echo "Scanning:"; echo "$images"
+          # Issue #1035: FROM lines interpolate ARGs (e.g.
+          # node:${NODE_VERSION}-bookworm-slim@sha256:...) and trivy dies with
+          # "could not parse reference" on the unresolved form. Resolve every
+          # ${NAME} against the ARG defaults the Dockerfile itself declares;
+          # the @sha256 digest pins pass through untouched. Pure shell — this
+          # job sets up no Python toolchain of its own.
+          arg_defaults=$(grep -oE '^ARG [A-Za-z_]+=[^ ]+' Dockerfile | awk '{print $2}')
+          resolved_images=""
+          while IFS= read -r img; do
+            [ -n "$img" ] || continue
+            resolved="$img"
+            for pair in $arg_defaults; do
+              name=${pair%%=*}
+              value=${pair#*=}
+              resolved=$(printf '%s' "$resolved" | sed "s/\${${name}}/${value}/g")
+            done
+            if printf '%s' "$resolved" | grep -q '\${'; then
+              echo "::error::unresolved ARG in base image '$img' (resolved to '$resolved'); an ARG used in FROM must declare a default in the Dockerfile."
+              exit 1
+            fi
+            resolved_images="${resolved_images}${resolved_images:+ }$resolved"
+          done <<< "$images"
+          echo "Scanning:"; echo "$resolved_images"
           status=0
-          for img in $images; do
+          for img in $resolved_images; do
             echo "::group::trivy $img"
             docker run --rm \
               aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
