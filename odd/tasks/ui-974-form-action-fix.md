@@ -87,7 +87,10 @@ fix, so no `tests/integration/` companion is required. No UI scope.
   route suites (1,018 passed in 23 s).
 - `git diff --stat origin/main`: `+139 / -3` across 2 files, well
   under the 400-line budget.
-- Work-unit commit: TBD (recorded after commit).
+- Work-unit commit: `db3f36afa717b25f996dba0501335e5b5b933120`
+  (`fix(animals): keep edit form action on validation-error rerender`).
+  Author: `el-Gentleman <alan@apap.local>` per the repo convention for
+  scripted work-unit commits on a feature branch.
 
 ## Learned
 
