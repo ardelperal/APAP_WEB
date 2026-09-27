@@ -548,6 +548,127 @@ async def test_update_animal_view_preserves_value_error_422_translation(
     )
 
 
+async def test_create_error_rerender_keeps_create_action(
+    client: httpx.AsyncClient,
+    animals_spy: _AnimalsRouteSpy,
+    animals_port: _AnimalsPortStub,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #974 — POST /animales with a ValueError keeps form_action=/animales.
+
+    Pins the create-branch contract for the error rerender: the
+    form's ``action`` attribute must still point at the create endpoint
+    (``POST /animales``) so the operator's resubmit hits the same
+    handler that produced the error. Regression test for #974.
+    """
+    captured: dict[str, Any] = {}
+
+    def render(*, context: dict[str, Any], status_code: int = 200, **_kwargs: Any) -> HTMLResponse:
+        captured["context"] = context
+        captured["status_code"] = status_code
+        return HTMLResponse("rendered", status_code=status_code)
+
+    monkeypatch.setattr(animals_routes._templates, "TemplateResponse", render)
+
+    def reject(**_kwargs: Any) -> Animal:
+        raise ValueError("invalid animal")
+
+    monkeypatch.setattr(animals_port, "create_animal", reject)
+    _login_as_key_user(client)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/animales",
+        form_data={
+            "NCHIP": "985112004409871",
+            "NombreAnimal": "Luna",
+            "Especie": "CANINA",
+            "Sexo": "H",
+            "FNacimiento": "2023-04-12",
+            "Terapia": "No",
+            "TraeNChip": "Si",
+            "FIMPLANTACIONCHIP": "2023-04-15",
+            "NombreFoto": "luna.jpg",
+        },
+    )
+
+    assert captured.get("status_code") == 422, (
+        f"create-error rerender must respond 422; got {captured.get('status_code')!r}"
+    )
+    assert response.status_code == 422, response.text
+    assert "text/html" in response.headers["content-type"], (
+        "create-error rerender must re-render the HTML form"
+    )
+    assert captured["context"]["form_action"] == "/animales", (
+        f"create-error rerender must keep form_action=/animales so the "
+        f"operator's resubmit hits the create endpoint; "
+        f"got {captured['context'].get('form_action')!r}"
+    )
+
+
+async def test_update_error_rerender_keeps_update_action(
+    client: httpx.AsyncClient,
+    animals_spy: _AnimalsRouteSpy,
+    animals_port: _AnimalsPortStub,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #974 — POST /animales/{id}/update error rerender keeps the update action.
+
+    Regression test for the duplicate-animal bug: when EDIT fails
+    validation, the rerendered form's ``action`` MUST stay
+    ``/animales/{animal_id}/update`` so the resubmit reaches the
+    update route. Previously ``_render_animal_form_error`` hardcoded
+    ``form_action="/animales"`` for both flows, so a corrected resubmit
+    posted to the create endpoint and could persist a duplicate row.
+    """
+    captured: dict[str, Any] = {}
+
+    def render(*, context: dict[str, Any], status_code: int = 200, **_kwargs: Any) -> HTMLResponse:
+        captured["context"] = context
+        captured["status_code"] = status_code
+        return HTMLResponse("rendered", status_code=status_code)
+
+    monkeypatch.setattr(animals_routes._templates, "TemplateResponse", render)
+
+    def reject(_animal_id: str, **_kwargs: Any) -> Animal | None:
+        raise ValueError("invalid animal")
+
+    monkeypatch.setattr(animals_port, "update_animal", reject)
+    _login_as_key_user(client)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/animales/abc-123/update",
+        form_data={
+            "NCHIP": "985112004409871",
+            "NombreAnimal": "Luna",
+            "Especie": "CANINA",
+            "Sexo": "H",
+            "FNacimiento": "2023-04-12",
+            "Terapia": "No",
+            "TraeNChip": "Si",
+            "FIMPLANTACIONCHIP": "2023-04-15",
+            "NombreFoto": "luna.jpg",
+        },
+    )
+
+    assert captured.get("status_code") == 422, (
+        f"update-error rerender must respond 422; got {captured.get('status_code')!r}"
+    )
+    assert response.status_code == 422, response.text
+    assert "text/html" in response.headers["content-type"], (
+        "update-error rerender must re-render the HTML form"
+    )
+    assert captured["context"]["form_action"] == "/animales/abc-123/update", (
+        f"update-error rerender MUST keep form_action=/animales/{{id}}/update "
+        f"with the same id from the request; otherwise a corrected resubmit "
+        f"would hit /animales (create) and duplicate the row. "
+        f"Got {captured['context'].get('form_action')!r}"
+    )
+
+
 # --- delete ----------------------------------------------------------------
 
 

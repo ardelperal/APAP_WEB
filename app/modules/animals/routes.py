@@ -363,7 +363,12 @@ def update_animal_view(
         port.update_animal(animal_id, **_animal_update_kwargs(form_data))
     except ValueError as exc:
         return _render_animal_form_error(
-            request, user, form_data, str(exc), status.HTTP_422_UNPROCESSABLE_CONTENT
+            request,
+            user,
+            form_data,
+            str(exc),
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            form_action=f"/animales/{animal_id}/update",
         )
 
     return RedirectResponse(
@@ -456,8 +461,18 @@ def _render_animal_form_error(
     form_data: dict[str, Any],
     error: str,
     status_code: int,
+    *,
+    form_action: str = "/animales",
 ) -> Response:
-    """Render the shared animal form error response."""
+    """Render the shared animal form error response.
+
+    Issue #974: ``form_action`` defaults to the create endpoint so the
+    create call site can keep its minimal positional invocation; the
+    update call site MUST pass ``f"/animales/{animal_id}/update"`` so
+    the error rerender posts back to the same handler that produced
+    the error (otherwise a corrected resubmit would hit the create
+    endpoint and duplicate the row).
+    """
     return _templates.TemplateResponse(
         request=request,
         name="animales/form.html",
@@ -467,7 +482,7 @@ def _render_animal_form_error(
             "error": error,
             "especies": [item.value for item in DomainEspecie],
             "sexos": [item.value for item in DomainSexo],
-            "form_action": "/animales",
+            "form_action": form_action,
         },
         status_code=status_code,
     )
