@@ -7,8 +7,8 @@ and serves the two endpoints the login flow expects:
   token via :class:`MagicLinkPort` and asks
   :class:`SMTPMailTransport` to deliver the verify URL. Returns
   ``{"status": "queued"}``. 400 on missing or malformed email.
-- ``GET /auth/magic/verify?token=...`` consumes the token, resolves the
-  user from the ``usuarios_autorizados`` table (via the
+- ``GET /auth/magic/verify?token=...&state=...`` consumes the token,
+  resolves the user from the ``usuarios_autorizados`` table (via the
   :class:`AuthUsersPort` seam, issue #917) and redirects to ``/`` with
   the signed ``apap_session`` cookie. The session payload matches the OAuth
   callback contract exactly (``csrf_token``, ``user_id``, ``rol``,
@@ -25,6 +25,18 @@ and serves the two endpoints the login flow expects:
   two outcomes are therefore distinguishable from the network side
   (``/unauthorized`` vs ``/login?reason=...``) and this module does
   NOT claim no-oracle parity between them.
+
+Login CSRF (issue #1004, JD-B-010 of #917): a verify GET set-cookies
+the session, so the bare ``token`` URL was a bearer capability an
+attacker could hand to a victim to force the attacker's session into
+the victim's browser. Every token minted by ``/auth/magic/start`` is
+now bound server-side to a random single-use ``state`` value embedded
+in the emailed verify URL (see :func:`_issue_state` for the storage
+decision). Verify requires the exact ``state`` BEFORE consuming the
+token: missing / wrong / expired / replayed state gets the same
+no-oracle ``/login?reason=invalid_or_expired`` redirect with the token
+NOT consumed, so the binding cannot be probed without burning a
+legitimately received URL.
 
 The router is THIN: parsing + guards + delegation only; the SQL
 lives in :class:`MagicLinkPortImpl`, the SMTP send lives in
@@ -45,8 +57,12 @@ Hard rules (apap-architecture HR-7, HR-8, HR-9):
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import re
-from typing import TYPE_CHECKING, Annotated
+import secrets
+import time
+from typing import TYPE_CHECKING, Annotated, NamedTuple
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 
@@ -73,6 +89,93 @@ router = APIRouter()
 # the canonical email is the only identifier; a future slice can
 # swap this for :mod:`email_validator` if the address space grows.
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+_STATE_TTL_SECONDS = 1800
+"""TTL of the verify-state binding, mirroring the magic-link token
+default TTL (30 min) the port issues with. Both expire together: a
+state outliving its token (or vice versa) would break the pairing."""
+
+
+class _StateBinding(NamedTuple):
+    """Server-side binding between a single-use ``state`` value and the
+    magic-link token it authorises (issue #1004).
+
+    Storage decision: an in-process store on ``app.state``, not the
+    ``MagicLinkPort`` store. Reusing the port would mean persisting the
+    state as a second ``magic_link_tokens`` row, but the port does not
+    enforce ``purpose`` — a state value stored there would be
+    consumable as a LOGIN token at ``?token=<state>``, turning the
+    state into a second independent login credential in the same URL.
+    The port also cannot carry an ephemeral non-credential secret
+    without adapter + schema changes (outside this slice). An
+    in-process binding keeps the state a NON-credential: it is useless
+    without the token it is bound to. Restarting the process loses
+    outstanding bindings, which fails closed (verify redirects to the
+    login page; the user requests a fresh link)."""
+
+    token_hash: str
+    """SHA-256 hex of the raw token this state authorises."""
+
+    expires_at: float
+    """``time.monotonic()`` deadline for the binding."""
+
+
+def _state_store(app: FastAPI) -> dict[str, _StateBinding]:
+    """Return the per-app state store, creating it lazily on first use.
+
+    Lazy creation keeps the wiring inside this module: neither
+    ``app/main.py`` nor the standalone backend lifespan needs a new
+    line, and every app instance gets an isolated store (tests included).
+    """
+    store = getattr(app.state, "_magic_link_states", None)
+    if store is None:
+        store = {}
+        app.state._magic_link_states = store
+    return store
+
+
+def _issue_state(app: FastAPI, raw_token: str) -> str:
+    """Bind a fresh single-use ``state`` to ``raw_token`` and return it.
+
+    The value is 256 bits of URL-safe entropy, embedded in the emailed
+    verify URL (issue #1004). Only the token HASH is stored — the raw
+    token never touches the binding, mirroring the port's "only the
+    SHA-256 is persisted" posture. Expired bindings are pruned on each
+    issue so the store cannot grow without bound.
+    """
+    store = _state_store(app)
+    now = time.monotonic()
+    for expired in [key for key, binding in store.items() if binding.expires_at <= now]:
+        del store[expired]
+    state = secrets.token_urlsafe(32)
+    store[state] = _StateBinding(
+        token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
+        expires_at=now + _STATE_TTL_SECONDS,
+    )
+    return state
+
+
+def _consume_state(app: FastAPI, state: str | None, raw_token: str) -> bool:
+    """Return ``True`` only for the ONE valid use of ``state`` on ``raw_token``.
+
+    Single-use by construction: the binding is popped BEFORE it is
+    judged, so a failed verify (expired, wrong token) also consumes the
+    state and a replay always finds the store empty. Fail closed on
+    every miss: missing value, unknown value, expired binding, or a
+    state presented over a different token than the one it was minted
+    for (the token-hash comparison is timing-safe via
+    ``hmac.compare_digest``; the state key itself is 256-bit random,
+    so its dict lookup is not a timing oracle worth hardening).
+    """
+    if not state:
+        return False
+    binding = _state_store(app).pop(state, None)
+    if binding is None:
+        return False
+    if binding.expires_at <= time.monotonic():
+        return False
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    return hmac.compare_digest(binding.token_hash, token_hash)
 
 
 def _resolve_auth_users_port(app: FastAPI) -> AuthUsersPort | None:
@@ -226,7 +329,11 @@ async def start_magic_link(request: Request, payload: dict[str, object]) -> dict
     base_url: str = request.app.state.public_base_url
 
     raw_token = port.create_token(email)
-    verify_url = f"{base_url}/auth/magic/verify?token={raw_token}"
+    # Login CSRF fix (issue #1004): bind the token to a single-use
+    # state that travels ONLY in the emailed link, so the verify URL
+    # cannot be reconstructed from the token alone.
+    state = _issue_state(request.app, raw_token)
+    verify_url = f"{base_url}/auth/magic/verify?token={raw_token}&state={state}"
     transport.send(
         to_addr=email,
         subject="Tu enlace de acceso a APAP",
@@ -248,22 +355,37 @@ async def verify_magic_link(
     request: Request,
     response: Response,
     token: Annotated[str, Query(...)],
+    state: Annotated[str | None, Query()] = None,
 ) -> Response:
-    """Consume the token, set the session cookie, redirect home.
+    """Consume the state, the token, set the session cookie, redirect home.
 
-    The handler reads the port + secret from ``app.state``. On success
-    it resolves the ACTIVE user for the token's email via the
-    :class:`AuthUsersPort` seam (issue #917) and returns a 302 to ``/``
-    with the ``apap_session`` cookie attached. If the email is not an
-    active user (or the lookup fails) it redirects to
-    ``/unauthorized`` WITHOUT a cookie — fail closed. On token failure
-    (unknown / used / expired) it redirects to
-    ``/login?reason=invalid_or_expired`` without setting a cookie — the
-    route never tells the caller WHY the token failed (no oracle for
-    token validity).
+    The handler reads the port + secret from ``app.state``. First it
+    validates the single-use ``state`` bound to this token at
+    ``/auth/magic/start`` (issue #1004): missing / wrong / expired /
+    replayed state returns the SAME no-oracle
+    ``/login?reason=invalid_or_expired`` redirect as a bad token and
+    does NOT consume the token — a user who clicks a truncated link can
+    retry with the full URL. On success the state is spent, then the
+    token: a valid state over an invalid token consumes only the state
+    (both are one-shot, so nothing is left half-usable).
+
+    On success it resolves the ACTIVE user for the token's email via
+    the :class:`AuthUsersPort` seam (issue #917) and returns a 302 to
+    ``/`` with the ``apap_session`` cookie attached. If the email is
+    not an active user (or the lookup fails) it redirects to
+    ``/unauthorized`` WITHOUT a cookie — fail closed. The route never
+    tells the caller WHY it failed (no oracle for token or state
+    validity).
     """
     port: MagicLinkPort = request.app.state.magic_link_port
     secret: str = request.app.state.session_secret
+
+    # State first (issue #1004): a state failure never burns the token.
+    if not _consume_state(request.app, state, token):
+        return Response(
+            status_code=302,
+            headers={"location": "/login?reason=invalid_or_expired"},
+        )
 
     email = port.consume_token(token)
     if email is None:
