@@ -114,7 +114,7 @@ Las 33 reglas de AGENTS (numeradas §1-§33) viven ahora en `docs/codebase/`. Es
 | §16 | [process.md](docs/codebase/process.md) | Issue lifecycle con P1-P4; opera con `docs/proceso.md` |
 | §17 | [orchestrator-discipline.md](docs/codebase/orchestrator-discipline.md) | Coordinar, delegar, lentes de revisión, AGENTS.md vía PR |
 | §18, §31, §33 | [architecture.md](docs/codebase/architecture.md) | Modo exclusivo web↔legacy, Protocol, ubicación de slice hexagonal |
-| §19, §20, §23, §24 | [quality-gates.md](docs/codebase/quality-gates.md) | Cobertura 80%, linter APAP, E2E net, mypy zero errores |
+| §19, §20, §23, §24 | [quality-gates.md](docs/codebase/quality-gates.md) | Cobertura 85%, linter APAP, E2E net, mypy zero errores |
 | §21, §28 | [module-size-budgets.md](docs/codebase/module-size-budgets.md) | 700 líneas módulo / 50 líneas handler con BASELINE shrink-only |
 | §25, §26, §27 | [import-hygiene.md](docs/codebase/import-hygiene.md) | Helpers sin duplicar, lazy-imports justificados, API pública cross-módulo |
 | §32 | [anti-patterns.md](docs/codebase/anti-patterns.md) | P1-P8 formas recurrentes (auditoría 2026-07-25) |

@@ -1428,6 +1428,13 @@ def test_dependabot_excludes_ratchet_coupled_ruff_updates() -> None:
     assert 'dependency-name: "ruff"' in config
 
 
+def test_dependabot_excludes_mutation_coupled_cosmic_ray_updates() -> None:
+    """Cosmic-ray bumps require an intentional harness re-validation."""
+    config = (REPO_ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
+
+    assert 'dependency-name: "cosmic-ray"' in config
+
+
 # --- issue #525: PR gates mis-handle chained/stacked PRs ------------------
 #
 # Two coupled defects in .github/workflows/{pr-name,pr-size}.yml:
