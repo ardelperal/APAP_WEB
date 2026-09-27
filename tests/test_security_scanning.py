@@ -81,23 +81,35 @@ def test_no_scanner_step_swallows_its_exit_code() -> None:
     assert both.count("--exit-code 1") >= 3, "each scanner must fail the job on findings"
 
 
-def test_deep_job_is_release_only_not_per_pull_request() -> None:
-    """Heavy scanning runs on release tags and manual dispatch — never on every PR.
+def test_deep_job_runs_weekly_and_on_dispatch_not_on_tags() -> None:
+    """Heavy scanning runs weekly (Monday 06:00 UTC) and on manual dispatch —
+    never per pull request and never per release tag.
 
-    While the MVP is being built, pulling base images per pull request costs
-    minutes and changes nothing: a pinned base image cannot differ between two
-    PRs on the same day. Issue #780: the weekly schedule was removed —
-    expensive scans now run only when cutting a release, plus the manual
-    dispatch escape hatch.
+    Issue #780 removed the weekly schedule and reserved the scan for tag
+    pushes plus dispatch. Issue #1046 reverses the tag half: the scan
+    result is a function of the pinned digests (issue #338), not of
+    release time, so at MVP release cadence every tag push repeated an
+    identical scan. The weekly schedule restores the CVE-decay signal (a
+    ≤7-day window, documented in docs/codebase/ci-cd.md) and the manual
+    dispatch stays as the escape hatch for big releases.
     """
-    deep = _job("security-deep", "typecheck")
-    assert "github.event_name == 'schedule'" not in deep
+    # Slice to the security-deep job only: the _job helper's end boundary
+    # is incidental, and the mutation job that sits between security-deep
+    # and typecheck legitimately keeps its tag trigger (issue #1046 does
+    # not touch it).
+    deep = _job("security-deep", "mutation")
     assert "github.event_name == 'workflow_dispatch'" in deep
-    assert "startsWith(github.ref, 'refs/tags/')" in deep
+    assert "github.event_name == 'schedule'" in deep
+    assert "startsWith(github.ref, 'refs/tags/')" not in deep, (
+        "release tags must no longer trigger security-deep (issue #1046)"
+    )
     assert "pull_request" not in deep
 
-    assert not re.search(r"^  schedule:", _workflow(), re.MULTILINE), (
-        "issue #780 removed the schedule trigger; it must not come back"
+    assert re.search(r"^  schedule:", _workflow(), re.MULTILINE), (
+        "issue #1046 restores the weekly schedule trigger"
+    )
+    assert "cron: '0 6 * * 1'" in _workflow(), (
+        "the schedule must be Monday 06:00 UTC"
     )
 
 

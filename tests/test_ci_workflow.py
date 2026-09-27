@@ -2785,3 +2785,128 @@ def test_ci_workflow_trivy_step_declares_the_fail_closed_error_marker() -> None:
 
     assert "::error::unresolved ARG" in block
     assert "exit 1" in block
+
+
+# --- issue #1046: security-deep moves to a weekly schedule -------------------
+
+
+def test_ci_workflow_declares_weekly_schedule_trigger() -> None:
+    """Issue #1046: ci.yml declares a weekly schedule trigger.
+
+    The scan result is a function of the pinned base-image digests, not of
+    time, so MVP release cadence made per-release runs redundant; the
+    weekly schedule bounds the CVE-decay window instead. The block applies
+    to every job in the file, so the companion test below pins that a
+    scheduled run executes security-deep and nothing else.
+    """
+    triggers = _trigger_lines(WORKFLOW_PATH.read_text(encoding="utf-8"))
+
+    assert "schedule:" in triggers, (
+        "issue #1046 adds the weekly schedule trigger that only "
+        "security-deep consumes"
+    )
+    assert re.search(r"cron:\s*'0 6 \* \* 1'", triggers["schedule:"]), (
+        "the schedule must be weekly on Monday 06:00 UTC (`0 6 * * 1`); "
+        f"got {triggers['schedule:']!r}"
+    )
+
+
+def test_ci_workflow_security_deep_runs_on_schedule_and_dispatch_not_tags() -> None:
+    """Issue #1046: the heavy scan is weekly + manual dispatch; tags are out.
+
+    Under the issue #780 cadence this replaces, any tag push triggered the
+    scan. The pr-size skip override is pinned too: on schedule runs the
+    guarded pr-size job is skipped, and a job whose needed job is skipped
+    is itself skipped unless its ``if`` carries a status function that
+    overrides the implicit success().
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    block = _job_block(workflow, "security-deep")
+    if_clause = block[block.index("if:") : block.index("runs-on:")]
+
+    assert "github.event_name == 'workflow_dispatch'" in if_clause
+    assert "github.event_name == 'schedule'" in if_clause
+    assert "startsWith(github.ref, 'refs/tags/')" not in if_clause, (
+        "release tags must no longer trigger security-deep (issue #1046)"
+    )
+    assert "pull_request" not in if_clause
+    assert "!cancelled()" in if_clause, (
+        "the if must override the implicit success() so a skipped pr-size "
+        "on schedule runs does not cascade-skip the scan"
+    )
+    assert "needs.pr-size.result == 'skipped'" in if_clause
+
+
+def test_ci_workflow_schedule_runs_security_deep_only() -> None:
+    """Issue #1046: on a scheduled run, security-deep executes alone.
+
+    The workflow-level ``schedule:`` trigger reaches every job in ci.yml,
+    so each other job must be structurally unable to run on that event:
+
+    - ``pr-size`` and ``ui-detection`` carry an explicit ``!= 'schedule'``
+      guard (pr-size has nothing to diff against; ui-detection has no
+      needs, so the cascade cannot skip it).
+    - ``issue-spec`` (pull_request only) and ``mutation`` (dispatch/tags,
+      issue #780 cadence, unchanged) already gate on events that exclude
+      schedule.
+    - the remaining chain is skipped by the pr-size cascade: a job whose
+      needed job is skipped is skipped unless its own ``if`` contains a
+      status function — so these jobs must NOT grow one.
+    - ``required`` is guarded because the checker behind it fails closed
+      on ``schedule`` (test_check_required_jobs.py pins that contract)
+      and a weekly scan run needs no PR rollup verdict.
+    - ``e2e`` is guarded explicitly: release and UI-change events only,
+      never a scheduled run.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    jobs = _workflow_job_names(WORKFLOW_PATH)
+
+    guarded = {"pr-size", "ui-detection", "e2e", "required"}
+    own_event_gate = {"issue-spec", "mutation"}
+    cascaded = {
+        "lint",
+        "security",
+        "typecheck",
+        "test",
+        "integration",
+        "verify-fallback-ready",
+        "build",
+    }
+    assert guarded | own_event_gate | cascaded | {"security-deep"} == jobs
+
+    for job in sorted(guarded):
+        block = _job_block(workflow, job)
+        assert "github.event_name != 'schedule'" in block, (
+            f"{job} must explicitly exclude schedule events (issue #1046)"
+        )
+    for job in sorted(own_event_gate):
+        block = _job_block(workflow, job)
+        header = block[: block.index("runs-on:")]
+        if_clause = header[header.index("if:") :]
+        assert "github.event_name == 'schedule'" not in if_clause, (
+            f"{job} must keep its own event gate, which excludes schedule"
+        )
+    for job in sorted(cascaded):
+        block = _job_block(workflow, job)
+        header = block[: block.index("steps:")]
+        assert "if:" not in header, (
+            f"{job} must stay skipped via the pr-size cascade on schedule "
+            "runs; adding its own event condition would desync the "
+            "schedule matrix (issue #1046)"
+        )
+
+
+def test_ci_workflow_schedule_never_reaches_deploy() -> None:
+    """Issue #1046: deploy must not run on schedule events.
+
+    deploy.yml is a separate workflow listening to push to main only, so
+    the schedule trigger in ci.yml cannot reach it structurally; pin the
+    trigger set so a future ``schedule:`` there fails this test.
+    """
+    triggers = _trigger_lines(DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8"))
+
+    assert "schedule:" not in triggers, (
+        "deploy.yml must not listen to schedule; the weekly cadence is a "
+        "ci.yml concern only (issue #1046)"
+    )
+    assert "push:" in triggers
