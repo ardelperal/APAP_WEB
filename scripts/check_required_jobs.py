@@ -189,7 +189,11 @@ def check_results(
 
     is_tag_push = event_name == "push" and ref.startswith("refs/tags/")
     if is_tag_push:
-        allowed_skips = frozenset({"issue-spec"})
+        # Issue #766: a tag push is a release event, so e2e and mutation
+        # must still terminate SUCCESS there. Issue #1046: security-deep
+        # moved to a weekly schedule plus manual dispatch, so its skip is
+        # now an accepted outcome on a tag push.
+        allowed_skips = frozenset({"issue-spec", "security-deep"})
 
     for job in sorted(ALL_JOBS & needs.keys()):
         payload = needs[job]

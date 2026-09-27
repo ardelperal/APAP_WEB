@@ -338,12 +338,32 @@ def test_missing_job_fails_closed() -> None:
     assert check_results(needs, "pull_request") == ["missing jobs: security"]
 
 
-def test_tag_push_requires_deep_security_and_mutation() -> None:
+def test_tag_push_accepts_the_weekly_deep_security_skip() -> None:
+    """Issue #1046: a tag push accepts a skipped security-deep.
+
+    Issue #780 made tag pushes release events where deep security and
+    mutation had to run. #1046 moved the deep scan to a weekly schedule
+    plus manual dispatch, so release tags no longer trigger it and its
+    skip is now an accepted outcome of the checker. Issue #766 is
+    unchanged: e2e and mutation must still terminate SUCCESS on a tag
+    push — a skipped e2e or mutation remains a violation.
+    """
     needs = _needs()
     needs["security-deep"]["result"] = "skipped"
 
+    assert check_results(needs, "push", "refs/tags/v1.2.3") == []
+
+    # Issue #766 unchanged: release events still require a real e2e run.
+    needs["e2e"]["result"] = "skipped"
     assert check_results(needs, "push", "refs/tags/v1.2.3") == [
-        "security-deep: result='skipped'"
+        "e2e: result='skipped'"
+    ]
+
+    # ...and a real mutation run.
+    needs["e2e"]["result"] = "success"
+    needs["mutation"]["result"] = "skipped"
+    assert check_results(needs, "push", "refs/tags/v1.2.3") == [
+        "mutation: result='skipped'"
     ]
 
 

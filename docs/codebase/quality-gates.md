@@ -36,6 +36,33 @@ El tipado estático se enforza, no se aspira: el job `typecheck` de CI corre `py
 
 **Aplicación**: `tests/test_ci_workflow.py::test_ci_workflow_defines_typecheck_job_running_mypy` pinea el job de CI y su invocación `python -m mypy`; `ci / required` agrega `typecheck`, por lo que una regresión de tipos bloquea el merge y, en consecuencia, el deploy; mypy sale con código no-cero ante cualquier error, fallando el job.
 
+## Escaneo profundo de seguridad: cadencia semanal (`security-deep`)
+
+El job `security-deep` de `ci.yml` no corre por PR ni por tag de release:
+corre los lunes a las 06:00 UTC por el trigger `schedule` del workflow y
+bajo demanda vía `workflow_dispatch` (issue #1046). La justificación es
+económica, no de rigor: el resultado del escaneo es función de los digests
+pineados en el Dockerfile (issue #338), no del tiempo — mientras no haya
+re-pin, cada corrida por release repetía una señal idéntica a cadencia MVP,
+y nada en un pull request puede cambiarla. La ventana de decaimiento que la
+cadencia semanal introduce (hasta 7 días entre la publicación de una
+vulnerabilidad y su detección sobre los digests vigentes) es el trade-off
+aceptado del MVP; el dispatch manual queda como botón de escape para releases grandes. En un
+run programado se ejecuta solo `security-deep` (matriz pineada en
+`tests/test_ci_workflow.py`), y el skip de `security-deep` en un tag push
+es resultado aceptado del checker de `required` mientras la exigencia del
+issue #766 de que `e2e` y `mutation` terminen en éxito en eventos de
+release se mantiene intacta.
+
+**Aplicación**: `tests/test_ci_workflow.py::test_ci_workflow_declares_weekly_schedule_trigger`,
+`test_ci_workflow_security_deep_runs_on_schedule_and_dispatch_not_tags` y
+`test_ci_workflow_schedule_runs_security_deep_only` pinean el bloque
+`schedule`, el `if` del job (dispatch + schedule, sin tags) y que ningún
+otro job corre en un run programado;
+`tests/test_security_scanning.py::test_deep_job_runs_weekly_and_on_dispatch_not_on_tags`
+pinea el contrato del job; `tests/test_check_required_jobs.py::test_tag_push_accepts_the_weekly_deep_security_skip`
+pinea la política del checker en tag push.
+
 ## Criterio de gates bloqueantes
 
 Decisión del mantenedor, 2026-09-25: un gate bloqueante solo se mantiene si

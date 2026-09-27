@@ -37,15 +37,30 @@ pull request
 |---|---|
 | Pull request | Ejecuta los checks obligatorios. `e2e` corre solo cuando `ui-detection` marca cambio de UI en la revisión; con `ui_changed=false` el job se omite de forma explícita y `required` acepta ese skip únicamente porque el run lleva el marcador (issue #895). |
 | Push a `staging` | Mismo contrato de e2e que el pull request: corre solo si el diff contra `github.event.before` (con fallback al commit padre) declara cambio de UI (issue #895). |
-| Tag `v*` | Ejecuta controles profundos y la matriz de release; `e2e` debe terminar en `success` y el marcador de no-UI no lo exime. |
+| Tag `v*` | Ejecuta controles profundos y la matriz de release; `e2e` debe terminar en `success` y el marcador de no-UI no lo exime. Desde el issue #1046 el tag ya no dispara `security-deep` (su skip es resultado aceptado del agregador). |
 | Push a `main` | Ejecuta `deploy.yml`; no reconstruye una segunda CI. |
-| Ejecución manual | Permite validar CI o despliegue sin cambiar el contrato de evidencia; también sirve como ensayo previo a un tag para `mutation`, `security-deep` y `e2e`. |
+| Schedule (lunes 06:00 UTC) | Ejecuta únicamente `security-deep` (issue #1046): `pr-size` y `ui-detection` se excluyen con `github.event_name != 'schedule'`, el resto se omite por la cascada de `needs`, y `required` no corre porque su checker falla cerrado ante ese evento. |
+| Ejecución manual | Permite validar CI o despliegue sin cambiar el contrato de evidencia; también sirve como ensayo previo a un tag para `mutation` y `e2e`, y para `security-deep` es el botón manual de la cadencia semanal (issue #1046), útil en releases grandes. |
 
-`ci.yml` no declara ningún trigger `schedule`: los controles pesados
-(`mutation`, `security-deep`) se reservan para el push de un tag `v*`
-o para `workflow_dispatch` (issue #780). `e2e` corre en esos eventos de
-release y, además, en cualquier pull request o push cuya revisión
-declare cambio de UI según la detección fail-closed del issue #895.
+`ci.yml` declara un trigger `schedule` semanal (cron `0 6 * * 1`, lunes
+06:00 UTC) que existe para `security-deep` (issue #1046): el resultado del
+escaneo es función de los digests pineados en el Dockerfile, no del tiempo,
+así que la cadencia de release del MVP hacía redundante cada corrida por
+tag. El bloque `schedule:` aplica a todo el workflow, pero la matriz está
+pineada: en un run programado se ejecuta solo `security-deep` —
+`pr-size` y `ui-detection` llevan guardas explícitas y el resto se omite
+por la cascada de `needs`; `required` no corre porque el checker falla
+cerrado ante el evento `schedule` (ver
+`tests/test_check_required_jobs.py::test_schedule_event_is_unreachable_and_fails_closed`).
+Los tags ya no disparan `security-deep`; `mutation` conserva su cadencia
+de release (issue #780). `e2e` corre en eventos de release y, además, en
+cualquier pull request o push cuya revisión declare cambio de UI según la
+detección fail-closed del issue #895.
+
+El trade-off aceptado de la cadencia semanal es una ventana de hasta 7
+días entre la publicación de una vulnerabilidad y su detección sobre los
+digests vigentes; el `workflow_dispatch` manual queda como botón de escape
+para releases grandes (issue #1046).
 
 ## Superficie de UI
 
@@ -83,7 +98,7 @@ tres piezas no pueden divergir.
 | `lint` | Ruff, reglas APAP, límites de arquitectura y ratchets. |
 | `issue-spec` | Issue vinculada, aprobada y con las seis secciones obligatorias. |
 | `security` | Auditoría de dependencias, secretos y Dockerfile. |
-| `security-deep` | Análisis profundo reservado a release o ejecución manual. |
+| `security-deep` | Escaneo profundo (gitleaks histórico + trivy sobre las imágenes base pineadas) en cadencia semanal (lunes 06:00 UTC) o manual; fuera del camino de tags (issue #1046). |
 | `mutation` | Mutación reservada a release o ejecución manual. |
 | `typecheck` | Mypy sobre `app/` y `migration/`. |
 | `test` | Suite principal, cobertura del 85 % y CRAP. |
