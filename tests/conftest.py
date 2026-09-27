@@ -82,9 +82,16 @@ def auth_reval_rows(
     # includes 'rol' as a selected column (appears in SELECT ... rol, ...).
     # The duplicate-check uses _CHECK_DUPLICATE_EMAIL_SQL with a minimal
     # 'SELECT id' (no rol column) — this pattern must NOT be intercepted.
+    #
+    # Issue #1003 changed ``GET_USER_BY_EMAIL_SQL`` to a case-insensitive
+    # WHERE (``lower(email) = lower($1)``); the spy matches either the new
+    # case-insensitive shape or the legacy case-sensitive shape so a
+    # downstream adapter that still ships the old SQL is still routed
+    # correctly during the transition. The narrower duplicate-check query
+    # is still excluded by the ``rol`` SELECT-column regex.
     if (
         "usuarios_autorizados" in query
-        and "email = $1" in query
+        and ("lower(email) = lower($1)" in query or "email = $1" in query)
         and re.search(r"(?<=[, ])rol(?=[,])", query) is not None
     ):
         email = (
