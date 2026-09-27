@@ -98,6 +98,15 @@ registra la evidencia del runbook
 valor de la variable en cada release (o registrar
 `APAP_E2E_GATE_EVIDENCE=skipped:<motivo>` como bypass auditable); el gate
 garantiza que la evidencia quedó registrada, no su frescura por release.
+
+El job `ui-e2e-gate` (issue #895) bloquea el despliegue de una revisión que
+cambia rutas de UI sin evidencia e2e de esa misma revisión: recalcula
+`ui_changed` con la misma superficie declarada en `scripts/check_required_jobs.py`
+y, si hay cambios de UI, verifica vía API de check-runs (solo lectura, con
+`GITHUB_TOKEN`) que un run de CI sobre la SHA revisada tuvo el job `e2e` con
+conclusión `success`. Un `e2e` fallido, cancelado, omitido inesperadamente,
+incompleto o ausente hace fallar el gate y bloquea el deploy. Una revisión
+sin cambios de UI pasa con una línea de exención explícita en el log.
 ## Protección y runners
 
 Los pull requests usan runners efímeros de GitHub. Ningún código de un pull

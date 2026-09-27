@@ -58,8 +58,8 @@ def test_release_e2e_gate_job_exists_and_blocks_deploy() -> None:
         "deploy.yml must define the release-e2e-gate job in the release path"
     )
     deploy = sections["deploy"]
-    assert "needs: [evidence, release-e2e-gate]" in deploy, (
-        "deploy must need the e2e gate alongside evidence, so a failing or "
+    assert "needs: [evidence, release-e2e-gate, ui-e2e-gate]" in deploy, (
+        "deploy must need the e2e gates alongside evidence, so a failing or "
         "skipped gate blocks the release instead of being skipped silently"
     )
 

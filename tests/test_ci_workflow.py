@@ -574,9 +574,10 @@ def test_deploy_workflow_gates_on_evidence() -> None:
 
     assert "  deploy:" in workflow
     assert "  name: deploy" in workflow
-    # Issue #908: release-e2e-gate joined the needs list. deploy still gates on
-    # the evidence job's verdict; the e2e gate is fail-closed on its own terms.
-    assert "needs: [evidence, release-e2e-gate]" in workflow
+    # Issue #908: release-e2e-gate joined the needs list. Issue #895:
+    # ui-e2e-gate joined it too — deploy still gates on the evidence job's
+    # verdict; each e2e gate is fail-closed on its own terms.
+    assert "needs: [evidence, release-e2e-gate, ui-e2e-gate]" in workflow
     assert "if: needs.evidence.outputs.verified == 'true'" in workflow, (
         "deploy must run only when the evidence job proved the tree was verified"
     )
@@ -2376,3 +2377,57 @@ def test_minio_replica_workflow_is_dispatch_only_and_pushes_pinned_replica() -> 
     assert "GITHUB_STEP_SUMMARY" in workflow, (
         "the workflow must print the image digest to the job summary"
     )
+
+
+# --- issue #895: deploy-side ui-e2e gate ------------------------------------
+
+
+def test_deploy_workflow_defines_fail_closed_ui_e2e_gate() -> None:
+    """Issue #895 (design D3): deploy.yml must define a signal-only
+    ``ui-e2e-gate`` job (same pattern as release-e2e-gate from #908, which
+    stays untouched) that recomputes ui_changed for the merged revision and
+    fails closed when a UI-changing revision lacks green e2e evidence.
+    """
+    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+    assert "  ui-e2e-gate:" in workflow
+    gate = _job_block(workflow, "ui-e2e-gate")
+
+    # The UI path list comes from the checker (single source of truth).
+    assert "scripts/check_required_jobs.py --print-ui-paths" in gate
+    # Recomputes ui_changed from the parent-commit diff.
+    assert "HEAD^" in gate
+    # Same-SHA verification through the check-runs API (read-only, GITHUB_TOKEN).
+    assert "/commits/" in gate and "check-runs" in gate
+    assert 'select(.name == "e2e")' in gate
+    assert "!= \"success\"" in gate
+    # The failure message points at the CI workflow.
+    assert ".github/workflows/ci.yml" in gate
+    # Explicit exemption line for non-UI revisions.
+    assert "ui-e2e-gate exemption" in gate
+
+
+def test_deploy_workflow_ui_e2e_gate_resolves_the_reviewed_head_sha() -> None:
+    """pull_request check-runs are reported on the PR head SHA, not on the
+    merge commit, so the gate must resolve the reviewed head (HEAD^2 for a
+    merge commit, evidence-job precedent) and bind the tree before querying.
+    """
+    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+    gate = _job_block(workflow, "ui-e2e-gate")
+
+    assert "HEAD^2" in gate
+    assert "HEAD^{tree}" in gate
+
+
+def test_deploy_workflow_ui_e2e_gate_has_no_secrets_and_least_privilege() -> None:
+    """The gate holds no secret and reads only: contents (checkout) and
+    checks (check-runs API). It never touches packages or id-token.
+    """
+    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+    gate = _job_block(workflow, "ui-e2e-gate")
+
+    assert "secrets." not in gate
+    permissions = gate[gate.index("permissions:") : gate.index("steps:")]
+    assert "contents: read" in permissions
+    assert "checks: read" in permissions
+    assert "packages: write" not in permissions
+    assert "issues: read" not in permissions
