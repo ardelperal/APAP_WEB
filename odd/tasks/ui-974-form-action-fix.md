@@ -131,3 +131,71 @@ preference); the work-unit commit is the native review candidate.
   Work-unit commit: `refactor(animals): fold 422 status into
   _render_animal_form_error` (one-line body, refs #974). Behavior
   preserved end-to-end; no template, message, or response-shape change.
+
+## Delivery mechanics (round 1, BLOCKED)
+
+- Step 1: `git fetch origin main fix/974-form-action-error-rerender` — ok.
+- Step 2 (preflight): `gh pr view 1021 ... --jq .mergeStateStatus` →
+  `BEHIND`. Branch tip `1054446` was 3 commits behind `origin/main`.
+- Step 3: detached-HEAD merge of `origin/main` into the PR branch →
+  new merge commit `77d7fe4`; `git push origin HEAD:fix/974-form-action-error-rerender`
+  → `1054446..77d7fe4`. No conflicts. Back on the local branch.
+- Step 4: poll → `lint` job **fails** (`required` cascades to fail
+  because lint is the gate job; the other `skipped` jobs are the
+  normal cascade from lint failing, not a separate problem).
+- Lint job log evidence
+  (`actions/runs/36304667519/job/108578850115`):
+  - `ruff check .` → `All checks passed!` — PLR0913 is fixed, the
+    previous blocker is genuinely resolved.
+  - `python scripts/check_module_size.py` → `check_module_size: OK`.
+  - `python scripts/check_route_size.py` → **FAILS**:
+    `FAIL app/modules/animals/routes.py::create_animal_view: 54 lines,
+    exceeds the 50-line budget (AGENTS.md rule 28) — move
+    HTTP-unrelated logic to the service layer; do NOT add it to BASELINE`.
+- `required` job evidence
+  (`actions/runs/36304667519/job/108578941284`):
+  - `FAIL required jobs: lint: result='failure'` (root cause).
+  - `build / integration / security / test / verify-fallback-ready:
+    result='skipped'` (cascade from lint failure, not new blockers).
+- This is a NEW failing check relative to the previous attempt. The
+  PLR0913 fix (commit `1054446`) inlined the UniqueViolationError
+  branch into `create_animal_view`, growing that handler from 41 → 54
+  lines and tripping the AGENTS.md rule 28 route-handler size ratchet.
+  The parent's "expected now: checks green" prediction did not include
+  this rule — it only listed PLR0913 (now fixed) and `issue-spec`
+  (also fixed).
+- Per the hard rule "if a NEW failing job appears after your
+  integration, STOP immediately and report — no fixes", delivery stops
+  here. No further integration or merge attempted.
+- Round landed: **1 of 4**, outcome: **blocked by a real lint
+  failure** (route-handler size ratchet, not the expected PLR0913).
+- Branch state on `origin`: tip `77d7fe4` (the BEHIND-resolution merge
+  commit) is in place; the PR is `BLOCKED`.
+
+## Ratchet refactor (round 2)
+
+- [x] **T5 — extract the inlined 409 block into `_render_animal_conflict`.**
+  Inlined branch (~15 lines) lived in `create_animal_view` after T4
+  folded 422 into `_render_animal_form_error`; that pushed the handler
+  to 54 lines and tripped AGENTS.md rule 28 (route-handler size
+  ratchet) even though PLR0913 was back to 47. Round 2 extraction:
+  new module-level sibling `_render_animal_conflict(request, user,
+  form_data, _error) -> Response:` placed right after
+  `_render_animal_form_error` (file organization preserved), body is
+  the exact inlined `_templates.TemplateResponse(...)` with hardcoded
+  `status.HTTP_409_CONFLICT` and `form_action="/animales"` plus the
+  operator-facing NCHIP message; `create_animal_view`'s
+  `UniqueViolationError` branch becomes a one-line call passing
+  `str(exc)`. `_render_animal_form_error` is untouched at 5 params
+  (422 hardcoded, keyword-only `form_action`) per the parent spec.
+  Helper signature mirrors the sibling for symmetry; the 4th parameter
+  is renamed `_error` (leading underscore = intentionally unused)
+  instead of `error` to keep ARG001 at 31 — ruff's convention for
+  this exact pattern. PLR0913 measured = 47 = baseline; ARG001 = 31
+  = baseline; `create_animal_view` 42 ≤ 50 budget. Behavior
+  preserved end-to-end: same template, same context shape, same
+  hardcoded message, same 409 status. Pinned test
+  `test_create_animal_view_translates_unique_violation_to_409`
+  unchanged and green. Work-unit commit:
+  `refactor(animals): extract conflict rerender into _render_animal_conflict`
+  (body satisfies both ratchets without baseline changes, refs #974).
