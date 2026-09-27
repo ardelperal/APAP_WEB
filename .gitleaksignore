@@ -102,3 +102,12 @@ b021e12c835ee2c5eb65ce9511a4dd29fa914865:tests/migration/test_insforge_storage_m
 # 0550244c95e8...:79 from the #903 triage). Introduced by bacd2f4
 # (fix #1004). Verified by reading the file; not a real secret.
 bacd2f4fb45ebbef4ae8c0b8ef753de62c06d573:tests/integration/test_magic_link_state.py:generic-api-key:71
+
+# 2026-09-27 — issue #903 follow-up (triage 01de084)
+# tests/integration/test_magic_link_state.py:334 rule `generic-api-key`:
+# same 64-char dummy APAP_SESSION_SECRET fixture pattern as
+# bacd2f4fb45ebbef4ae8c0b8ef753de62c06d573 (issue #1004/#903 series).
+# Commit 01de084620a68d38ee62f6b4d3adf9ff17a793e1 is judgment-day round 1
+# of the magic-link state binding; the file itself was deleted from the
+# tree in that commit (state now travels in a cookie). Historical-only.
+01de084620a68d38ee62f6b4d3adf9ff17a793e1:tests/integration/test_magic_link_state.py:generic-api-key:334
