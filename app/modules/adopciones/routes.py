@@ -51,7 +51,6 @@ from app.core._module_helpers._form_render import make_render_form
 from app.core.auth_dependencies import (
     AuthenticatedUser,
     get_local_postgres_executor_dep,
-    require_authorized_user,
     return_early_if_response,
 )
 
@@ -72,6 +71,7 @@ from app.modules.adopciones import service as adopciones_service  # noqa: E402
 from app.modules.adopciones.forms import AdopcionForm  # noqa: E402
 
 router = APIRouter(prefix="/adopciones", tags=["adopciones"])
+_require_write_adopciones = require_permission(Permission.WRITE_ADOPCIONES)
 
 _TEMPLATES_DIR = Path(__file__).parents[2] / "templates"
 # PR-5B2 (REQ-AH-7): inject csrf_token into every template context.
@@ -389,7 +389,7 @@ def delete_adopcion_view(
 def seguimiento_transition_view(  # noqa: PLR0913  # PATCH with 2 Form fields + 4 fixed deps; not worth a separate form model
     adopcion_id: str,
     request: Request,
-    user: Annotated[AuthenticatedUser, Depends(require_authorized_user)],
+    user: Annotated[AuthenticatedUser, Depends(_require_write_adopciones)],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
     action: Annotated[str, Form()],
     documento_url: Annotated[str | None, Form()] = None,
@@ -398,11 +398,12 @@ def seguimiento_transition_view(  # noqa: PLR0913  # PATCH with 2 Form fields + 
 
     Body (form): ``action`` is required (``marcar_entregado``,
     ``anexar_documento``, ``completar``). ``documento_url`` is required
-    only for ``anexar_documento``.
+    only for ``anexar_documento``. Returns 409 on invalid transition,
+    404 when the adopcion does not exist, 303 to detail on success.
 
-    Returns 409 Conflict when the transition is invalid for the current
-    estado. Returns 404 when the adopcion does not exist.
-    Returns 303 redirect to the detail view on success.
+    Auth (issue #1019): ``require_permission(WRITE_ADOPCIONES)``.
+    Matrix denies reader/unknown/``voluntario`` with 403 BEFORE the
+    handler runs.
     """
     if (early := return_early_if_response(user)) is not None:
         return early

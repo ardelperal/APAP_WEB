@@ -35,7 +35,7 @@ from starlette.background import BackgroundTask
 # The canonical location is app.core.auth_dependencies.
 from app.core.auth_dependencies import (  # noqa: E402
     get_local_postgres_executor_dep,
-    require_authorized_user,
+    require_authorized_user,  # noqa: F401  - re-exported for tests/test_auth_session_is_authorized.py
     return_early_if_response,
 )
 
@@ -89,6 +89,8 @@ from app.modules.sanidad import get_resumen_sanitario  # noqa: E402
 
 router = APIRouter(prefix="/animales", tags=["animales"])
 _require_write_animales = require_permission(Permission.WRITE_ANIMALES)
+_require_read_animales = require_permission(Permission.READ_ANIMALES)
+_require_read_salud = require_permission(Permission.READ_SALUD)
 
 
 # --- chip change payload ------------------------------------------------
@@ -134,7 +136,7 @@ def list_animales(
 @router.get("/search", response_class=JSONResponse)
 def search_animales(  # noqa: PLR0913  # 9 query filters needed for the search UI; not reducible without removing features
     _request: Request,
-    user: Annotated[Response | dict, Depends(require_authorized_user)],
+    user: Annotated[Response | dict, Depends(_require_read_animales)],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
     q: Annotated[str | None, Query(description="Substring match on nombre (case-insensitive). Ignored if chip is set.")] = None,
     chip: Annotated[str | None, Query(description="Exact match on NCHIP. Takes precedence over q.")] = None,
@@ -270,7 +272,7 @@ def animal_detail(
 @router.get("/{animal_id}/salud/resumen", response_class=JSONResponse)
 def animal_salud_resumen(
     animal_id: str,
-    user: Annotated[Response | dict, Depends(require_authorized_user)],
+    user: Annotated[Response | dict, Depends(_require_read_salud)],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Health summary: latest actuacion per tipo for one animal.
@@ -280,8 +282,12 @@ def animal_salud_resumen(
     ``catalogos_pruebas.observaciones`` (tipo), with fecha, resultado,
     descripcion, and producto.
 
-    Protected with ``require_authorized_user`` per spec acceptance criteria.
-    Returns an empty resumen list when no actuaciones exist for the animal.
+    Auth (issue #1019): ``require_permission(READ_SALUD)`` per the
+    RBAC matrix. Previously ``require_authorized_user`` only, which
+    re-reads ``rol`` from the DB but never rejects unknown or
+    ``reader`` role strings — a reader could see clinical data.
+    Returns an empty resumen list when no actuaciones exist for the
+    animal.
     """
     if (early := return_early_if_response(user)) is not None:
         return early

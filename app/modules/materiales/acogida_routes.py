@@ -61,13 +61,13 @@ from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
     AuthenticatedUser,
-    require_authorized_user,
     require_writer_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
 from app.core.forms import optional_value as _opt
 from app.core.middleware import base_template_context_processor, current_path_context_processor
+from app.core.rbac import Permission, require_permission  # noqa: E402
 from app.modules.materiales import application as materiales_application
 from app.modules.materiales.application.assign_material_to_estancia import (
     MaterialValidationError,
@@ -185,7 +185,7 @@ def _render_per_stay_list(  # noqa: PLR0913  # non-route helper; 7 args needed t
 def list_estancia_materiales_view(
     estancia_id: str,
     request: Request,
-    user: Annotated[AuthenticatedUser, Depends(require_authorized_user)],
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ACOGIDAS))],
     port: Annotated[MaterialesPort, Depends(get_materiales_port)],
 ):
     """Per-stay junction list.
@@ -195,10 +195,11 @@ def list_estancia_materiales_view(
     applies the ordering in SQL) and the catalog of active materials
     for the writer-only assign dropdown.
 
-    The page is reachable by any authorized user; the assign +
-    remove forms are gated by ``user.rol in (writer, developer,
-    key_user)`` in the template (mirrors the RBAC pattern used by
-    the catalog list at ``app/templates/materiales/list.html``).
+    Auth (issue #1019): ``require_permission(READ_ACOGIDAS)`` per
+    the RBAC matrix. The parent resource is the estancia; the
+    material catalog dropdown is a secondary view of the same
+    estancia. The POST counterpart already uses
+    ``require_writer_user``.
     """
     if (early := return_early_if_response(user)) is not None:
         return early

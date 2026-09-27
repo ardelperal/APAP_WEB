@@ -431,3 +431,154 @@ def test_require_permission_write_animales_denies_unknown_role() -> None:
 
     response = client.get("/test-write-animales")
     assert response.status_code == 403, f"Expected 403, got {response.status_code}: {response.text}"
+
+
+# ---------------------------------------------------------------------------
+# Issue #1019 — guard-matrix audit
+# ---------------------------------------------------------------------------
+# ``require_authorized_user`` re-reads ``rol`` from the DB but does not
+# reject unknown or ``reader`` role strings. The fail-closed matrix
+# (issue #923) covers routes that pass through ``require_permission``;
+# routes that depend on ``require_authorized_user`` only are outside
+# that guarantee. This audit pins the contract: every user-facing
+# route either uses a stronger auth dep
+# (``require_permission``/``require_writer_user``/``require_developer_user``/
+# ``require_developer_user_redirect``) or appears in
+# ``_AUTHORIZED_USER_ONLY_ALLOWLIST`` with a recorded rationale.
+
+
+def _walk_app_routes():
+    """Yield ``(method, path, dependant)`` for every APIRoute in the app.
+
+    FastAPI stores included routers as ``_IncludedRouter`` whose
+    ``original_router`` holds the actual ``APIRoute`` entries (issue
+    #204 refactored ``app.include_router`` into
+    ``app/routes_registry.register_routers``).
+    """
+    from app.main import app as _app
+
+    def _walk(routes, prefix: str = "") -> list[tuple[str, str, object]]:
+        out: list[tuple[str, str, object]] = []
+        for r in routes:
+            if type(r).__name__ == "_IncludedRouter":
+                inner = getattr(r, "original_router", None)
+                if inner is not None and hasattr(inner, "routes"):
+                    out.extend(_walk(inner.routes, prefix))
+                continue
+            path = getattr(r, "path", None)
+            methods = getattr(r, "methods", None)
+            if methods:
+                for m in methods - {"HEAD"}:
+                    out.append((m, prefix + path, getattr(r, "dependant", None)))
+            elif path and hasattr(r, "routes"):
+                out.extend(_walk(r.routes, prefix + path))
+        return out
+
+    return _walk(_app.routes)
+
+
+def _route_dep_names(dependant) -> set[str]:
+    """Collect every auth-dep callable ``__name__`` reachable from ``dependant``.
+
+    ``require_permission`` returns an inner closure named ``checker`` —
+    the audit relies on that convention, defined in ``app/core/rbac.py``.
+    """
+    names: set[str] = set()
+
+    def _walk(d) -> None:
+        for sub in getattr(d, "dependencies", []):
+            c = getattr(sub, "call", None)
+            n = getattr(c, "__name__", "")
+            if n:
+                names.add(n)
+            _walk(sub)
+
+    _walk(dependant)
+    return names
+
+
+#: Routes that legitimately depend on ``require_authorized_user`` only.
+#:
+#: Each entry is ``(method, path, rationale)``. The rationale MUST name
+#: the slice in the problem (issue #1019) and explain why the route is
+#: NOT promoted to ``require_permission`` in this commit. The audit
+#: test asserts every route using ``require_authorized_user`` only is
+#: present here with a non-empty rationale. Adding a new route without
+#: a rationale fails the audit.
+_AUTHORIZED_USER_ONLY_ALLOWLIST: tuple[tuple[str, str, str], ...] = (
+    ("GET", "/", "Public landing page; the shell only reads the session to render the nav. Promoting to require_permission would force an arbitrary Permission pick; /login redirect on missing cookie is the only authz contract."),
+    ("GET", "/entradas/batch/{batch_id}", "Batch progress preview. POST counterpart uses ``require_writer_user`` (matrix closes the write path); the GET only shows in-flight rows. Promoting to require_permission would need a new matrix permission — out of scope for #1019."),
+    ("GET", "/casas-acogida/{casa_id}/asignar", "Form render of the FOSTER-03 gate evaluation. POST uses ``require_writer_user`` (matrix closes the write path); this GET is read-only — out of scope for #1019."),
+    ("GET", "/tareas", "Tasks workflow tracker. The tareas module has no Permission in the enum; adding ``READ_TAREAS`` is a separate slice. #1019 does NOT close the tareas read-side gap. See odd/tasks/ui-1019-role-guards.md decision #6."),
+    ("GET", "/tareas/{tarea_id}", "See GET /tareas. Out of scope for #1019."),
+    ("POST", "/tareas", "Same justification as GET /tareas. WRITE path stays open until ``WRITE_TAREAS`` lands. #1019's acceptance criteria explicitly limit the WRITE-path fix to PATCH /adopciones/{id}/seguimiento."),
+    ("POST", "/tareas/{tarea_id}/asignar", "See GET /tareas. Out of scope for #1019."),
+    ("POST", "/tareas/{tarea_id}/cerrar", "See GET /tareas. Out of scope for #1019."),
+)
+
+
+def _allowlist_index() -> dict[tuple[str, str], str]:
+    return {(m, p): r for m, p, r in _AUTHORIZED_USER_ONLY_ALLOWLIST}
+
+
+def test_require_authorized_user_only_routes_have_decision() -> None:
+    """Issue #1019 guard: every ``require_authorized_user``-only route has a decision.
+
+    Iterates the FastAPI route table and asserts every user-facing
+    route that depends on ``require_authorized_user`` only is present
+    in :data:`_AUTHORIZED_USER_ONLY_ALLOWLIST` with a non-empty
+    rationale. Mirrors the issue #923 read-matrix guard.
+    """
+    allowlist = _allowlist_index()
+    stronger_dep_names = {
+        "checker",  # require_permission's inner closure
+        "require_writer_user",
+        "require_developer_user",
+        "require_developer_user_redirect",
+    }
+
+    offenders: list[tuple[str, str]] = []
+    rationale_missing: list[tuple[str, str]] = []
+    rationale_seen: list[tuple[str, str]] = []
+    for method, path, dependant in _walk_app_routes():
+        if dependant is None:
+            continue
+        names = _route_dep_names(dependant)
+        if "require_authorized_user" not in names:
+            continue
+        if names & stronger_dep_names:
+            continue
+        rationale = allowlist.get((method, path))
+        if rationale is None:
+            offenders.append((method, path))
+        elif not rationale.strip():
+            rationale_missing.append((method, path))
+        else:
+            rationale_seen.append((method, path))
+
+    assert not offenders, (
+        "Issue #1019 audit failure: user-facing routes depending on "
+        "``require_authorized_user`` only without a recorded guard "
+        "decision in ``_AUTHORIZED_USER_ONLY_ALLOWLIST`` "
+        "(``tests/test_rbac.py``). Either promote to "
+        "``require_permission(<matrix perm>)`` / "
+        "``require_writer_user`` / ``require_developer_user`` or add "
+        f"the route to the allowlist with a rationale:\n  {offenders!r}"
+    )
+    assert not rationale_missing, (
+        "Issue #1019 audit failure: empty rationale:\n"
+        f"  {rationale_missing!r}"
+    )
+    # Sanity: the affected routes named in #1019 that are NOT
+    # promoted to require_permission must be recorded in the
+    # allowlist. Without this guard, the allowlist could be silently
+    # emptied.
+    affected_only = {("GET", "/tareas")}
+    for m, p in affected_only:
+        assert (m, p) in allowlist, (
+            f"Issue #1019 affected route {m} {p} is neither promoted "
+            "to require_permission nor recorded in the allowlist."
+        )
+    assert rationale_seen, (
+        "Internal sanity: the audit found zero allowlist routes in use."
+    )
