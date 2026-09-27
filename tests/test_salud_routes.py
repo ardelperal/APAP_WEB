@@ -18,21 +18,35 @@ from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_local_backend_client
 from app.modules.salud import service as salud_service
-from tests.conftest import make_csrf_request
+from tests.conftest import auth_reval_rows, make_csrf_request
 
 
 class _NoSqlRouteClient(LocalPostgresExecutor):
-    """Client spy that fails if a route executes SQL directly."""
+    """Client spy that fails if a route executes SQL directly.
+
+    ``auth_reval_rol`` is the rol returned by the per-request authorization
+    revalidation SELECT (issue #143). Defaults to ``key_user``; the
+    reader-403 test in this file sets it to ``"reader"`` so
+    ``require_permission`` actually denies the request and the test
+    observes a 403 (instead of 422 / 404 from handlers that fire before
+    authz on form-invalid / not-found paths).
+    """
 
     def __init__(self) -> None:
         import httpx as _httpx
         self._client = _httpx.Client(base_url="https://spy.example")
+        self.auth_reval_rol: str = "key_user"
 
     def execute_sql(self, query: str, params: Any = None):
-        # Only allow auth_reval queries (used by require_authorized_user)
-        if "usuarios_autorizados" in query and "email" in query.lower():
-            return [{"id": "u-ana", "email": "ana@example.com", "rol": "key_user", "is_authorized": True}]
+        # Issue #143: route the revalidation SELECT through the conftest
+        # helper so the email-keyed auth_cache + per-test rol stay in sync.
+        _reval = auth_reval_rows(query, params, rol=self.auth_reval_rol)
+        if _reval is not None:
+            return _reval  # type: ignore[no-any-return]
         raise AssertionError(f"routes must not execute SQL directly: {query!r}")
+
+    def close(self) -> None:
+        pass  # no-op for spy
 
 
 @pytest.fixture
@@ -142,9 +156,26 @@ async def test_salud_routes_require_authorized_user(
     ],
 )
 async def test_salud_write_routes_reject_reader_with_403(
-    client: httpx.AsyncClient, method: str, path: str, form_data: dict[str, Any] | None
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    method: str,
+    path: str,
+    form_data: dict[str, Any] | None,
 ) -> None:
-    """Write endpoints require ``WRITE_SALUD``; reader -> 403."""
+    """Write endpoints require ``WRITE_SALUD``; reader -> 403.
+
+    Issue #1041: this test was order/state-dependent on the conftest
+    default spy (which hardcodes ``rol=key_user`` for every reval) and
+    on the in-process auth cache (a prior test could prime rocio as
+    ``key_user``). The :fixture:`route_client` here overrides the
+    default with a per-test spy whose reval rol honors the cookie, and
+    the autouse ``auth_cache.invalidate_all()`` in :mod:`tests.conftest`
+    keeps the verdict fresh. Reader-403 must keep being pinned: 403,
+    not 422 (form validation firing first) or 404 (not-found handler
+    firing first). Mirrors the closed PR #1033 / commit 4a9401b
+    precedent for the voluntarios family.
+    """
+    route_client.auth_reval_rol = "reader"
     _login_as_reader(client)
     response = await make_csrf_request(
         client, method, path, form_data=form_data
