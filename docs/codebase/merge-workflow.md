@@ -126,8 +126,8 @@ El ruleset `main-maintainers-and-admins-merge` permanece desactivado
 (issue #892, 2026-09-23) y su condición de reactivación — segundo
 mantenedor humano con rol `Write` que no deba poder mergear sin
 supervisión — no cambia con esta norma: con N sesiones de agente
-compartiendo UNA credencial, los rulesets no distinguen entre sesiones
-y reintroducirían la fricción `--admin` que #892 cerró.
+compartiendo la misma credencial admin, los rulesets no distinguen entre
+sesiones y reintroducirían la fricción `--admin` que #892 cerró.
 
 ## Core invariants
 
