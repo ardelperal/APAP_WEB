@@ -460,12 +460,15 @@ jobs:
         # worktree, and on a shallow checkout. Full-history scanning is in
         # `security-deep`.
         #
-        # There is NO .gitleaksignore, and none is needed: the historical false
-        # positive from #381 (a storage-object filename fixture in
-        # a retired migration storage-methods test (deleted in issue #670) does not fire under
-        # the pinned digest below. This comment used to claim an allowlist file
-        # that was never committed — see #495. The retired file, with its one
-        # documented entry, is on archive/tmp-test-merge5-staged-2026-08-09.
+        # .gitleaksignore EXISTS and is load-bearing: issue #903 triaged the
+        # full-history scan (gitleaks detect on the same pinned digest below)
+        # and allowlisted all 11 findings — every one a false positive or test
+        # data, zero real secrets — as per-fingerprint history entries pinned
+        # to the exact <commit>:<file>:<rule>:<line>. Entries are never
+        # path-wide and never value-quoted, so a new secret of the same shape
+        # still fails the gate. This comment previously claimed no allowlist
+        # file existed, and before that claimed the opposite — see #495 and
+        # #903 for the two corrections.
         #
         # If the rule ever fires again, add an allowlist entry with its reason
         # and date — never weaken the ruleset and never narrow the scan path.
