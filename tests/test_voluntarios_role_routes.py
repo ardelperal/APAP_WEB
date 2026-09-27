@@ -126,8 +126,17 @@ def _install(client: httpx.AsyncClient, token: str) -> None:
 async def test_add_role_rejects_reader(
     client: httpx.AsyncClient,
     voluntarios_spy: _VoluntariosPortSpy,
+    auth_rol_spy: _AuthRolSqlExecutor,
 ) -> None:
-    """Reader rol gets 403 on POST /voluntarios/{id}/roles/add."""
+    """Reader rol gets 403 on POST /voluntarios/{id}/roles/add (issue #144).
+
+    Issue #1033: this test needs the same per-test SQL spy as the
+    reader-403 tests in ``tests/test_voluntarios_routes.py`` — the
+    conftest default spy hardcodes ``key_user`` for the reval so the
+    contract cannot be observed against it. The :fixture:`auth_rol_spy`
+    fixture later in this file provides that seam.
+    """
+    auth_rol_spy.auth_reval_rol = "reader"
     _install(client, _reader_session())
     response = await make_csrf_request(
         client, "POST", "/voluntarios/v-1/roles/add",
@@ -140,8 +149,14 @@ async def test_add_role_rejects_reader(
 async def test_remove_role_rejects_reader(
     client: httpx.AsyncClient,
     voluntarios_spy: _VoluntariosPortSpy,
+    auth_rol_spy: _AuthRolSqlExecutor,
 ) -> None:
-    """Reader rol gets 403 on POST /voluntarios/{id}/roles/remove."""
+    """Reader rol gets 403 on POST /voluntarios/{id}/roles/remove (issue #144).
+
+    See :func:`test_add_role_rejects_reader` for the issue #1033
+    isolation context.
+    """
+    auth_rol_spy.auth_reval_rol = "reader"
     _install(client, _reader_session())
     response = await make_csrf_request(
         client, "POST", "/voluntarios/v-1/roles/remove",
