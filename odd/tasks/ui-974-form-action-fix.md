@@ -113,3 +113,21 @@ fix, so no `tests/integration/` companion is required. No UI scope.
 
 Rollback boundary: the two changed files only. RDD mode is on (global
 preference); the work-unit commit is the native review candidate.
+
+## Ratchet refactor (follow-up micro-task on PR #1021)
+
+- [x] **T4 — fold 422 status into the helper.** The #974 fix left
+  `_render_animal_form_error` with 6 parameters; PLR0913 went 47→48
+  on `app/`, tripping the ratchet in `scripts/check_ruff_ratchet.py`.
+  Refactor (not a baseline bump): drop the `status_code` parameter
+  from the helper, render with `status.HTTP_422_UNPROCESSABLE_CONTENT`
+  internally, and inline the UniqueViolationError branch in
+  `create_animal_view` with a direct `_templates.TemplateResponse`
+  call (`status_code=409`, same context shape). The helper is now
+  422-only with a 5-param signature `(request, user, form_data,
+  error, *, form_action="/animales")`; PLR0913 measured = 47 = baseline.
+  The 409 pinned test (`test_create_animal_view_translates_unique_violation_to_409`)
+  and the two #974 regression tests are unchanged and still green.
+  Work-unit commit: `refactor(animals): fold 422 status into
+  _render_animal_form_error` (one-line body, refs #974). Behavior
+  preserved end-to-end; no template, message, or response-shape change.

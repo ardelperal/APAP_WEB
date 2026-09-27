@@ -231,15 +231,21 @@ def create_animal_view(
         )
     except ValueError as exc:
         return _render_animal_form_error(
-            request, user, form_data, str(exc), status.HTTP_422_UNPROCESSABLE_CONTENT
+            request, user, form_data, str(exc)
         )
     except UniqueViolationError:
-        return _render_animal_form_error(
-            request,
-            user,
-            form_data,
-            "Ya existe un animal con ese NCHIP. Compruebalo.",
-            status.HTTP_409_CONFLICT,
+        return _templates.TemplateResponse(
+            request=request,
+            name="animales/form.html",
+            context={
+                "user": user,
+                "form_data": form_data,
+                "error": "Ya existe un animal con ese NCHIP. Compruebalo.",
+                "especies": [item.value for item in DomainEspecie],
+                "sexos": [item.value for item in DomainSexo],
+                "form_action": "/animales",
+            },
+            status_code=status.HTTP_409_CONFLICT,
         )
 
     return RedirectResponse(
@@ -367,7 +373,6 @@ def update_animal_view(
             user,
             form_data,
             str(exc),
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
             form_action=f"/animales/{animal_id}/update",
         )
 
@@ -460,7 +465,6 @@ def _render_animal_form_error(
     user: Response | dict,
     form_data: dict[str, Any],
     error: str,
-    status_code: int,
     *,
     form_action: str = "/animales",
 ) -> Response:
@@ -472,6 +476,13 @@ def _render_animal_form_error(
     the error rerender posts back to the same handler that produced
     the error (otherwise a corrected resubmit would hit the create
     endpoint and duplicate the row).
+
+    Helper is 422-only — both remaining callers (create ``ValueError``
+    and update ``ValueError``) translate a domain validation failure to
+    ``HTTP_422_UNPROCESSABLE_CONTENT``. The duplicate-NCHIP branch is
+    handled inline with ``_templates.TemplateResponse`` so the 409
+    response keeps its own status. Folding the 422 status into the body
+    drops the signature from 6 → 5 params to satisfy the PLR0913 ratchet.
     """
     return _templates.TemplateResponse(
         request=request,
@@ -484,7 +495,7 @@ def _render_animal_form_error(
             "sexos": [item.value for item in DomainSexo],
             "form_action": form_action,
         },
-        status_code=status_code,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
     )
 
 
