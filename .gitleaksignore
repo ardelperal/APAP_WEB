@@ -94,3 +94,11 @@ d03b43b01abaae1b77fef64da8ed066a54407027:.gitleaksignore:generic-api-key:11
 # assigned to a module-level test constant); the test file was deleted
 # outright in the test-fakes cleanup of issue #670.
 b021e12c835ee2c5eb65ce9511a4dd29fa914865:tests/migration/test_insforge_storage_methods.py:generic-api-key:40
+
+# 2026-09-27 — issue #903 follow-up (triage bacd2f4)
+# tests/integration/test_magic_link_state.py:79 rule `generic-api-key`:
+# `monkeypatch.setenv("APAP_SESSION_SECRET", ...)` is a 64-char dummy
+# generated to clear `_validate_secrets` (same fixture pattern as
+# 0550244c95e8...:79 from the #903 triage). Introduced by bacd2f4
+# (fix #1004). Verified by reading the file; not a real secret.
+bacd2f4fb45ebbef4ae8c0b8ef753de62c06d573:tests/integration/test_magic_link_state.py:generic-api-key:71
