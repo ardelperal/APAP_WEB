@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scripts.check_required_jobs import ALL_JOBS, UI_PATH_PREFIXES, check_results
+from scripts.check_required_jobs import (
+    ALL_JOBS,
+    GATE_SOURCE_FILES,
+    NON_UI_PATH_PREFIXES,
+    check_results,
+    ui_changed_for_paths,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -132,22 +138,141 @@ def test_ui_detection_job_is_required_on_every_event() -> None:
         ]
 
 
-def test_ui_path_prefixes_pin_the_derived_ui_surface() -> None:
-    """Issue #895 (design D1): the UI surface single source of truth lives in
-    scripts/check_required_jobs.py. It is derived from the repository layout:
-    Jinja2 HTML under app/templates/, browser-loaded CSS/JS under app/static/
-    (css/output.css is compiled from tailwindcss/styles), and the Tailwind
-    source styles under tailwindcss/. Backend modules, migration/, tests/
-    and docs/ are deliberately NOT part of the surface.
+def test_non_ui_path_prefixes_pin_the_fail_closed_allowlist() -> None:
+    """Issue #895 fix round 1 (JD-B-001): detection is INVERTED. The single
+    source of truth now holds the NON-UI allowlist: ``ui_changed`` is true
+    unless EVERY changed file matches it. ``app/**`` is deliberately NOT
+    allowlisted (FastAPI renders Jinja from Python, so routes and
+    _form_render affect the browser) and neither is ``tailwindcss/`` (the
+    Tailwind source compiles into app/static/css/output.css).
     """
-    assert set(UI_PATH_PREFIXES) == {"app/templates/", "app/static/", "tailwindcss/"}
-    assert all(prefix.endswith("/") for prefix in UI_PATH_PREFIXES)
+    directories = {p for p in NON_UI_PATH_PREFIXES if p.endswith("/")}
+    root_files = {p for p in NON_UI_PATH_PREFIXES if not p.endswith("/")}
+
+    # Conservative directory allowlist derived from the real tracked tree.
+    assert {
+        ".atl/",
+        ".codegraph/",
+        ".github/",
+        ".pi/",
+        "coolify/",
+        "docs/",
+        "git-hooks/",
+        "migration/",
+        "odd/",
+        "openspec/",
+        "scripts/",
+        "skills/",
+        "tests/",
+    } <= directories
+    # UI-relevant surfaces are never allowlisted.
+    assert not any(p.startswith(("app/", "tailwindcss/")) for p in NON_UI_PATH_PREFIXES)
+    # Root-level non-UI files are exact entries.
+    assert {
+        "AGENTS.md",
+        "Makefile",
+        "README.md",
+        "pyproject.toml",
+        "uv.lock",
+        "Dockerfile",
+    } <= root_files
 
 
-def test_print_ui_paths_flag_emits_the_workflow_consumable_list() -> None:
+def test_ui_changed_for_paths_is_true_when_any_file_is_outside_the_allowlist() -> None:
+    """Fail-closed inversion: a template change (or ANY file outside the
+    allowlist) marks the revision UI-relevant, even mixed with docs edits.
+    """
+    assert ui_changed_for_paths(["app/templates/index.html"]) is True
+    assert ui_changed_for_paths(["docs/x.md", "app/static/css/output.css"]) is True
+    assert ui_changed_for_paths(["tailwindcss/styles/app.css"]) is True
+
+
+def test_ui_changed_for_paths_is_false_when_every_file_is_in_the_allowlist() -> None:
+    assert ui_changed_for_paths(["docs/x.md", "tests/test_x.py", "Makefile"]) is False
+    assert ui_changed_for_paths(["scripts/check_rules.py", ".github/workflows/pr-name.yml"]) is False
+
+
+def test_ui_changed_for_paths_is_true_when_the_allowlist_is_emptied() -> None:
+    """Emptying the allowlist must force e2e to run for any change — the
+    fail-closed direction of the inversion (JD-B-001 pin).
+    """
+    assert ui_changed_for_paths(["docs/x.md"], allowlist=()) is True
+    assert ui_changed_for_paths(["README.md"], allowlist=()) is True
+
+
+def test_root_file_entries_match_exactly_not_by_prefix() -> None:
+    """A root-file entry (no trailing slash) matches exactly, so a new file
+    like ``Makefile.bak`` is NOT silently treated as the allowlisted
+    ``Makefile`` — fail-closed by default.
+    """
+    assert ui_changed_for_paths(["Makefile"]) is False
+    assert ui_changed_for_paths(["Makefile.bak"]) is True
+
+
+def test_gate_source_files_pay_the_e2e_toll() -> None:
+    """Anti-self-exemption toll (JD-A-001 structural fix): the gate's own
+    source cannot be edited without paying the e2e toll. Editing any gate
+    file — even together with an obvious non-UI docs change — forces
+    ``ui_changed=true``, so an allowlist edit can never reclassify future
+    UI changes without e2e evidence.
+    """
+    assert set(GATE_SOURCE_FILES) == {
+        "scripts/check_required_jobs.py",
+        ".github/workflows/ci.yml",
+        ".github/workflows/deploy.yml",
+    }
+    for gate_file in GATE_SOURCE_FILES:
+        assert ui_changed_for_paths([gate_file]) is True
+        # Gate-file edit + template change ⇒ e2e runs (trivially true under
+        # the inversion, but pinned so the toll cannot regress to OR-less).
+        assert ui_changed_for_paths([gate_file, "docs/x.md"]) is True
+        # The toll must not be bypassable by allowlisting tricks either.
+        assert ui_changed_for_paths([gate_file], allowlist=NON_UI_PATH_PREFIXES + (gate_file,)) is True
+
+
+def test_two_merge_push_scenario_ui_change_in_the_first_commit_is_detected() -> None:
+    """JD-B-002 pin: a push delivering two commits where only the FIRST one
+    touches UI. Diffing against github.event.before yields the union of both
+    commits, so the UI change is detected. The old parent-commit diff saw
+    only the second commit and would have skipped e2e — that stale behavior
+    is pinned here as the regression the event.before base prevents.
+    """
+    first_commit_files = ["app/templates/acogidas/form.html"]
+    second_commit_files = ["docs/codebase/ci-cd.md"]
+    union = first_commit_files + second_commit_files
+
+    assert ui_changed_for_paths(union) is True
+    # The old HEAD^ diff would only have seen the second commit.
+    assert ui_changed_for_paths(second_commit_files) is False
+
+
+def test_ui_changed_flag_reads_changed_paths_from_stdin() -> None:
+    """The workflows classify the changed-file set through the single source
+    of truth via ``--ui-changed`` (one path per line on stdin); the flag
+    must work without the CI_NEEDS_JSON environment.
+    """
+    import os
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "scripts/check_required_jobs.py", "--ui-changed"],
+        cwd=REPO_ROOT,
+        input="docs/x.md\napp/templates/index.html\n",
+        env={"PATH": os.environ["PATH"]},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "true"
+
+
+def test_print_ui_paths_flag_emits_the_non_ui_allowlist() -> None:
     """The workflows (ci.yml ui-detection, deploy.yml ui-e2e-gate) consume the
     single source of truth through ``--print-ui-paths`` (space-separated
-    prefixes); the flag must work without the CI_NEEDS_JSON environment.
+    list; the flag name predates the fix round — it now emits the NON-UI
+    allowlist); the flag must work without the CI_NEEDS_JSON environment.
     """
     import os
     import subprocess
@@ -162,7 +287,7 @@ def test_print_ui_paths_flag_emits_the_workflow_consumable_list() -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.split() == list(UI_PATH_PREFIXES)
+    assert result.stdout.split() == list(NON_UI_PATH_PREFIXES)
 
 
 def test_schedule_event_is_unreachable_and_fails_closed() -> None:
