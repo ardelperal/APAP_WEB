@@ -39,6 +39,7 @@ pull request
 | Push a `staging` | Mismo contrato de e2e que el pull request: corre solo si el diff contra `github.event.before` (con fallback al commit padre) declara cambio de UI (issue #895). |
 | Tag `v*` | Ejecuta controles profundos y la matriz de release; `e2e` debe terminar en `success` y el marcador de no-UI no lo exime. Desde el issue #1046 el tag ya no dispara `security-deep` (su skip es resultado aceptado del agregador). |
 | Push a `main` | Ejecuta `deploy.yml`; no reconstruye una segunda CI. |
+| Schedule (diario 05:30 UTC) | Ejecuta `main-audit.yml` (issue #986): auditoría post-hoc de push directos a `main` sobre los últimos 30 commits; no bloquea y consolida las infracciones en una issue de seguimiento. La norma de sesión múltiple vive en [merge-workflow.md](merge-workflow.md) §16. |
 | Schedule (lunes 06:00 UTC) | Ejecuta únicamente `security-deep` (issue #1046): `pr-size` y `ui-detection` se excluyen con `github.event_name != 'schedule'`, el resto se omite por la cascada de `needs`, y `required` no corre porque su checker falla cerrado ante ese evento. |
 | Ejecución manual | Permite validar CI o despliegue sin cambiar el contrato de evidencia; también sirve como ensayo previo a un tag para `mutation` y `e2e`, y para `security-deep` es el botón manual de la cadencia semanal (issue #1046), útil en releases grandes. |
 
@@ -53,7 +54,9 @@ por la cascada de `needs`; `required` no corre porque el checker falla
 cerrado ante el evento `schedule` (ver
 `tests/test_check_required_jobs.py::test_schedule_event_is_unreachable_and_fails_closed`).
 Los tags ya no disparan `security-deep`; `mutation` conserva su cadencia
-de release (issue #780). `e2e` corre en eventos de release y, además, en
+de release (issue #780). La política de re-pin de imágenes base y el
+registro `.trivyignore` (issue #1043) viven en [security.md](security.md).
+`e2e` corre en eventos de release y, además, en
 cualquier pull request o push cuya revisión declare cambio de UI según la
 detección fail-closed del issue #895.
 

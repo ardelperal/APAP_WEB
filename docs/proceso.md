@@ -193,7 +193,7 @@ Mejoras de claridad, naming, eliminación de duplicación. **Tests siguen pasand
 
 ### 4.4 Si la feature es UI
 
-Cargar el skill **`frontend-design`** **antes** del test rojo. Las pruebas TDD de UI usan `tests/` con `TestClient` por ahora; `tests/e2e/` se ejecuta en el job `e2e` de CI cuando `APAP_OAUTH_CLIENT_ID` está configurado.
+Cargar el skill **`frontend-design`** **antes** del test rojo. Las pruebas TDD de UI usan `tests/` con `TestClient` por ahora; el job `e2e` de CI ejecuta la suite fail-closed `tests/e2e_ci/` (Playwright) cuando la revisión declara cambio de UI (issue #895).
 
 ### 4.5 Si la feature toca Access/VBA
 
