@@ -277,6 +277,21 @@ class Settings(BaseSettings):
     # ``scripts/setup_resend_smtp.sh``).
     smtp_from: str = ""
 
+    # --- Magic-link login flag (M3.4 wiring, issue #1005) ---------------
+    # Default-deny (AGENTS §6): ``False`` keeps the magic-link login
+    # surface unregistered — ``app/main.py`` does not include the
+    # ``/auth/magic/*`` router and the auth middleware answers probes
+    # with a fail-closed 404. Set ``APAP_AUTH_ENABLE_MAGIC_LINK=true``
+    # to restore the pre-#1005 behaviour (router registered, the two
+    # paths public for the token flow).
+    # DEPLOY-ORDER WARNING: production currently serves magic-link
+    # login with the router registered unconditionally. This env var
+    # MUST be set to ``true`` in the Coolify environment BEFORE
+    # deploying a build that carries this flag, otherwise magic-link
+    # login breaks on the next deploy. See
+    # ``docs/runbooks/operator-deploy-2026.md``.
+    auth_enable_magic_link: bool = False
+
     # --- Developer-only devtools preview pages (issue #821) ---------
     # When True, ``app.main`` registers the ``app.core.devtools``
     # router (``GET/POST /devtools/stepper-preview``), a developer
