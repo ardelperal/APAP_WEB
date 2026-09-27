@@ -27,6 +27,11 @@ updates:
     # intentional baseline recalibration, never a grouped routine bump.
     ignore:
       - dependency-name: "ruff"
+      # Cosmic-ray is coupled to the mutation harness: 8.7.0 raises
+      # NonHttpUrlClientError on the unix-socket worker URLs used by the
+      # mutation job (see the pyproject.toml comment). Bumping it requires
+      # an intentional harness re-validation, never a routine bump.
+      - dependency-name: "cosmic-ray"
     # Group minor/patch updates to reduce PR noise
     groups:
       production-dependencies:
