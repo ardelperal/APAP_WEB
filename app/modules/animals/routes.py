@@ -6,7 +6,7 @@ Auth model (issue #66 RBAC): permissions are checked via
 ``require_permission`` from ``app.core.rbac``.  The permission matrix:
 - READ_ANIMALES: admin, staff, voluntario
 - WRITE_ANIMALES: admin, staff, voluntario
-- DELETE_ANIMALES: admin, staff
+- DELETE_ANIMALES: admin
 
 Las dependencias de auth (``get_local_postgres_executor_dep``,
 ``get_current_user_optional`` y ``require_permission``) viven

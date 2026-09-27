@@ -22,7 +22,6 @@ Hard rules (web-tdd-philosophy):
 
 from __future__ import annotations
 
-import importlib
 from pathlib import Path
 
 import psycopg
@@ -31,6 +30,15 @@ from psycopg import sql
 # Domain DDL constants — same imports the integration conftest uses so the
 # helper produces an identical schema. Imported at module level so the
 # APAP003 rule linter does not flag them as unjustified lazy imports.
+# Catalogos DDL lives in ``app.core.catalogos.ddl`` (issue #921, A-09):
+# production code must never import the test tree.
+from app.core.catalogos.ddl import (
+    CATALOGOS_MOTIVOS_CREATE_TABLE_SQL,
+    CATALOGOS_ORIGENES_CREATE_TABLE_SQL,
+    CATALOGOS_PERIODICIDAD_CREATE_TABLE_SQL,
+    CATALOGOS_PRUEBAS_CREATE_TABLE_SQL,
+    CATALOGOS_TIPOS_CONTRATO_CREATE_TABLE_SQL,
+)
 from app.core.domain_adopciones import ADOPCIONES_CREATE_TABLE_SQL
 from app.core.domain_animales import ANIMALS_CREATE_TABLE_SQL
 from app.core.domain_casas_acogida import CASAS_ACOGIDA_CREATE_TABLE_SQL
@@ -74,37 +82,21 @@ from app.core.domain_voluntarios import (
 )
 
 
-def _load_conftest_catalogos() -> tuple[str, ...]:
-    """Import the catalogos DDL constants from the integration conftest.
-
-    The catalogos are module-level ``CATALOGOS_*`` constants in
-    ``tests/integration/conftest.py`` (renamed from the original
-    underscore-prefixed names so non-test code can import them).
-    Loading them at runtime keeps a single source of truth for the
-    schema layout — if the conftest adds a new catalog, the helper
-    picks it up automatically.
-    """
-    conftest = importlib.import_module("tests.integration.conftest")
-    return (
-        conftest.CATALOGOS_MOTIVOS_CREATE_TABLE_SQL,
-        conftest.CATALOGOS_ORIGENES_CREATE_TABLE_SQL,
-        conftest.CATALOGOS_PERIODICIDAD_CREATE_TABLE_SQL,
-        conftest.CATALOGOS_PRUEBAS_CREATE_TABLE_SQL,
-        conftest.CATALOGOS_TIPOS_CONTRATO_CREATE_TABLE_SQL,
-    )
-
-
 def _load_domain_statements() -> tuple[str, ...]:
     """Return the ordered domain DDL list (catalogos + domain tables).
 
-    Catalogos come from the integration conftest (single source of
-    truth); domain tables come from the module-level imports above.
-    Order respects FK dependencies — catalogos first, then tables
-    that reference them, then the lifecycle append-only trigger.
+    Catalogos come from ``app.core.catalogos.ddl`` (single source of
+    truth shared with the integration conftest); domain tables come from
+    the module-level imports above. Order respects FK dependencies —
+    catalogos first, then tables that reference them, then the lifecycle
+    append-only trigger.
     """
-    catalogos = _load_conftest_catalogos()
     return (
-        *catalogos,
+        CATALOGOS_MOTIVOS_CREATE_TABLE_SQL,
+        CATALOGOS_ORIGENES_CREATE_TABLE_SQL,
+        CATALOGOS_PERIODICIDAD_CREATE_TABLE_SQL,
+        CATALOGOS_PRUEBAS_CREATE_TABLE_SQL,
+        CATALOGOS_TIPOS_CONTRATO_CREATE_TABLE_SQL,
         ANIMALS_CREATE_TABLE_SQL,
         VOLUNTARIOS_CREATE_TABLE_SQL,
         ROLES_VOLUNTARIO_CREATE_TABLE_SQL,

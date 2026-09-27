@@ -52,9 +52,9 @@ Tabla de trazabilidad. La columna PR queda con el número del PR que fusiona el 
 | A-06 | Alto | Drift de tooling: pin de cosmic-ray revertido por Dependabot, docker-compose sin MinIO, `APAP_BUILD_SHA` literal, cobertura 80/85 en docs | #918 | — | pendiente (agente del epic CI #935) |
 | A-07 | Medio | Borrado cruzado de material de estancia (`junction_id` sin comprobar pertenencia) y redirecciones con parámetros sin codificar | #919 | #1009 | cerrado |
 | A-08 | Medio | Identificadores de schema en DDL con f-string, `trust_xff` sin lista de proxies de confianza, `X-Request-ID` entrante sin validar | #920 | #1010 | cerrado |
-| A-09 | Bajo | `schema_provisioning` importa `tests/`, `_case_variants` muerto, `assert` como guard en tiempo de ejecución | #921 | — | pendiente |
-| A-10 | Medio | `xfail` por estado global en reverse_apply, rate limit sin prueba de concurrencia, reintentos de tasks sin prueba | #922 | — | pendiente |
-| A-11 | Medio | Alcance de lectura de los roles legacy en RBAC sin decisión ni test (requiere decisión de producto) | #923 | — | pendiente |
+| A-09 | Bajo | `schema_provisioning` importa `tests/`, `_case_variants` muerto, `assert` como guard en tiempo de ejecución (el punto del assert ya resuelto por #924) | #921 | #1015 | cerrado |
+| A-10 | Medio | `xfail` por estado global en reverse_apply, rate limit sin prueba de concurrencia, reintentos de tasks sin prueba (re-scoped: la semántica de reintentos no existe; cobertura re-dirigida al dedupe del scheduler) | #922 | #1018 | cerrado |
+| A-11 | Medio | Alcance de lectura de los roles legacy en RBAC sin decisión ni test; decisión de producto D-44 (mapeo explícito fail-closed) | #923 | #1017 | cerrado |
 
 ## Healthy areas
 
@@ -78,14 +78,14 @@ Lo verificado sano durante la auditoría, para que ninguna revisión futura lo t
 
 ## Open questions
 
-- **A-11 (#923)**: el alcance de lectura de los roles legacy necesita una decisión de producto antes de implementarse; la issue recoge las alternativas.
+- **A-11 (#923)**: decidido (2026-09-26, opción "Compatibilidad explícita", D-44); seguimiento del gap `require_authorized_user`-only en #1019.
 - **A-06 (#918)**: asignado al epic de CI #935 por solaparse con su territorio (`pyproject.toml`, `.github/dependabot.yml`, compose); decisión del operador de 2026-09-26.
 - **Contrato huérfano del redirect de asignar**: `GET /acogidas/new` no consume los query params que le deja el redirect (detectado en el judgment-day de #919); issue de seguimiento #1008.
 - **Login CSRF en `/auth/magic/verify`** y **lookup de email case-sensitive**, hallados en el judgment-day de #917: #1004 y #1003; el flag `auth_enable_magic_link` aplazado quedó en #1005 y la propagación del redirect de usuario desactivado en #1002.
 
 ## Maintenance rule
 
-Cada PR que cierre un hallazgo actualiza su fila (PR y estado) en esta misma rama o en la siguiente que toque el documento; el revisor no aprueba una fila `cerrado` sin número de PR y CI verde. La épica #911 se cierra cuando su checklist está completa y todas las filas de esta tabla están en `cerrado`.
+Cada PR que cierre un hallazgo actualiza su fila (PR y estado) en esta misma rama o en la siguiente que toque el documento; el revisor no aprueba una fila `cerrado` sin número de PR y CI verde. La épica #911 se cierra cuando su checklist está completa y todas las filas de esta tabla están en `cerrado`. Estado actual: 14 de 15 filas cerradas; resta A-06 (#918), delegado al epic de CI.
 
 ## References
 
