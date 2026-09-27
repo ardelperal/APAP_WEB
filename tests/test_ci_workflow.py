@@ -2617,3 +2617,171 @@ def test_process_doc_records_no_direct_push_invariant() -> None:
     assert "P5-no-direct-push-multi-session" in process
     assert "main-audit" in process
     assert "push directo" in process
+
+
+# --- issue #1035: trivy cannot parse FROM lines that interpolate ARGs ------
+
+def _trivy_scan_run_block() -> str:
+    """Return the dedented shell of the security-deep trivy scan step."""
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    security = _job_block(workflow, "security-deep")
+    step = security.split("- name: Scan pinned base images", 1)[1]
+    run_start = step.index("run: |")
+    body_start = run_start + step[run_start:].index("\n") + 1
+    lines: list[str] = []
+    for line in step[body_start:].splitlines():
+        if line and not line.startswith("          "):
+            break  # next step (6-space indent) ends the run block
+        lines.append(line[10:] if line else "")
+    return "\n".join(lines)
+
+
+def _trivy_resolution_snippet() -> str:
+    """Return the self-contained ARG-resolution shell of the trivy step.
+
+    Slices from the image extraction down to the emit of the resolved list,
+    so the tests execute the exact shell the workflow runs.
+    """
+    block = _trivy_scan_run_block()
+    start = block.index('images=$(grep')
+    end = block.index('echo "$resolved_images"')
+    return block[start : block.index("\n", end)]
+
+
+def _dockerfile_arg_default(name: str, dockerfile: str) -> str:
+    match = re.search(rf"^ARG {name}=([^ \n]+)", dockerfile, flags=re.MULTILINE)
+    assert match, f"Dockerfile does not declare ARG {name}=..."
+    return match.group(1)
+
+
+def test_ci_workflow_trivy_step_resolves_dockerfile_arg_defaults(tmp_path: Path) -> None:
+    """Issue #1035 (happy path): the resolution pipeline in the trivy step
+    turns ``node:${NODE_VERSION}-bookworm-slim@sha256:...`` into
+    ``node:20-bookworm-slim@sha256:...`` (and the same for PYTHON_VERSION)
+    using the ARG defaults from the Dockerfile itself.
+    """
+    snippet = _trivy_resolution_snippet()
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    (tmp_path / "Dockerfile").write_text(dockerfile, encoding="utf-8")
+
+    result = subprocess.run(
+        ["bash", "-c", snippet],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, (
+        f"resolution snippet must exit 0 on the real Dockerfile: "
+        f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    node_version = _dockerfile_arg_default("NODE_VERSION", dockerfile)
+    python_version = _dockerfile_arg_default("PYTHON_VERSION", dockerfile)
+    assert f"node:{node_version}-bookworm-slim@" in result.stdout
+    assert f"python:{python_version}-slim-bookworm@" in result.stdout
+    assert "${" not in result.stdout
+
+
+def test_ci_workflow_trivy_step_preserves_digest_pins(tmp_path: Path) -> None:
+    """Issue #1035 (digest preservation): resolution substitutes only the
+    ``${NAME}`` spans; every ``@sha256:...`` pin from the Dockerfile must
+    reach the scan list byte-for-byte.
+    """
+    snippet = _trivy_resolution_snippet()
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    (tmp_path / "Dockerfile").write_text(dockerfile, encoding="utf-8")
+
+    result = subprocess.run(
+        ["bash", "-c", snippet],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    digests = set(re.findall(r"@sha256:[a-f0-9]+", dockerfile))
+    assert digests, "the Dockerfile is expected to pin base images by digest"
+    for digest in digests:
+        assert digest in result.stdout, (
+            f"digest pin {digest} must survive ARG resolution untouched"
+        )
+
+
+def test_ci_workflow_trivy_step_resolves_multiple_args_in_one_reference(
+    tmp_path: Path,
+) -> None:
+    """Issue #1035 (edge): a single FROM interpolating several ARGs resolves
+    every one of them in the same pass.
+    """
+    snippet = _trivy_resolution_snippet()
+    digest = "a" * 64
+    (tmp_path / "Dockerfile").write_text(
+        "ARG REGISTRY_PREFIX=mirror.local\n"
+        "ARG BASE_TAG=3.19\n"
+        f"FROM ${{REGISTRY_PREFIX}}/alpine:${{BASE_TAG}}@sha256:{digest}\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ["bash", "-c", snippet],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert f"mirror.local/alpine:3.19@sha256:{digest}" in result.stdout
+    assert "${" not in result.stdout
+
+
+def test_ci_workflow_trivy_step_fails_closed_on_unresolved_arg(
+    tmp_path: Path,
+) -> None:
+    """Issue #1035 (sad path): a FROM using an ARG without a default must
+    fail the step loudly via a ``::error::`` annotation naming the
+    unresolved ARG — never a silent partial scan list.
+    """
+    snippet = _trivy_resolution_snippet()
+    digest = "b" * 64
+    (tmp_path / "Dockerfile").write_text(
+        "ARG KNOWN=1.2.3\n"
+        f"FROM alpine:${{KNOWN}}@sha256:{digest}\n"
+        f"FROM busybox:${{MISSING}}@sha256:{digest}\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ["bash", "-c", snippet],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0, (
+        "an unresolved ARG must fail the step, not scan a partial list"
+    )
+    assert "::error::unresolved ARG" in result.stdout
+    assert "MISSING" in result.stdout
+
+
+def test_ci_workflow_trivy_step_extracts_arg_defaults_from_the_dockerfile() -> None:
+    """Issue #1035 (pipeline pin): the trivy step must derive the ARG
+    mapping from the Dockerfile's own ``ARG NAME=default`` lines, so
+    re-pinning or adding an ARG flows into the scan automatically.
+    """
+    block = _trivy_scan_run_block()
+
+    assert "grep -oE '^ARG [A-Za-z_]+=[^ ]+' Dockerfile" in block
+
+
+def test_ci_workflow_trivy_step_declares_the_fail_closed_error_marker() -> None:
+    """Issue #1035 (fail-closed pin): the step must carry an explicit
+    ``::error::unresolved ARG`` annotation branch ahead of ``exit 1``.
+    """
+    block = _trivy_scan_run_block()
+
+    assert "::error::unresolved ARG" in block
+    assert "exit 1" in block
