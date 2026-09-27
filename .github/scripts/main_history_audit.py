@@ -145,7 +145,7 @@ def _find_open(title: str, repo: str, token: str) -> dict[str, object] | None:
 def _body(offenders: list[Offender]) -> str:
     import datetime as _dt
 
-    today = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d")
+    today = _dt.datetime.now(_dt.UTC).strftime("%Y-%m-%d")
     lines = [
         "# Push directo a `main` detectado",
         "",
