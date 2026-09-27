@@ -105,21 +105,32 @@ def auth_reval_rows(
 
 @pytest.fixture(autouse=True)
 def _clear_settings_cache() -> None:
-    """Reset ``get_settings()`` lru_cache before every test.
+    """Reset module-level test seams before every test.
 
-    Added for code-quality-fixes T1 (see ``app/core/config.py`` docstring
-    and ``openspec/changes/code-quality-fixes/proposal.md``). Tests that
-    mutate ``APAP_*`` env vars without explicitly clearing the cache
-    would otherwise observe a stale singleton from a previous test.
+    Each item below is a worker-local cache or singleton whose state from
+    one test would leak into the next if not reset:
+
+    - ``get_settings()`` lru_cache (added for code-quality-fixes T1; tests
+      that mutate ``APAP_*`` env vars need a fresh read).
+    - The rate-limit backend (issue #286; bucket state from a previous
+      test would 429 a later request and masquerade as an auth failure).
+    - The in-process auth cache (issues #143/#145/#262/#287; ``require_
+      authorized_user`` memoizes the verdict per email for the worker
+      lifetime, so a rocio@example.com rol baked in by an earlier test
+      would otherwise flip a later reader-403 test to 200/303/422/404
+      instead of the contract-pinned 403 — flake blocker for issue #1041
+      and PR #1033). ``invalidate_all`` is idempotent for an empty cache
+      and bumps every per-email generation so prior verdicts are
+      unreachable to the next test.
     """
     get_settings.cache_clear()
-    # Reset the rate-limit backend between every test so bucket state from
-    # one test does not affect another (issue #286).
     try:
         from app.core.rate_limit_middleware import _reset_rate_limit_backend
         _reset_rate_limit_backend()
     except ImportError:
         pass  # Before rate-limit middleware is added; no-op
+    from app.core import auth_cache as _auth_cache
+    _auth_cache.invalidate_all()
 
 
 @pytest.fixture(autouse=True)
