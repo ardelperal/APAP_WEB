@@ -42,9 +42,9 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     # each submodule lives under its own file path now.
     "app/modules/acogidas/routes.py": 367,
     "app/modules/acogidas/service.py": 343,
-    "app/modules/adopciones/routes.py": 273,  # issue #945 part 2/2: local _actor_user_id migrated to the shared app.core._module_helpers._actor helper
+    "app/modules/adopciones/routes.py": 274,  # +1: issue #1019 auth guard (require_permission on seguimiento PATCH)  # issue #945 part 2/2: local _actor_user_id migrated to the shared app.core._module_helpers._actor helper
     "app/modules/adopciones/service.py": 466,  # issue #945: created_by label literals replaced by the actor UUID
-    "app/modules/animals/routes.py": 462,  # issue #974: extracted _render_animal_conflict (409 branch) plus _render_animal_form_error's form_action contract grew the file from 446 → 462 mutation sites; baseline raised to match the measured tree (script gate is informational since #968)
+    "app/modules/animals/routes.py": 464,  # +2: issue #1019 auth guards (search + salud resumen)  # issue #974: extracted _render_animal_conflict (409 branch) plus _render_animal_form_error's form_action contract grew the file from 446 → 462 mutation sites; baseline raised to match the measured tree (script gate is informational since #968)
     "app/modules/cesiones/service.py": 362,
     "app/modules/foster/routes.py": 255,
     "app/modules/foster/service.py": 342,
