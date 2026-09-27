@@ -70,7 +70,7 @@ dev = [
     # workers (changes in `scripts/cosmic_ray_run_config.py` + ci.yml)
     # or re-acquiring the baseline on the new runtime; both are
     # independent work units and not bundled into this pin. See #434.
-    "cosmic-ray==8.7.0",
+    "cosmic-ray==8.4.6",
     "hypothesis>=6.165",
     "pytest-randomly>=4.1",
     # Pinned exactly, not floored. Issue #380: `ruff>=0.6` let CI resolve
