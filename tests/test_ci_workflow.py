@@ -2558,4 +2558,3 @@ def test_process_doc_records_no_direct_push_invariant() -> None:
     assert "P5-no-direct-push-multi-session" in process
     assert "main-audit" in process
     assert "push directo" in process
->>>>>>> origin/main
