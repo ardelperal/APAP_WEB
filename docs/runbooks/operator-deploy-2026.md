@@ -104,6 +104,15 @@ No manual image flip is required:
 
 The unique `sha-<full-sha>` tag remains available for audit and rollback.
 
+> **Deploy-order warning (issue #1005)**: since the magic-link flag landed,
+> the `APAP_AUTH_ENABLE_MAGIC_LINK` environment variable gates the
+> magic-link login routes (default **off**). A build with the flag
+> merged but the variable unset disables magic-link login on deploy.
+> Verify the variable is set to `true` in the Coolify environment
+> before promoting such a build — see
+> [Feature flag: `APAP_AUTH_ENABLE_MAGIC_LINK`](#feature-flag-apap_auth_enable_magic_link-magic-link-login)
+> below.
+
 ## Phase 3 — Rollback
 
 Post-deploy failure triggers rollback automatically: CI restores
@@ -241,7 +250,29 @@ The bucket ``apap-photos`` is created automatically on first upload
 To create it manually via the MinIO console:
 1. Open ``http://<server-ip>:9001`` (the MinIO console port).
 2. Log in with ``MINIO_ROOT_USER`` / ``MINIO_ROOT_PASSWORD``.
-3. Buckets → Create Bucket → name: ``apap-photos``.## Contributor checklist
+3. Buckets → Create Bucket → name: ``apap-photos``.
+
+## Feature flag: `APAP_AUTH_ENABLE_MAGIC_LINK` (magic-link login)
+
+| Property | Value |
+|---|---|
+| Env var | `APAP_AUTH_ENABLE_MAGIC_LINK` |
+| Default | `false` (default-deny, AGENTS §6) — the magic-link login routes are **not** registered and probes to `/auth/magic/*` receive a fail-closed 404 |
+| How to enable | In the `apap-web` Coolify resource → Environment, set `APAP_AUTH_ENABLE_MAGIC_LINK=true` and redeploy |
+| Introduced by | Issue #1005 (deferred from #917) |
+
+**Deploy-order warning**: production served magic-link login with the
+routes registered unconditionally. When deploying a build that carries
+this flag, the variable must already be set to `true` in the Coolify
+environment — merging without it breaks magic-link login on the next
+deploy (the login form's POST to `/auth/magic/start` will receive a
+404). Setting the variable is the operator's decision: coordinate the
+change before promoting the build, never after.
+
+The Google OAuth login flow is not affected by this flag; only the
+magic-link (`email + token`) login surface is gated.
+
+## Contributor checklist
 
 - [ ] Before any change to ``coolify/apap-web-coolify.yaml``, run
       ``pytest tests/test_coolify_web_yaml.py`` to confirm the new
