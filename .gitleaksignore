@@ -41,3 +41,64 @@ tests/test_maildev_helper.py:generic-api-key:83
 # line so a *new* secret of the same shape in a future commit still
 # fails the gate (verified by the security-deep runbook).
 opencode.json:generic-api-key:12
+
+# ---------------------------------------------------------------------------
+# 2026-09-27 — issue #903. Full-history triage (gitleaks detect over all
+# 1602 commits, image pinned to the same digest as the CI gates). Verdict:
+# 11 findings, ALL false positives or test data — zero real secrets, no
+# rotation required. Entries below use the full history-mode fingerprint
+# <commit>:<file>:<rule>:<line> so each one is pinned to the exact
+# historical commit: immutable and specific, never path-wide. The two
+# standing constraints from the security job comment in
+# .github/workflows/ci.yml remain binding: relative paths only, and never
+# quote the flagged value in this file — a quoted value re-triggers the
+# rule against this very file, which is exactly what the d03b43b0 entry
+# below records.
+
+# x8 — commits a105e457ea2891a1d98fb29a9c913a763e6e0d92 and
+# b77e4fd39adab130325fdd0bbdfbd889690fff3d,
+# tests/test_contratos_local_backend_storage.py. The rule fires on the key
+# kwarg of the fake storage-adapter fixtures: the values are storage-object
+# FILENAMES for fictional case documents (adoption and foster-care intake
+# PDFs), not credentials. Two fixture names across lines 186/222/226 (first
+# name) and 257 (second name), in two commits that touched the same file.
+a105e457ea2891a1d98fb29a9c913a763e6e0d92:tests/test_contratos_local_backend_storage.py:generic-api-key:186
+a105e457ea2891a1d98fb29a9c913a763e6e0d92:tests/test_contratos_local_backend_storage.py:generic-api-key:222
+a105e457ea2891a1d98fb29a9c913a763e6e0d92:tests/test_contratos_local_backend_storage.py:generic-api-key:226
+a105e457ea2891a1d98fb29a9c913a763e6e0d92:tests/test_contratos_local_backend_storage.py:generic-api-key:257
+b77e4fd39adab130325fdd0bbdfbd889690fff3d:tests/test_contratos_local_backend_storage.py:generic-api-key:186
+b77e4fd39adab130325fdd0bbdfbd889690fff3d:tests/test_contratos_local_backend_storage.py:generic-api-key:222
+b77e4fd39adab130325fdd0bbdfbd889690fff3d:tests/test_contratos_local_backend_storage.py:generic-api-key:226
+b77e4fd39adab130325fdd0bbdfbd889690fff3d:tests/test_contratos_local_backend_storage.py:generic-api-key:257
+
+# x1 — commit 0550244c95e8bc2f7946bc7d36e7ef5b898e24de,
+# tests/integration/test_magic_link_routes.py:79. A
+# hardcoded integration-test-only APAP_SESSION_SECRET padding setenv whose
+# sole purpose is to clear _validate_secrets in the test lifespan (the
+# code comment on that line says exactly that). Never issued by
+# secrets.token_hex/token_urlsafe, never a live value.
+0550244c95e8bc2f7946bc7d36e7ef5b898e24de:tests/integration/test_magic_link_routes.py:generic-api-key:79
+
+# x1 — commit d03b43b01abaae1b77fef64da8ed066a54407027, .gitleaksignore:11.
+# The retired issue-#381 allowlist
+# flagged ITSELF: its comment quoted the flagged filename, and the
+# generic-api-key rule fired on the quoted assignment shape inside this
+# file — the exact trap the security job comment warns about. The
+# offending content was deleted from the tree afterwards; only git
+# history contains that line.
+d03b43b01abaae1b77fef64da8ed066a54407027:.gitleaksignore:generic-api-key:11
+
+# x1 — commit b021e12c835ee2c5eb65ce9511a4dd29fa914865,
+# tests/migration/test_insforge_storage_methods.py:40. The
+# issue-#381 storage-filename fixture (a fictional storage-object name
+# assigned to a module-level test constant); the test file was deleted
+# outright in the test-fakes cleanup of issue #670.
+b021e12c835ee2c5eb65ce9511a4dd29fa914865:tests/migration/test_insforge_storage_methods.py:generic-api-key:40
+
+# 2026-09-27 — issue #903 follow-up (triage bacd2f4fb45ebbef4ae8c0b8ef753de62c06d573)
+# tests/integration/test_magic_link_state.py:79 rule `generic-api-key`:
+# `monkeypatch.setenv("APAP_SESSION_SECRET", ...)` is a 64-char dummy
+# generated to clear `_validate_secrets` (same fixture pattern as
+# 0550244c95e8...:79 from the #903 triage). Introduced by bacd2f4
+# (fix #1004). Verified by reading the file; not a real secret.
+bacd2f4fb45ebbef4ae8c0b8ef753de62c06d573:tests/integration/test_magic_link_state.py:generic-api-key:71

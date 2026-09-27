@@ -336,9 +336,10 @@ async def test_auth_denied_event_carries_real_user_id(
 
     # NOTE: the audit event is the contract under test here. The
     # redirect propagation from ``require_authorized_user`` in the
-    # GET /tareas handler is a pre-existing, out-of-scope gap (the
-    # handler renders without ``return_early_if_response``) — it is
-    # NOT part of issue #917.
+    # GET /tareas handler was a pre-existing gap at the time of #917;
+    # issue #1002 fixed it (the handler now propagates the 302 via
+    # ``return_early_if_response``) and pins it with integration
+    # tests in tests/integration/test_tasks_redirect_propagation.py.
     denied = [r for r in caplog.records if r.msg == "auth.denied"]
     assert denied, "expected an auth.denied audit event"
     caller_fields = getattr(denied[0], "_caller_fields", {})
