@@ -16,6 +16,9 @@ Same patterns as ``app/modules/foster/routes.py`` (FOSTER-01) and
   in depth — the auth middleware already bounces anonymous visitors
   to ``/login``).
 
+- All redirect URLs built from form/route identifiers urlencode the
+  query (issue #919) or percent-encode the path segment.
+
 The sub-router shares the ``/casas-acogida`` prefix with the FOSTER-01
 ``foster_router`` so the path namespace is contiguous. FastAPI's
 routers are matched by registered order; ``assignment_router`` is
@@ -30,6 +33,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Annotated, Any
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -205,8 +209,9 @@ def asignar_submit(  # noqa: PLR0913  # 2 Form fields + 4 fixed deps; form model
         )
 
     if decision.decision == "admit":
+        query = urlencode({"animal_id": animal_id, "casa_acogida_id": casa_id})
         return RedirectResponse(
-            url=f"/acogidas/new?animal_id={animal_id}&casa_acogida_id={casa_id}",
+            url=f"/acogidas/new?{query}",
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
@@ -242,12 +247,11 @@ def asignar_submit(  # noqa: PLR0913  # 2 Form fields + 4 fixed deps; form model
         operador_user_id=operador,
         motivo=motivo_clean,
     )
+    query = urlencode(
+        {"animal_id": animal_id, "casa_acogida_id": casa_id, "override_id": override_id}
+    )
     return RedirectResponse(
-        url=(
-            f"/acogidas/new?animal_id={animal_id}"
-            f"&casa_acogida_id={casa_id}"
-            f"&override_id={override_id}"
-        ),
+        url=f"/acogidas/new?{query}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 

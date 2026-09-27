@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Annotated, Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -176,7 +177,7 @@ def stage_batch_view(  # noqa: PLR0913  # batch endpoint with 6 list-form fields
         )
 
     return RedirectResponse(
-        url=f"/entradas/batch/{staging.batch_id}",
+        url=f"/entradas/batch/{quote(str(staging.batch_id), safe='')}",  # issue #919
         status_code=status.HTTP_303_SEE_OTHER,
     )
 

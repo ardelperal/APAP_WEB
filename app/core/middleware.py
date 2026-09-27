@@ -72,10 +72,10 @@ PUBLIC_PATHS: frozenset[str] = frozenset(
         # yet) and the verify endpoint consumes the token to mint one.
         # The auth gate must NOT redirect these to /login before the
         # route runs, otherwise the magic-link flow can never start.
-        # The routes themselves are conditional on
-        # ``Settings.auth_enable_magic_link``; in production (the
-        # default enabled state) the routes are registered, and these
-        # entries are required for them to be reachable at all.
+        # The routes are registered UNCONDITIONALLY: both ``app/main.py``
+        # and the standalone local backend (issue #917 correction — the
+        # magic-link router is not gated behind any Settings flag), so
+        # these entries are always required for the flow to be reachable.
         "/auth/magic/start",
         "/auth/magic/verify",
         "/logout",

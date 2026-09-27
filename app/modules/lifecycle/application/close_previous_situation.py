@@ -44,11 +44,6 @@ CLOSING_EVENT_BY_CATEGORY: Final[dict[str, str]] = {
 }
 
 
-#: Default ``created_by`` actor name; override in routes / tests to
-#: record the end-user identity that triggered the transition.
-DEFAULT_CREATED_BY: Final[str] = "lifecycle.close_previous_situation"
-
-
 _INSERT_CLOSING_EVENT_SQL = """
 INSERT INTO animal_lifecycle_events (
     animal_id,
@@ -97,7 +92,7 @@ def close_previous_situation(  # noqa: PLR0913 - situation transition needs cate
     *,
     source_entity_type: str | None = None,
     source_entity_id: str | None = None,
-    created_by: str = DEFAULT_CREATED_BY,
+    created_by: str,
     lifecycle_port: LifecyclePort | None = None,
 ) -> None:
     """Emit the closing event for a previous situation category.
@@ -130,8 +125,12 @@ def close_previous_situation(  # noqa: PLR0913 - situation transition needs cate
         ``source_entity_type`` when the caller already knows which
         row is closing.
     created_by
-        Actor name persisted on the closing event. Defaults to
-        ``"lifecycle.close_previous_situation"``.
+        The acting user's UUID, persisted on the closing event.
+        Required (issue #945, A-13): the column is ``UUID NOT NULL``
+        and every event names the user who caused it. Callers must
+        resolve and validate the actor (e.g. via
+        ``app.modules.animals.require_actor``) before calling this
+        use case; it is not resolved here.
 
     Notes
     -----
@@ -174,7 +173,6 @@ def close_previous_situation(  # noqa: PLR0913 - situation transition needs cate
 
 __all__ = [
     "CLOSING_EVENT_BY_CATEGORY",
-    "DEFAULT_CREATED_BY",
     "UnknownSituationCategoryError",
     "close_previous_situation",
 ]

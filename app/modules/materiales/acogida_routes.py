@@ -323,13 +323,16 @@ def remove_material_from_estancia_view(
     user: Annotated[AuthenticatedUser, Depends(require_writer_user)],
     port: Annotated[MaterialesPort, Depends(get_materiales_port)],
 ):
-    """Soft-delete a single junction row.
+    """Soft-delete a single junction row owned by ``estancia_id``.
 
     Returns 303 to ``/acogidas/{id}/materiales`` on success
     (service True). Returns 404 when the service signals the row
-    was missing OR already inactive — the service folds both into
-    a single ``False`` sentinel (same shape as
-    ``deactivate_material`` on the catalog).
+    was missing, does NOT belong to ``estancia_id``, OR was already
+    inactive — the service folds all three into a single ``False``
+    sentinel and the handler fails closed (issue #919, audit finding
+    A-07: without the ownership check, a junction of another estancia
+    could be deleted through this URL). Same shape as
+    ``deactivate_material`` on the catalog.
 
     Idempotency: a SECOND POST against the same junction id is
     safe — the service returns ``False`` on the second call and
@@ -340,7 +343,7 @@ def remove_material_from_estancia_view(
     if (early := return_early_if_response(user)) is not None:
         return early
     if not materiales_application.remove_material_from_estancia(
-        port, junction_id
+        port, estancia_id, junction_id
     ):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return RedirectResponse(

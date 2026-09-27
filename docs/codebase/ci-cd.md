@@ -75,6 +75,13 @@ compartido vive en [`.github/actions/setup-python`](../../.github/actions/setup-
 El deploy construye una imagen ARM64 candidata. Publica el digest con `SBOM` y
 provenance, escanea ese digest y ejecuta el smoke sobre esos mismos bytes.
 `deploy.yml` separa la prueba `evidence` de la ejecución privilegiada `deploy`.
+El job `release-e2e-gate` ancla la validación e2e de producción al proceso de
+release: falla si la variable de repositorio `APAP_E2E_GATE_EVIDENCE` no
+registra la evidencia del runbook
+[e2e-production](../runbooks/e2e-production.md). El operador debe sustituir el
+valor de la variable en cada release (o registrar
+`APAP_E2E_GATE_EVIDENCE=skipped:<motivo>` como bypass auditable); el gate
+garantiza que la evidencia quedó registrada, no su frescura por release.
 ## Protección y runners
 
 Los pull requests usan runners efímeros de GitHub. Ningún código de un pull
@@ -94,6 +101,10 @@ El workflow exige ese SHA en `/healthz`; si falla, solicita el commit anterior.
 
 Consulte el [runbook de despliegue](../runbooks/operator-deploy-2026.md) para la
 configuración inicial, la operación manual y la recuperación de base de datos.
+
+El gate de validación e2e contra producción (épica #909) se ejecuta fuera de
+la CI, desde una estación: el ciclo de encendido, pruebas y apagado del flag
+de e2e está documentado en el [runbook e2e de producción](../runbooks/e2e-production.md).
 
 ## Comprobación del contribuidor
 

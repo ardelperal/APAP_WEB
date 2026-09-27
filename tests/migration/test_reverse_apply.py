@@ -1300,27 +1300,21 @@ def test_apply_web_to_legacy_legacy_write_commit_failed(
         )
 
 
-@pytest.mark.xfail(
-    reason=(
-        "characterization gap: the outer exception handler (lines 298-306) "
-        "correctly rolls back sync_state.json but the OSError from "
-        "save_sync_state is caught by the inner handler (lines 254-264) "
-        "and re-raised AFTER the try/finally cleanup — whether it reaches "
-        "pytest.raises depends on test-isolation interaction with the "
-        "set_legacy_query_executor seam. The rollback behaviour itself "
-        "(last assertion) is correct and verified by the passing "
-        "test_apply_web_to_legacy_sync_state_rollback_on_save_failure."
-    )
-)
 def test_apply_web_to_legacy_generic_exception_rollback_sync_state(
+    reverse_runner: Any,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Lines 298-306: a non-``LegacyWriteCommitFailed`` exception that
-    escapes the per-row loop (e.g. from ``save_sync_state`` or an
-    outer operation) triggers the generic exception handler, which
-    rolls back ``sync_state.json`` to its pre-apply bytes if the file
-    was modified."""
+    """Outer generic handler: an exception escaping the per-row loop
+    triggers ``_handle_exception``, which rolls back a dirty
+    ``sync_state.json`` to its pre-apply bytes and re-raises so the
+    caller sees the failure (issue #922: replaces the old ``xfail`` —
+    the previous body called the ``reverse_runner`` fixture directly
+    instead of requesting it as a parameter, so the test failed with
+    "Fixture called directly" and the ``xfail`` swallowed that).
+    Isolation is guaranteed by the autouse ``_reset_legacy_executor``
+    fixture (executor seam) plus ``monkeypatch`` (orchestrator binding).
+    """
     import migration.reverse_apply.orchestrator as orchestrator_mod
     import migration.sync_state as sync_state_mod
 
@@ -1336,37 +1330,32 @@ def test_apply_web_to_legacy_generic_exception_rollback_sync_state(
     sync_state_mod.save_sync_state(initial, sync_path)
     pre_sync_bytes = sync_path.read_bytes()
 
-    def _failing_save(state: Any, path: Path) -> None:
-        raise OSError("save failed")
+    def _failing_loop(**_kwargs: Any) -> tuple[int, int, list[str]]:
+        """Dirty the cursor file, then crash with a generic exception."""
+        sync_path.write_bytes(pre_sync_bytes + b"\n")
+        raise RuntimeError("boom from per-row loop")
 
-    # Patch at the orchestrator's binding for reliable interception.
-    monkeypatch.setattr(orchestrator_mod, "save_sync_state", _failing_save)
+    monkeypatch.setattr(orchestrator_mod, "_process_per_row_loop", _failing_loop)
 
-    # Use reverse_runner for proper stub isolation.
-    out = reverse_runner(
-        web_seed={
-            "voluntarios": [
-                {
-                    "voluntario": "alice",
-                    "email": "new@x",
-                    "tel1": None,
-                    "tel2": None,
-                }
-            ]
-        },
-        legacy_rows=[
-            {"Voluntario": "alice", "Email": "old@x", "Tel1": None, "Tel2": None},
-        ],
-        table_name="voluntario",
-        sync_state_table="voluntarios",
-        sync_state_path=sync_path,
-    )
-    result = out["result"]
+    with pytest.raises(RuntimeError, match="boom from per-row loop"):
+        reverse_runner(
+            web_seed={
+                "voluntarios": [
+                    {
+                        "voluntario": "alice",
+                        "email": "new@x",
+                        "tel1": None,
+                        "tel2": None,
+                    }
+                ]
+            },
+            legacy_rows=[
+                {"Voluntario": "alice", "Email": "old@x", "Tel1": None, "Tel2": None},
+            ],
+            table_name="voluntario",
+        )
 
-    # The OSError was caught by the inner handler and appended to errors.
-    # The outer handler re-raises it after rollback; in this test context
-    # it reaches pytest.raises only when the isolation is clean.
-    assert len(result.errors) >= 1, f"expected at least 1 error, got {result.errors}"
-
-    # sync_state.json was rolled back to pre-apply bytes.
+    # sync_state.json was rolled back to pre-apply bytes (the file was
+    # dirty when the exception escaped the loop, so the rollback was
+    # not a no-op).
     assert sync_path.read_bytes() == pre_sync_bytes

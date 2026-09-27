@@ -234,6 +234,7 @@ def test_set_password_updates_existing_hash(self_host_schema) -> None:
 # --- LocalBackend adapter no-op defaults (backward compat) -----------------
 
 
+@pytest.mark.integration
 def test_local_backend_auth_port_verify_password_returns_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -258,6 +259,7 @@ def test_local_backend_auth_port_verify_password_returns_none(
     assert result is None
 
 
+@pytest.mark.integration
 def test_local_backend_auth_port_set_password_raises() -> None:
     """The LocalBackend adapter's default ``set_password`` raises
     ``NotImplementedError`` — LocalBackend cannot store password hashes.

@@ -1372,9 +1372,11 @@ async def test_post_acogidas_materiales_mid_delete_soft_deletes(
     calls: list[tuple[LocalPostgresExecutor, str]] = []
 
     def fake_remove(
-        service_client: LocalPostgresExecutor, junction_id: str
+        service_client: LocalPostgresExecutor,
+        estancia_id: str,
+        junction_id: str,
     ) -> bool:
-        calls.append((service_client, junction_id))
+        calls.append((service_client, estancia_id, junction_id))
         return True
 
     monkeypatch.setattr(
@@ -1394,7 +1396,9 @@ async def test_post_acogidas_materiales_mid_delete_soft_deletes(
     assert (
         response.headers["location"] == "/acogidas/acog-123/materiales"
     )
-    assert len(calls) == 1 and calls[0][1] == ("junc-123")
+    assert len(calls) == 1
+    assert calls[0][1] == "acog-123"
+    assert calls[0][2] == "junc-123"
 
 
 async def test_post_acogidas_materiales_mid_delete_returns_404_when_missing(
@@ -1405,14 +1409,15 @@ async def test_post_acogidas_materiales_mid_delete_returns_404_when_missing(
     """``remove_material_from_estancia`` returning False -> 404.
 
     Same shape as ``deactivate_material``: ``False`` covers "row
-    does not exist" AND "row was already inactive" — the service
-    folds both into a single sentinel.
+    does not exist", "row belongs to another estancia" (issue #919)
+    AND "row was already inactive" — the service folds all into a
+    single sentinel.
     """
     _login_as_key_user(client)
     monkeypatch.setattr(
         materiales_application,
         "remove_material_from_estancia",
-        lambda _c, _id: False,
+        lambda _c, _estancia, _id: False,
     )
 
     response = await make_csrf_request(

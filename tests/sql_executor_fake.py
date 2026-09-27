@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from contextlib import nullcontext
 from typing import Any, Protocol
 
 import httpx
@@ -66,6 +67,12 @@ class HandlerSqlExecutor:
         if not isinstance(body, list):
             raise AssertionError(f"SQL handler returned a non-list body: {body!r}")
         return body
+
+    def transaction(self) -> Any:
+        """Yield this fake unchanged: unit tests exercise one round-trip at
+        a time, so every ``execute_sql`` call inside the service's
+        ``transaction()`` block hits this same handler-backed fake."""
+        return nullcontext(self)
 
     def close(self) -> None:
         """Mirror closable historical fixtures without owning resources."""

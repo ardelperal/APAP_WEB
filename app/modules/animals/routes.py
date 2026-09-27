@@ -6,7 +6,7 @@ Auth model (issue #66 RBAC): permissions are checked via
 ``require_permission`` from ``app.core.rbac``.  The permission matrix:
 - READ_ANIMALES: admin, staff, voluntario
 - WRITE_ANIMALES: admin, staff, voluntario
-- DELETE_ANIMALES: admin, staff
+- DELETE_ANIMALES: admin
 
 Las dependencias de auth (``get_local_postgres_executor_dep``,
 ``get_current_user_optional`` y ``require_permission``) viven
@@ -40,8 +40,6 @@ from app.core.auth_dependencies import (  # noqa: E402
 )
 
 # Alias for backward compat with test fixtures.
-get_insforge_client_dep = get_local_postgres_executor_dep
-
 from app.core.csrf import csrf_token_context_processor  # noqa: E402
 from app.core.data_access import SqlExecutor, UniqueViolationError  # noqa: E402
 from app.core.logging import log_safe  # noqa: E402
@@ -403,7 +401,7 @@ def change_chip_view(
     user: Annotated[Response | dict, Depends(_require_write_animales)],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
-    """PATCH /animales/{id}/chip — cambia el chip en cascada a 6 tablas."""
+    """PATCH /animales/{id}/chip — cambia animales.nchip y registra el evento CHIP_CHANGED en una transacción (D-43)."""
     if (early := return_early_if_response(user)) is not None:
         return early
 

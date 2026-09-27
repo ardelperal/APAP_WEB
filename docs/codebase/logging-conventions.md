@@ -29,6 +29,10 @@ log_safe("user.did_x", user_id=user_id, action="X")
 - **Redacción automática**: doce campos PII/secret se redactan sin acción del llamante.
 - **Una exclusión legítima**: `app/core/logging.py` es la única ruta que importa `logging` y define el wrapper.
 
+## Eventos de auditoría con PII exigida por un issue
+
+Algunos eventos de auditoría exigen valores cuyos nombres canónicos están en la lista cerrada de redacción. En ese caso el llamante usa nombres de campo que expresan el rol semántico y están fuera de la lista — la lista cerrada no cambia y añadirle nombres sigue siendo un cambio deliberado de revisión. Ejemplo: el evento `e2e.login` (issue #904, `app/core/e2e_auth.py`) emite `target_email` y `client_ip` — no `email` ni `ip_address` — y nunca el valor del secreto.
+
 ## Contributor checklist
 
 - [ ] Cualquier log nuevo va por `log_safe("event.name", **kwargs)` con kwargs nombrados, no f-strings.
