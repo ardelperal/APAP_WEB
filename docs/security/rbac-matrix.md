@@ -41,13 +41,31 @@ Esta página posee la matriz canónica de permisos por rol en APAP_WEB. No posee
 
 La tabla refleja exactamente el enum `Permission` y la matriz `PERMISSIONS` de `app/core/rbac.py`. `DELETE_ANIMALES` es hoy el único permiso `DELETE_*` del enum y protege `POST /animales/{id}/delete` (`app/modules/animals/routes.py`); es exclusivo de `admin`.
 
+## Route coverage (issue #1019)
+
+Auditoría de las rutas que dependían solo de `require_authorized_user` (validaban la sesión, nunca el valor de `rol`) y su decisión de guard:
+
+| Ruta | Guard anterior | Guard nuevo | Permiso / justificación |
+|---|---|---|---|
+| `GET /animales/search` | `require_authorized_user` | `require_permission` | `READ_ANIMALES` |
+| `GET /animales/{id}/salud/resumen` | `require_authorized_user` | `require_permission` | `READ_SALUD` (el dominio de la ruta es salud) |
+| `GET /acogidas/{estancia_id}/materiales` | `require_authorized_user` | `require_permission` | `READ_MATERIALES` |
+| `GET /entradas/batch/new` | `require_authorized_user` | `require_permission` | `READ_ENTRADAS` |
+| `GET /entradas/batch/{batch_id}` | `require_authorized_user` | `require_permission` | `READ_ENTRADAS` (hallazgo de auditoría, no estaba en el listado del issue) |
+| `GET /casas-acogida/{casa_id}/asignar` | `require_authorized_user` | `require_permission` | `READ_CASAS_ACOGIDA` (hallazgo de auditoría) |
+| `PATCH /adopciones/{id}/seguimiento` | `require_authorized_user` | `require_permission` | `WRITE_ADOPCIONES` (ruta de escritura; `reader` → 403) |
+| `GET /tareas`, `GET /tareas/{id}` | `require_authorized_user` | `require_known_rol` (module-local) | La matriz no tiene permisos de tareas; el dep compone `require_authorized_user` y rechaza con 403 cualquier string de rol no canónico (mismo contrato fail-closed de D-44). Allowlist del guardian. |
+| `POST /tareas`, `POST /tareas/{id}/asignar`, `POST /tareas/{id}/cerrar` | `require_authorized_user` | `require_writer_user` | Escrituras sin permiso de matriz → gate del set de escritores (`developer`/`admin`/`key_user`); `reader` → 403 (hallazgo de auditoría). |
+
+Los roles legacy (`developer`, `key_user`, `reader`) conservan las 10 lecturas de la matriz D-44 en todas las rutas promovidas: ver el pin parametrizado en `tests/integration/test_route_guard_matrix_1019.py` y el pin ghost-rol en `tests/test_1019_ghost_role_guard_matrix.py`.
+
 ## Legacy Role Backward Compatibility
 
 Legacy roles (`DEVELOPER`, `KEY_USER`, `READER` from `app.core.roles.Rol`) are handled by an **explicit mapping**, not by an open fallback (issue #923, decision D-44):
 
 - **Read permissions**: cada rol legacy recibe el conjunto explícito de `_LEGACY_READ_MATRIX` en `app/core/rbac.py` — hoy, exactamente los 10 permisos `READ_*` de la matriz (cero impacto para los usuarios actuales). No hay `read:*` genérico: un permiso de lectura nuevo no alcanza a los roles legacy hasta que se añade explícitamente al mapeo.
 - **Write/Delete permissions**: solo `DEVELOPER` y `KEY_USER` pueden escribir (`_LEGACY_WRITER_ROLES`); `READER` es read-only.
-- **Fail-closed (solo rutas con `require_permission`)**: cualquier otro string de rol no reconocido recibe 403 también en lecturas. Este alcance rige únicamente para rutas protegidas con `require_permission`: las rutas que dependen solo de `require_authorized_user` (p. ej. `GET /animales/search`, `GET /tareas`, `GET /animales/{id}/salud/resumen`, `GET /materiales/acogidas/{id}/materiales`, `GET /entradas/batch/new`, `PATCH /adopciones/{id}/seguimiento`) validan `is_authorized` pero no comprueban el valor del rol (gap preexistente; follow-up pendiente).
+- **Fail-closed (todas las rutas de módulo, issue #1019)**: cualquier otro string de rol no reconocido recibe 403 también en lecturas. Desde #1019, ninguna ruta user-facing de `app/modules/**` depende solo de `require_authorized_user`: cada una declara una decisión de guard verificada por el guardian `tests/test_rbac_route_guardian.py` (ver la tabla "Route coverage" más abajo). La excepción documentada son las lecturas de `/tareas`, que componen `require_known_rol` (fail-closed sobre el valor de rol) porque la matriz aún no tiene permisos de tareas (#1019 no inventa permisos nuevos). Límite conocido: la revalidación de sesión resuelve el usuario vía `AuthorizedUser.from_row`, que promociona en silencio un rol desconocido a `key_user` antes del guard de ruta — ese gap upstream está documentado en #1032 y vive fuera de este contrato.
 - **Límite de la convención `read:`**: el guard clasifica el alcance de lectura por el prefijo `read:`; un permiso futuro con capacidad de lectura que no use ese prefijo sería denegado en silencio a los roles legacy en lugar de forzar una decisión explícita — mantener la convención `read:` es parte del contrato, no un detalle cosmético.
 - **Guard test**: `test_legacy_read_matrix_covers_every_read_permission` en `tests/test_rbac.py` falla con mensaje que nombra el par (rol, permiso) si un permiso de lectura nuevo aparece sin decisión explícita para cada rol legacy.
 
