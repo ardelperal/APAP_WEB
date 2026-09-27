@@ -78,6 +78,21 @@ Efectivo desde el 2026-07-26 y hasta que el usuario señale el fin del proyecto,
 
 Esta autorización standing fue otorgada en chat el 2026-07-26 y codificada por el mismo PR que actualizó §17.3 paso 6. Cross-reference: §17.3 paso 6.
 
+### §15.7 `required_conversation_resolution` desactivado en `main` (issue #972)
+
+La protección clásica de `main` tenía `required_conversation_resolution.enabled = true`. CodeQL publica comentarios automáticos (`github-advanced-security`) por cada alerta viva, incluso cuando una alerta **preexistente** solo cambia de línea en un PR. Cada hilo bloquea el merge hasta que alguien lo resuelve a mano, aunque no haya defecto nuevo. Ejemplos documentados: PR #931 y PR #946 fallaron con `All comments must be resolved` (HTTP 405) por el hilo de la alerta #119 (antes #3).
+
+Decisión (2026-09-25, issue #972): **desactivar** `required_conversation_resolution` en `main`. Justificación:
+
+- Repo de mantenedor único con cero aprobaciones requeridas: la flag no aporta nada.
+- CodeQL sigue publicando hilos; no desaparecen, solo dejan de bloquear el merge.
+- Las **alertas nuevas y reales** siguen siendo visibles y bloquean según la política de triage de #934 / #937.
+- Si en el futuro entra un segundo mantenedor, la flag se reactiva con la misma `gh api` documentada abajo; no requiere migración de datos.
+
+**Aplicación**: la flag se desactiva con `gh api --method PATCH repos/ardelperal/APAP_WEB/branches/main/protection -F required_conversation_resolution=null` (acepta el valor ausente para borrarla; o `=false` si GitHub lo requiere así en la versión actual). Confirmar por read-back con `gh api .../protection --jq .required_conversation_resolution`. Si en el futuro hay que revertir: `gh api --method PATCH ... -F required_conversation_resolution='{"enabled":true}'`.
+
+Esta sección se complementa con §15.5 — cambiar branch protection requiere OK explícito del usuario por push (la ejecución del comando va en un comentario del PR, no automatizada en el merge).
+
 ## Core invariants
 
 - **Pre-MVP single-branch**: el único branch estable es `main`; `staging` no existe.
