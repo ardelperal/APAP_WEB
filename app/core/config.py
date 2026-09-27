@@ -279,11 +279,14 @@ class Settings(BaseSettings):
 
     # --- Magic-link login flag (M3.4 wiring, issue #1005) ---------------
     # Default-deny (AGENTS §6): ``False`` keeps the magic-link login
-    # surface unregistered — ``app/main.py`` does not include the
-    # ``/auth/magic/*`` router and the auth middleware answers probes
-    # with a fail-closed 404. Set ``APAP_AUTH_ENABLE_MAGIC_LINK=true``
-    # to restore the pre-#1005 behaviour (router registered, the two
-    # paths public for the token flow).
+    # surface unregistered — neither ``app/main.py`` nor the standalone
+    # LocalBackend factory (``app/core/local_backend/app.py``) includes
+    # the ``/auth/magic/*`` router, the auth middleware answers probes
+    # with a fail-closed 404 (and logs ``auth.magic_link_disabled``),
+    # and the login page renders without the magic-link form. Set
+    # ``APAP_AUTH_ENABLE_MAGIC_LINK=true`` to restore the pre-#1005
+    # behaviour (router registered, the two paths public for the token
+    # flow).
     # DEPLOY-ORDER WARNING: production currently serves magic-link
     # login with the router registered unconditionally. This env var
     # MUST be set to ``true`` in the Coolify environment BEFORE

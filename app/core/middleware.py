@@ -42,6 +42,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, Response
 
 from app.core.csrf import CsrfMiddleware
+from app.core.logging import log_safe
 from app.core.session import read_session_payload
 from app.core.ua import is_mobile
 
@@ -346,6 +347,14 @@ def install_auth_middleware(app: FastAPI, settings) -> None:
         connection, which keeps auth-before-validation cheap and deterministic.
         """
         path = request.url.path
+        # Expose the magic-link flag to templates (issue #1005, JD-A-002
+        # fix round 1): login.html renders the magic-link section
+        # conditionally on this flag so a flag-off deploy does not show a
+        # form that POSTs to the fail-closed 404. Fail-closed default: an
+        # absent attribute reads as False (§6).
+        request.state.magic_link_enabled = bool(
+            getattr(settings, "auth_enable_magic_link", False)
+        )
         # Magic-link flag gate (issue #1005): with the flag off the
         # router is not registered and the ``/auth/magic/*`` entries in
         # ``PUBLIC_PATHS`` do not apply. Fail closed with the same
@@ -353,9 +362,15 @@ def install_auth_middleware(app: FastAPI, settings) -> None:
         # session check, so a probe is never redirected or validated.
         # ``getattr`` with the deny default keeps the installer safe
         # against incomplete settings objects (§6 default-deny).
+        # JD-B-005 (fix round 1): the 404 is logged with the probed path
+        # (event ``auth.magic_link_disabled``, naming style of
+        # ``csrf.disabled``) so a mis-deploy is diagnosable from the
+        # structured logs. Only the path is logged — never tokens or
+        # emails.
         if path in MAGIC_LINK_PUBLIC_PATHS and not getattr(
             settings, "auth_enable_magic_link", False
         ):
+            log_safe("auth.magic_link_disabled", path=path)
             return JSONResponse(status_code=404, content={"detail": "Not Found"})
         if _is_public_path(path) or path in DISABLED_DOC_PATHS:
             return await call_next(request)
