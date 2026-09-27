@@ -1,9 +1,27 @@
-"""Transactional LocalBackend cascade for changing an animal chip.
+"""Transactional LocalBackend saga for changing an animal chip (issue #916, A-04).
 
-The saga lives apart from the main CRUD adapter because its atomic multi-table
-updates and rollback handling carry substantially more transactional complexity.
-Keeping that workflow isolated preserves saga atomicity while leaving the main
-adapter focused on the ordinary animals CRUD surface.
+The saga lives apart from the main CRUD adapter because its atomic
+multi-statement unit of work carries substantially more transactional
+complexity. Keeping that workflow isolated preserves saga atomicity while
+leaving the main adapter focused on the ordinary animals CRUD surface.
+
+The unit of work is deliberately small: dependent tables (``entradas``,
+``acogidas``, ``adopciones``, ``actuacion_sanitaria``, ``terapias``) do NOT
+carry a ``chip`` copy — they reference the animal through the surrogate FK
+``animal_id UUID REFERENCES animales(id)``. Legacy Access propagated NCHIP
+because NCHIP was the legacy join key; the web schema replaced that join
+key with the FK, so a dependent-table UPDATE cascade is unnecessary (see
+``docs/architecture/decisiones-proyecto.md`` and
+``docs/discovery/feature-01-animal-lifecycle.md``). Pre-#916 the saga sent
+``BEGIN``/``COMMIT``/``ROLLBACK`` through ``execute_sql``, which opens a
+NEW connection per call and protected nothing, and its dependent UPDATEs
+failed with ``UndefinedColumn`` in production.
+
+Atomicity comes from :meth:`LocalPostgresExecutor.transaction` (pattern of
+``app/modules/adopciones/service.py::create_adoption`` after issue #914):
+the guarded ``UPDATE animales`` and the ``CHIP_CHANGED`` event commit
+together or not at all, and any failure rolls the unit back before the
+exception surfaces here as a failure result.
 """
 
 
@@ -11,16 +29,13 @@ from __future__ import annotations
 
 import json
 
-from app.core.data_access import SqlExecutor
+from app.core.data_access import SqlExecutor, TransactionalSqlExecutor
 from app.modules.animals.domain.change_chip_result import ChangeChipResult
 from app.modules.animals.domain.lifecycle_event import LifecycleEventType
 
 # ``chip_cascade`` — saga SQL constants (issue #29, LIFECYCLE-04).
-# All UPDATEs carry ``RETURNING id`` so the adapter can count the
-# affected rows per table without an extra round-trip. The legacy
-# pre-flight checks (uniqueness of ``new_chip``; current chip
-# matches ``old_chip``) live in separate SELECTs because they read
-# before the transaction opens.
+# The pre-flight checks (uniqueness of ``new_chip``; current chip matches
+# ``old_chip``) are read-only SELECTs that run before the transaction opens.
 CHECK_CHIP_UNIQUENESS_SQL: str = (
     "SELECT id FROM animales WHERE nchip = $1 AND id != $2 LIMIT 1"
 )
@@ -35,46 +50,12 @@ UPDATE_ANIMALS_CHIP_SQL: str = (
     "RETURNING id"
 )
 
-UPDATE_ENTRADAS_CHIP_SQL: str = (
-    "UPDATE entradas SET chip = $1, updated_at = now() "
-    "WHERE chip = $2 AND activo = true "
-    "RETURNING id"
-)
-
-UPDATE_ACOGIDAS_CHIP_SQL: str = (
-    "UPDATE acogidas SET chip = $1, updated_at = now() "
-    "WHERE chip = $2 AND activo = true "
-    "RETURNING id"
-)
-
-UPDATE_ADOPCIONES_CHIP_SQL: str = (
-    "UPDATE adopciones SET chip = $1, updated_at = now() "
-    "WHERE chip = $2 AND activo = true "
-    "RETURNING id"
-)
-
-UPDATE_ACTUACIONES_SANITARIAS_CHIP_SQL: str = (
-    "UPDATE actuaciones_sanitarias SET chip = $1, updated_at = now() "
-    "WHERE chip = $2 "
-    "RETURNING id"
-)
-
-UPDATE_TERAPIAS_CHIP_SQL: str = (
-    "UPDATE terapias SET chip = $1, updated_at = now() "
-    "WHERE chip = $2 "
-    "RETURNING id"
-)
-
 INSERT_CHIP_CHANGED_EVENT_SQL: str = (
     "INSERT INTO animal_lifecycle_events ("
     "animal_id, event_type, event_timestamp, metadata, created_by"
     ") VALUES ($1, $2, now(), $3, $4) "
     "ON CONFLICT (animal_id, event_type, event_timestamp) DO NOTHING"
 )
-
-BEGIN_TX_SQL: str = "BEGIN"
-COMMIT_TX_SQL: str = "COMMIT"
-ROLLBACK_TX_SQL: str = "ROLLBACK"
 
 
 def _require_nonblank(value: str, name: str) -> str:
@@ -92,9 +73,9 @@ def _require_different(value: str, previous: str, name: str) -> None:
 
 
 class AnimalsLocalBackendChipCascade:
-    """Run the atomic multi-table chip-change saga through one SQL executor."""
+    """Run the atomic chip-change saga through one SQL executor."""
 
-    def __init__(self, client: SqlExecutor) -> None:
+    def __init__(self, client: TransactionalSqlExecutor) -> None:
         self._client = client
 
     @staticmethod
@@ -178,50 +159,34 @@ class AnimalsLocalBackendChipCascade:
             animal_id, old_chip, new_chip
         ) or self._current_chip_failure(animal_id, old_chip, new_chip)
 
-    def _execute_updates(
+    def _update_animal_chip(
         self,
+        tx: SqlExecutor,
         animal_id: str,
         old_chip: str,
         new_chip: str,
-        updated: dict[str, int],
-    ) -> dict[str, int]:
-        """Apply the six table updates and return their row counts."""
-        updated["animals"] = len(
-            self._client.execute_sql(
-                UPDATE_ANIMALS_CHIP_SQL,
-                [new_chip, animal_id, old_chip],
-            )
-        )
-        updated["entradas"] = len(
-            self._client.execute_sql(
-                UPDATE_ENTRADAS_CHIP_SQL, [new_chip, old_chip]
-            )
-        )
-        updated["acogidas"] = len(
-            self._client.execute_sql(
-                UPDATE_ACOGIDAS_CHIP_SQL, [new_chip, old_chip]
-            )
-        )
-        updated["adopciones"] = len(
-            self._client.execute_sql(
-                UPDATE_ADOPCIONES_CHIP_SQL, [new_chip, old_chip]
-            )
-        )
-        updated["actuaciones_sanitarias"] = len(
-            self._client.execute_sql(
-                UPDATE_ACTUACIONES_SANITARIAS_CHIP_SQL,
-                [new_chip, old_chip],
-            )
-        )
-        updated["terapias"] = len(
-            self._client.execute_sql(
-                UPDATE_TERAPIAS_CHIP_SQL, [new_chip, old_chip]
-            )
-        )
-        return updated
+    ) -> int:
+        """Update ``animales.nchip`` guarded by ``old_chip``.
 
-    def _record_event(
+        Raises when the guard matches no row: the preflight SELECT and the
+        UPDATE run in separate connections, so a concurrent chip change
+        between them must abort the unit of work instead of writing an
+        event for a chip that never moved.
+        """
+        rows = tx.execute_sql(
+            UPDATE_ANIMALS_CHIP_SQL,
+            [new_chip, animal_id, old_chip],
+        )
+        if not rows:
+            raise ValueError(
+                f"old_chip {old_chip!r} no coincide con el chip actual; "
+                "recargue la ficha"
+            )
+        return len(rows)
+
+    def _record_event(  # noqa: PLR0913  # private saga step: bound executor + the 5 event fields (animal, chips, reason, actor)
         self,
+        tx: SqlExecutor,
         animal_id: str,
         old_chip: str,
         new_chip: str,
@@ -236,7 +201,7 @@ class AnimalsLocalBackendChipCascade:
                 "reason": reason,
             }
         )
-        self._client.execute_sql(
+        tx.execute_sql(
             INSERT_CHIP_CHANGED_EVENT_SQL,
             [
                 animal_id,
@@ -246,35 +211,23 @@ class AnimalsLocalBackendChipCascade:
             ],
         )
 
-    def _rollback_error(self) -> str | None:
-        """Attempt rollback and return its diagnostic without hiding the cause."""
-        try:
-            self._client.execute_sql(ROLLBACK_TX_SQL)
-        except Exception as rollback_exc:  # noqa: BLE001
-            return repr(rollback_exc)
-        return None
-
     @staticmethod
     def _build_failure(
         old_chip: str,
         new_chip: str,
-        updated: dict[str, int],
         exc: Exception,
-        rollback_error: str | None,
     ) -> ChangeChipResult:
-        """Build the transaction-failure result and preserve rollback context."""
-        base_error = f"Error en la transaccion: {exc}"
-        error = (
-            f"{base_error}; rollback fallo: {rollback_error}"
-            if rollback_error
-            else base_error
-        )
+        """Build the transaction-failure result (already rolled back).
+
+        ``updated_tables`` stays empty: the real rollback means nothing
+        persisted, so reporting row counts would mislead the operator.
+        """
         return ChangeChipResult(
             success=False,
             old_chip=old_chip,
             new_chip=new_chip,
-            updated_tables=updated,
-            error=error,
+            updated_tables={},
+            error=f"Error en la transaccion: {exc}",
         )
 
     def _execute_cascade(
@@ -285,29 +238,29 @@ class AnimalsLocalBackendChipCascade:
         reason: str,
         operador_user_id: str,
     ) -> ChangeChipResult:
-        """Execute and commit the mutation body, rolling back any failure."""
+        """Run the mutation body inside one real ``transaction()``.
+
+        The transaction commits on clean exit; any exception rolls the
+        whole unit back before surfacing here as a failure result, so the
+        operator never observes a chip change without its audit event.
+        """
         updated: dict[str, int] = {}
         try:
-            self._client.execute_sql(BEGIN_TX_SQL)
-            self._execute_updates(animal_id, old_chip, new_chip, updated)
-            self._record_event(
-                animal_id, old_chip, new_chip, reason, operador_user_id
-            )
-            self._client.execute_sql(COMMIT_TX_SQL)
-            return ChangeChipResult(
-                success=True,
-                old_chip=old_chip,
-                new_chip=new_chip,
-                updated_tables=updated,
-            )
+            with self._client.transaction() as tx:
+                updated["animals"] = self._update_animal_chip(
+                    tx, animal_id, old_chip, new_chip
+                )
+                self._record_event(
+                    tx, animal_id, old_chip, new_chip, reason, operador_user_id
+                )
         except Exception as exc:  # noqa: BLE001
-            return self._build_failure(
-                old_chip,
-                new_chip,
-                updated,
-                exc,
-                self._rollback_error(),
-            )
+            return self._build_failure(old_chip, new_chip, exc)
+        return ChangeChipResult(
+            success=True,
+            old_chip=old_chip,
+            new_chip=new_chip,
+            updated_tables=updated,
+        )
 
     def change_animal_chip(
         self,
@@ -325,16 +278,13 @@ class AnimalsLocalBackendChipCascade:
         # Two pre-flight SELECTs run BEFORE the transaction opens:
         # uniqueness of the new chip (no other animal carries it) and
         # the current chip on this animal (must match ``old_chip`` so
-        # the UPDATEs don't no-op every row). Both are SELECTs — they
-        # don't take a write lock until the subsequent UPDATE.
+        # the guarded UPDATE cannot no-op). The guarded UPDATE still
+        # re-checks ``old_chip`` at write time to close the race window
+        # between these SELECTs and the transaction body.
         preflight_failure = self._preflight(animal_id, old_chip, new_chip)
         if preflight_failure is not None:
             return preflight_failure
 
-        # Transaction body. We accumulate the per-table row counts
-        # even on failure so the operator can audit the partial
-        # damage (everything rolls back together, so the count is
-        # informational only).
         return self._execute_cascade(
             animal_id, old_chip, new_chip, reason, operador_user_id
         )

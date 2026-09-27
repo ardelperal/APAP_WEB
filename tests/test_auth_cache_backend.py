@@ -235,17 +235,18 @@ def test_module_level_facades_still_work() -> None:
 def test_module_level_facades_route_to_injected_backend() -> None:
     """The internal test seam still dispatches facades through the Protocol.
 
-    Issue #278: invalidate_auth invalidates all case variants so that no
-    stale entry survives regardless of which casing the service layer stored
-    it under. The backend receives invalidation calls for every variant.
+    Issue #278: cache entries are stored under the lowercase-normalized
+    email, so a single invalidation of the canonical key is sufficient —
+    issue #921 removed the per-variant enumeration. The backend receives
+    exactly one invalidation call.
     """
     fake_backend = _FakeBackend()
     auth_cache._set_backend_for_testing(fake_backend)
 
     auth_cache.invalidate_auth("any@example.com")
 
-    # All case variants (including the canonical form) must be invalidated.
-    assert set(fake_backend.invalidated) == auth_cache._case_variants("any@example.com")
+    # Exactly one normalized invalidation — no case-variant enumeration.
+    assert fake_backend.invalidated == ["any@example.com"]
 
 
 def test_current_generation_helper_delegates_to_in_process() -> None:

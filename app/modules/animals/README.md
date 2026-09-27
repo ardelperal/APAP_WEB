@@ -28,7 +28,7 @@ The sentence that organizes this module: the animal is the aggregate root that e
 |---|---|
 | The CRUD for the `animales` table (legacy `TbFichaAnimal`). | The CRUD for entradas, acogidas, or adopciones (each is its own module slice). |
 | The lifecycle event log writer and the D-23 causal-pair validator. | The CRUD for `animal_current_state` (a derived view, never written directly). |
-| The chip cascade saga that updates the NCHIP field across 6 tables. | The CRUD for the `terapias` or `actuaciones_sanitarias` rows (lives in `app/modules/salud`). |
+| The chip-change saga that updates `animales.NCHIP` (guarded by the old chip) and appends the `CHIP_CHANGED` event in one transaction (D-43). | The CRUD for the `terapias` or `actuacion_sanitaria` rows (lives in `app/modules/salud`). |
 | The streaming photo contract for the `apap-photos` storage bucket. | The health summary endpoint (`/animales/{id}/salud/resumen`), which delegates to `app/modules/sanidad.get_resumen_sanitario`. |
 
 ## Domain
@@ -37,7 +37,7 @@ The `animals` slice owns four cooperating surfaces:
 
 - Basic CRUD for the `animales` table (legacy `TbFichaAnimal`, 24 user-facing columns + system columns).
 - The `animal_lifecycle_events` append-only log with the D-23 causal-pair rule (FOSTER_CLOSED_BY_ADOPTION must precede ADOPTION_STARTED for the same animal).
-- The chip cascade saga that updates the NCHIP field across 6 tables in a single transaction (LIFECYCLE-04, issue #29).
+- The chip-change saga that updates `animales.NCHIP` (guarded by the old chip) and appends the `CHIP_CHANGED` event inside one `transaction()` (LIFECYCLE-04, issue #29; D-43). Since issue #916 the dependent tables reference the animal through the `animal_id` FK and carry no chip copy, so the saga touches only `animales`.
 - The photo streaming contract for the `apap-photos` storage bucket, with sentinel detection and deterministic stream cleanup (issue #285).
 
 The `Situacion` legacy column is not persisted: the current state is derived from the event log via `animal_current_state` and exposed through the search API as a snake_case enum. Adding a new derived state means BOTH adding an enum value AND extending the `DB_LABEL_TO_ESTADO` map; the integration test `test_core_event_types_set_matches_strenum_members` pins the contract.
@@ -51,7 +51,7 @@ The required-field contract comes from Access `TbFichaAnimal.Required=True` plus
 | `animales` | `id`, `NCHIP`, `NombreAnimal`, `Especie`, `Sexo`, `FNacimiento`, 19 optional legacy columns, `fecha_alta`, `updated_at`, `activo` | The ficha. UNIQUE on `NCHIP`; `activo` is the soft-delete flag. |
 | `animal_lifecycle_events` | `id`, `animal_id`, `event_type`, `event_timestamp`, `caused_by_event_id`, `operador_user_id`, `metadata`, `created_at` | Append-only log. CHECK on `event_type` mirrors the `LifecycleEventType` enum. |
 | `animal_current_state` | `animal_id`, `current_state`, `derived_at` | Derived view materialised from the event log. |
-| `entradas`, `acogidas`, `adopciones`, `actuaciones_sanitarias`, `terapias` | `NCHIP` columns | Cascade targets of the chip-change saga. |
+| `entradas`, `acogidas`, `adopciones`, `actuacion_sanitaria`, `terapias` | `animal_id` FK | They reference the animal through the surrogate FK; since D-43 (issue #916) none carries a chip column and the chip-change saga does not write them. |
 
 Read and lifecycle SQL lives in `adapters/local-backend/animals_local_backend_queries.py`; CRUD SQL lives in `animals_local_backend_write_queries.py`; chip SQL lives in `animals_local_backend_chip_cascade.py`.
 
@@ -83,7 +83,7 @@ Status codes: 200 on renders, 303 See Other on success, 404 when the id is missi
 | `update_animal(port, animal_id, **fields)` | Hexagonal partial UPDATE; `None` fields are skipped. |
 | `delete_animal(port, animal_id)` | Hexagonal atomic soft-delete. |
 | `search_animals(port, *, q, chip, especie, sexo, estado, fecha_alta_since, fecha_alta_until, limit, offset)` | Paginated hexagonal search used by the JSON route. |
-| `AnimalsPort.change_animal_chip(...)` | Saga: updates 6 tables; rolls back on any failure. |
+| `AnimalsPort.change_animal_chip(...)` | Saga: guarded `animales.NCHIP` update + `CHIP_CHANGED` event in one `transaction()`; rolls back on any failure (D-43). |
 | `AnimalsPort.record_lifecycle_event(...)` | Append a lifecycle event through the adapter. |
 | `AnimalsPort.resolve_animal_photo(animal_id)` | Transport-neutral `PhotoAsset` with an owned closable stream. |
 | `Animal`, `AnimalSearchResult`, `ChangeChipResult`, `PhotoAsset` | Domain and port dataclasses. |
@@ -103,7 +103,7 @@ The hexagonal `Animal` entity carries all 28 application-facing fields. The writ
 ## Risks and gotchas
 
 - `AnimalForm` and the application create/update paths reject invalid required fields before the adapter writes. `NombreFoto` is also checked against the storage allow-list; path traversal and absolute segments are rejected (issue #224).
-- The chip saga is transactional. Any failure in the 6-table UPDATE triggers ROLLBACK and the route renders 422. Two operators running concurrent chip changes on the same animal produce exactly one success and one 409 (UNIQUE on NCHIP).
+- The chip saga is transactional over a real `transaction()` (D-43). It updates only `animales.NCHIP` guarded by the old chip and appends the `CHIP_CHANGED` event; any failure rolls the unit back and the route renders 422, except the preflight duplicate check which renders 409. Two operators running concurrent chip changes on the same animal produce exactly one success and one failure: the guarded UPDATE matches no row after the concurrent change and the unit rolls back.
 - The photo contract is fail-closed. An unknown animal returns 404. Missing keys and storage failures return the placeholder PNG with 200. The transport-neutral port does not expose ETag or Cache-Control metadata.
 - `Situacion` is not persisted. Code that reads or writes it directly is a defect; the derived state comes from the event log.
 - The search API uses `ILIKE` with `chr(37)` wildcards and a per-row `LIMIT 100`. The state filter joins `animal_current_state`; a missing row falls back to `pendiente_entrada`.
@@ -141,7 +141,7 @@ The species, sex, and lifecycle event enums live in the corresponding sub-module
 The proposals cover the contracts:
 
 - LIFECYCLE-02 (issue #32): the event log writer and the D-23 causal-pair validator.
-- LIFECYCLE-04 (issue #29): the chip cascade updates 6 tables in a single transaction.
+- LIFECYCLE-04 (issue #29): the chip-change saga updates `animales.NCHIP` and appends the `CHIP_CHANGED` event in a single transaction. The original 6-table cascade was superseded by D-43 (issue #916).
 - LIFECYCLE-05 (issue #30): the search API with 9 filters, pagination, and the derived-state join.
 - HEALTH-03 (issue #52): the `salud/resumen` endpoint delegates to `app/modules/sanidad`.
 - The required-field contract is pinned in `_validate_required_fields` and asserted by the `AnimalForm` import-time check.

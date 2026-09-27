@@ -45,7 +45,7 @@ def get_oauth_port(request: Request) -> Iterator[OAuthPort]:
     Test override path: when ``request.app.state._oauth_port`` is set
     (typically by a test fixture), the dependency yields that fake
     verbatim instead of constructing a real LocalBackend adapter. This
-    is the seam the ``tests/test_auth_flow.py::fake_insforge`` fixture
+    is the seam the ``tests/test_auth_flow.py::fake_backends`` fixture
     uses to drive the OAuth routes without hitting the real backend.
 
     Implementation note: the legacy shape used

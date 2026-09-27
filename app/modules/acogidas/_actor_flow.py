@@ -18,12 +18,12 @@ from fastapi import HTTPException, status
 
 import app.modules.acogidas.service as acogidas_service
 from app.core._module_helpers._actor import actor_user_id
-from app.core.data_access import SqlExecutor
+from app.core.data_access import SqlExecutor, TransactionalSqlExecutor
 from app.modules.animals import ActorRequiredError
 
 
 def create_acogida_with_actor(
-    client: SqlExecutor, form_data: dict[str, Any], user: object
+    client: TransactionalSqlExecutor, form_data: dict[str, Any], user: object
 ) -> acogidas_service.Acogida:
     """Create a stay, resolving the acting user's UUID from ``user``.
 

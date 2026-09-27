@@ -17,7 +17,11 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any
 
-from app.core.data_access import BackendError, SqlExecutor
+from app.core.data_access import (
+    BackendError,
+    SqlExecutor,
+    TransactionalSqlExecutor,
+)
 from app.core.forms import optional_text, required_text
 from app.core.logging import log_safe
 from app.modules.adopciones import queries
@@ -298,7 +302,7 @@ def _escape_like(value: str) -> str:
 
 
 def create_adopcion(
-    client: SqlExecutor,
+    client: TransactionalSqlExecutor,
     params: dict[str, Any],
     *,
     actor_user_id: str | None = None,
@@ -306,51 +310,57 @@ def create_adopcion(
     # Issue #945 (A-13): lifecycle events need the acting user's UUID
     # (``created_by UUID NOT NULL``); reject before any write without one.
     created_by = require_actor(actor_user_id)
-    sql, sql_params = queries.build_adopcion_insert(params)
-    try:
-        rows = client.execute_sql(sql, sql_params)
-    except BackendError as exc:
-        if _is_duplicate_error(exc):
-            raise AdopcionConflictError(_ADOPCION_DUPLICATE_MESSAGE) from exc
-        raise
+    # Issue #914 (A-02): the INSERT, its lifecycle event, the close of the
+    # previous situation, and the animal-state refresh are ONE atomic unit
+    # of work (``transaction()`` from #913). Without it each ``execute_sql``
+    # committed alone, so a mid-flow failure left the adoption row persisted
+    # while the previous situation stayed open and the state cache went stale.
+    with client.transaction() as tx:
+        sql, sql_params = queries.build_adopcion_insert(params)
+        try:
+            rows = tx.execute_sql(sql, sql_params)
+        except BackendError as exc:
+            if _is_duplicate_error(exc):
+                raise AdopcionConflictError(_ADOPCION_DUPLICATE_MESSAGE) from exc
+            raise
 
-    if not rows:
-        _raise_validation_error(client, params)
+        if not rows:
+            _raise_validation_error(tx, params)
 
-    adopcion = _row_to_adopcion(rows[0])
-    log_safe(
-        "adopciones.created",
-        adopcion_id=adopcion.id,
-        animal_id=adopcion.animal_id,
-        tipo_adopcion=adopcion.tipo_adopcion,
-        actor_user_id=actor_user_id,
-    )
+        adopcion = _row_to_adopcion(rows[0])
+        log_safe(
+            "adopciones.created",
+            adopcion_id=adopcion.id,
+            animal_id=adopcion.animal_id,
+            tipo_adopcion=adopcion.tipo_adopcion,
+            actor_user_id=actor_user_id,
+        )
 
-    # LIFECYCLE-02 (issue #32): emit ADOPTION_STARTED so the event log
-    # records the entry into the adoption, then close the previous
-    # FOSTER situation (FOSTER_CLOSED_BY_ADOPTION) and refresh the
-    # animal-current-state cache. All three run in the same DB
-    # transaction as the INSERT above.
-    record_event(
-        client,
-        animal_id=adopcion.animal_id,
-        event_type=LifecycleEventType.ADOPTION_STARTED,
-        event_timestamp=adopcion.fecha_adopcion,
-        created_by=created_by,
-        source_entity_type=_ADOPCION_ENTITY_TYPE,
-        source_entity_id=adopcion.id,
-    )
-    close_previous_situation(
-        client,
-        animal_id=adopcion.animal_id,
-        category="FOSTER",
-        caused_by_event_id=None,
-        event_timestamp=adopcion.fecha_adopcion,
-        source_entity_type=_ADOPCION_ENTITY_TYPE,
-        source_entity_id=adopcion.id,
-        created_by=created_by,
-    )
-    actualizar_estado_animal(client, animal_id=adopcion.animal_id)
+        # LIFECYCLE-02 (issue #32): emit ADOPTION_STARTED so the event log
+        # records the entry into the adoption, then close the previous
+        # FOSTER situation (FOSTER_CLOSED_BY_ADOPTION) and refresh the
+        # animal-current-state cache. The transaction above commits all of
+        # it together — or nothing at all (issue #914, A-02).
+        record_event(
+            tx,
+            animal_id=adopcion.animal_id,
+            event_type=LifecycleEventType.ADOPTION_STARTED,
+            event_timestamp=adopcion.fecha_adopcion,
+            created_by=created_by,
+            source_entity_type=_ADOPCION_ENTITY_TYPE,
+            source_entity_id=adopcion.id,
+        )
+        close_previous_situation(
+            tx,
+            animal_id=adopcion.animal_id,
+            category="FOSTER",
+            caused_by_event_id=None,
+            event_timestamp=adopcion.fecha_adopcion,
+            source_entity_type=_ADOPCION_ENTITY_TYPE,
+            source_entity_id=adopcion.id,
+            created_by=created_by,
+        )
+        actualizar_estado_animal(tx, animal_id=adopcion.animal_id)
 
     return adopcion
 

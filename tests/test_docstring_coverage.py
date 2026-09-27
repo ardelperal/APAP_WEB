@@ -12,6 +12,8 @@ measurements are never shadowed by import-time side-effects.
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CHECKER_PATH = REPO_ROOT / "scripts" / "check_docstring_coverage.py"
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
@@ -202,8 +204,18 @@ def test_returns_zero_when_above_floor() -> None:
     assert checker.main([str(REPO_ROOT)]) == 0
 
 
-def test_returns_nonzero_when_below_floor(tmp_path: Path) -> None:
-    """main() exits 1 when coverage drops below the floor."""
+def test_returns_zero_with_note_when_below_floor(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """main() exits 0 with a NOTE when coverage drops below the floor (issue #970).
+
+    Before #970 a coverage drop below the floor was a hard failure.
+    Docstring coverage is a documentation signal, not a defect
+    detector; promoting the floor check to a NOTE mirrors the
+    ``check_ruff_ratchet`` precedent and unblocks PRs whose
+    substantive change is unrelated to docstring hygiene.
+    """
     checker = _load_checker()
 
     # A file with zero docstrings — creates coverage well below 73%
@@ -217,7 +229,11 @@ class C:
     _write_module(tmp_path, "app/sparse.py", content)
     _write_module(tmp_path, "migration/sparse.py", content)
 
-    assert checker.main([str(tmp_path)]) == 1
+    rc = checker.main([str(tmp_path)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "NOTE" in out
+    assert "below floor" in out.lower()
 
 
 # ── CI wiring tests ─────────────────────────────────────────────────────────

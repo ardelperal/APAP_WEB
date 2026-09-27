@@ -85,8 +85,8 @@ class _FakeOAuthPort:
     def __init__(self) -> None:
         self.start_google_oauth_response: str = "https://accounts.google.com/o/oauth2/v2/auth?code_challenge=abc"
         self.exchange_result: dict = {
-            "token": "jwt-from-insforge",
-            "user_id": "u-from-insforge",
+            "token": "jwt-from-local-backend",
+            "user_id": "u-from-local-backend",
             "email": "ardelperal@gmail.com",
         }
 
@@ -113,12 +113,12 @@ class _FakeOAuthPort:
 
 
 @pytest.fixture
-def fake_insforge() -> tuple[_FakeAuthUsersPort, _FakeOAuthPort]:
+def fake_backends() -> tuple[_FakeAuthUsersPort, _FakeOAuthPort]:
     """Inject fake ports via app.state for the duration of the test.
 
     The fixture exposes the same two-tuple shape the legacy fixture
     used (``(auth_users_port, oauth_port)``). Tests mutate
-    ``fake_insforge[0].get_user_by_email_response = None`` to drive
+    ``fake_backends[0].get_user_by_email_response = None`` to drive
     the unauthorized-email branch; the DI providers
     (:func:`app.core.di.auth_di.get_auth_users_port` and
     :func:`app.core.di.oauth_di.get_oauth_port`) read ``app.state`` and
@@ -187,25 +187,25 @@ async def test_login_renders_apap_login_page(
 
 async def test_auth_google_redirects_to_google_with_pkce(
     client: httpx.AsyncClient,
-    fake_insforge: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
+    fake_backends: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
     google_configured: None,
 ) -> None:
     """``GET /auth/google`` returns a 302 to the Google auth URL from the OAuth port."""
-    fake_insforge[1].start_google_oauth_response = (
+    fake_backends[1].start_google_oauth_response = (
         "https://accounts.google.com/o/oauth2/v2/auth?code_challenge=xyz&scope=openid+email+profile"
     )
 
     response = await client.get("/auth/google", follow_redirects=False)
 
     assert response.status_code == 302
-    assert response.headers["location"] == fake_insforge[1].start_google_oauth_response
+    assert response.headers["location"] == fake_backends[1].start_google_oauth_response
     # A short-lived PKCE cookie must be set.
     assert "apap_pkce" in response.cookies
 
 
 async def test_login_returns_503_when_google_not_configured(
     client: httpx.AsyncClient,
-    fake_insforge: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
+    fake_backends: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """If the Google client id/secret are not configured, /login returns 503 with a clear message."""
@@ -232,7 +232,7 @@ async def test_login_returns_503_when_google_not_configured(
 
 async def test_callback_without_pkce_cookie_redirects_to_login(
     client: httpx.AsyncClient,
-    fake_insforge: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
+    fake_backends: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
 ) -> None:
     """If the PKCE cookie is missing, the callback redirects to /login."""
     response = await client.get(
@@ -245,7 +245,7 @@ async def test_callback_without_pkce_cookie_redirects_to_login(
 
 async def test_callback_with_tampered_pkce_cookie_redirects_to_login(
     client: httpx.AsyncClient,
-    fake_insforge: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
+    fake_backends: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
 ) -> None:
     """A PKCE cookie signed with a different secret is rejected."""
     client.cookies.set("apap_pkce", "definitely-not-a-valid-token")
@@ -259,11 +259,11 @@ async def test_callback_with_tampered_pkce_cookie_redirects_to_login(
 
 async def test_callback_with_unauthorized_email_redirects_to_unauthorized(
     client: httpx.AsyncClient,
-    fake_insforge: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
+    fake_backends: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
 ) -> None:
     """If the email is not in usuarios_autorizados, the callback redirects to /unauthorized."""
 
-    fake_insforge[0].get_user_by_email_response = None
+    fake_backends[0].get_user_by_email_response = None
 
     # Simulate a valid PKCE cookie issued by the /login flow.
     from app.core.config import get_settings
@@ -285,7 +285,7 @@ async def test_callback_with_unauthorized_email_redirects_to_unauthorized(
 
 async def test_callback_issues_session_cookie_and_redirects_home(
     client: httpx.AsyncClient,
-    fake_insforge: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
+    fake_backends: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
     google_configured: None,
 ) -> None:
     """A valid exchange yields a session cookie and a redirect to the home page."""
@@ -331,7 +331,7 @@ async def test_callback_issues_session_cookie_and_redirects_home(
 
 async def test_callback_exchanges_oauth_code_for_session(
     client: httpx.AsyncClient,
-    fake_insforge: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
+    fake_backends: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
     google_configured: None,
 ) -> None:
     """LocalBackend's hosted OAuth proxy sends ``oauth_code`` (not ``code``)
@@ -371,7 +371,7 @@ async def test_callback_exchanges_oauth_code_for_session(
 
 async def test_login_apap_pkce_cookie_uses_samesite_lax_for_oauth_callback(
     client: httpx.AsyncClient,
-    fake_insforge: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
+    fake_backends: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
     google_configured: None,
 ) -> None:
     """``/login`` must issue ``apap_pkce`` with ``SameSite=Lax``.
@@ -395,7 +395,7 @@ async def test_login_apap_pkce_cookie_uses_samesite_lax_for_oauth_callback(
 
 async def test_callback_apap_session_cookie_uses_samesite_strict(
     client: httpx.AsyncClient,
-    fake_insforge: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
+    fake_backends: tuple[_FakeAuthUsersPort, _FakeOAuthPort],
     google_configured: None,
 ) -> None:
     """``/auth/callback`` issues ``apap_session`` with ``SameSite=Strict``.

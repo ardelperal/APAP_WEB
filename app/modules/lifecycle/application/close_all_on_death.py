@@ -34,7 +34,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from app.core.data_access import SqlExecutor
+from app.core.data_access import SqlExecutor, TransactionalSqlExecutor
 from app.modules.lifecycle.ports.lifecycle_port import LifecyclePort
 
 # Active placements are the same projections the cascade adapter
@@ -179,7 +179,7 @@ def _close_active_placements(  # noqa: PLR0913 - placement kind + event shape + 
 
 
 def close_all_on_death(
-    executor: SqlExecutor,
+    executor: TransactionalSqlExecutor,
     animal_id: str,
     event_timestamp: str | datetime,
     *,
@@ -240,51 +240,56 @@ def close_all_on_death(
         if metadata is not None
         else None
     )
-    death_rows = executor.execute_sql(
-        _INSERT_DEATH_EVENT_SQL,
-        [animal_id, "DEATH_RECORDED", timestamp_str, metadata_json, created_by],
-    )
-    death_event_id = (
-        str(death_rows[0]["id"]) if death_rows else str(uuid.uuid4())
-    )
+    # Issue #915 (A-03): DEATH_RECORDED and every closing event are ONE
+    # atomic unit of work (``transaction()`` from #913). Without it each
+    # ``execute_sql`` committed alone, so a mid-cascade failure left the
+    # animal recorded as dead with placements still open in the event log.
+    with executor.transaction() as tx:
+        death_rows = tx.execute_sql(
+            _INSERT_DEATH_EVENT_SQL,
+            [animal_id, "DEATH_RECORDED", timestamp_str, metadata_json, created_by],
+        )
+        death_event_id = (
+            str(death_rows[0]["id"]) if death_rows else str(uuid.uuid4())
+        )
 
-    # Step 2 — for every active placement at the time of death, emit
-    # a closing event that points at the death via caused_by_event_id.
-    # The cascade will re-derive the state on the next read; the
-    # closing events are the only thing that needs to be emitted here.
-    _close_active_placements(
-        executor,
-        sql=_SELECT_ACTIVE_INTAKES_SQL,
-        animal_id=animal_id,
-        event_type="INTAKE_CLOSED_BY_DEATH",
-        event_timestamp=timestamp_str,
-        caused_by_event_id=death_event_id,
-        source_entity_type="entradas",
-        id_column="IDEntrada",
-        created_by=created_by,
-    )
-    _close_active_placements(
-        executor,
-        sql=_SELECT_ACTIVE_FOSTERS_SQL,
-        animal_id=animal_id,
-        event_type="FOSTER_CLOSED_BY_DEATH",
-        event_timestamp=timestamp_str,
-        caused_by_event_id=death_event_id,
-        source_entity_type="acogidas",
-        id_column="IDAcogida",
-        created_by=created_by,
-    )
-    _close_active_placements(
-        executor,
-        sql=_SELECT_ACTIVE_ADOPTIONS_SQL,
-        animal_id=animal_id,
-        event_type="ADOPTION_CLOSED_BY_DEATH",
-        event_timestamp=timestamp_str,
-        caused_by_event_id=death_event_id,
-        source_entity_type="adopciones",
-        id_column="IDAdopcion",
-        created_by=created_by,
-    )
+        # Step 2 — for every active placement at the time of death, emit
+        # a closing event that points at the death via caused_by_event_id.
+        # The cascade will re-derive the state on the next read; the
+        # closing events are the only thing that needs to be emitted here.
+        _close_active_placements(
+            tx,
+            sql=_SELECT_ACTIVE_INTAKES_SQL,
+            animal_id=animal_id,
+            event_type="INTAKE_CLOSED_BY_DEATH",
+            event_timestamp=timestamp_str,
+            caused_by_event_id=death_event_id,
+            source_entity_type="entradas",
+            id_column="IDEntrada",
+            created_by=created_by,
+        )
+        _close_active_placements(
+            tx,
+            sql=_SELECT_ACTIVE_FOSTERS_SQL,
+            animal_id=animal_id,
+            event_type="FOSTER_CLOSED_BY_DEATH",
+            event_timestamp=timestamp_str,
+            caused_by_event_id=death_event_id,
+            source_entity_type="acogidas",
+            id_column="IDAcogida",
+            created_by=created_by,
+        )
+        _close_active_placements(
+            tx,
+            sql=_SELECT_ACTIVE_ADOPTIONS_SQL,
+            animal_id=animal_id,
+            event_type="ADOPTION_CLOSED_BY_DEATH",
+            event_timestamp=timestamp_str,
+            caused_by_event_id=death_event_id,
+            source_entity_type="adopciones",
+            id_column="IDAdopcion",
+            created_by=created_by,
+        )
 
     if lifecycle_port is not None:
         result = lifecycle_port.calculate_state(animal_id)

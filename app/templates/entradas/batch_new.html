@@ -16,67 +16,175 @@
   </div>
   {% endif %}
 
-  <form method="post" action="/entradas/batch" class="bg-surface rounded-card shadow-card p-6 space-y-6">
-    {# PR-5B2: CSRF defense-in-depth (REQ-AH-7). #}
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+  {# Issue #824 — wizard is create-flow only; `not error` keeps it off the 422 rerender
+     (batch_routes.py:stage_batch_view re-renders this template with `error` set on
+     BatchValidationError or on an all-empty submission, so error rerenders stay flat). #}
+  {% if not error %}
+    <form method="post" action="/entradas/batch" class="bg-surface rounded-card shadow-card p-6 space-y-6"
+          data-stepper="true" data-step-current="1"
+          data-step-validate="[{&quot;step&quot;: 1, &quot;selector&quot;: &quot;[data-step-panel='1'] input[name='animal_id'], [data-step-panel='1'] input[name='fecha_entrada']&quot;, &quot;required&quot;: true}]">
+      {# PR-5B2: CSRF defense-in-depth (REQ-AH-7). #}
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
 
-    <div class="space-y-4">
-      {% for row in rows %}
-      <fieldset class="border border-border rounded-card p-4 space-y-3">
-        <legend class="text-sm font-semibold text-text-muted px-2">Entrada {{ loop.index }}</legend>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div>
-            <label for="animal_id" class="block text-xs font-medium text-text-muted">Animal (UUID) <span class="text-rose-700">*</span></label>
-            <input type="text" id="animal_id" name="animal_id"
-                   value="{{ row.animal_id or '' }}"
-                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                   required>
-          </div>
-          <div>
-            <label for="fecha_entrada" class="block text-xs font-medium text-text-muted">Fecha de entrada <span class="text-rose-700">*</span></label>
-            <input type="date" id="fecha_entrada" name="fecha_entrada"
-                   value="{{ row.fecha_entrada or '' }}"
-                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                   required>
-          </div>
-          <div>
-            <label for="voluntario_entrada_id" class="block text-xs font-medium text-text-muted">Voluntario de entrada</label>
-            <input type="text" id="voluntario_entrada_id" name="voluntario_entrada_id"
-                   value="{{ row.voluntario_entrada_id or '' }}"
-                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
-          </div>
-          <div>
-            <label for="origen" class="block text-xs font-medium text-text-muted">Origen</label>
-            <input type="text" id="origen" name="origen"
-                   value="{{ row.origen or '' }}"
-                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
-          </div>
-          <div>
-            <label for="motivo" class="block text-xs font-medium text-text-muted">Motivo</label>
-            <input type="text" id="motivo" name="motivo"
-                   value="{{ row.motivo or '' }}"
-                   class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
-          </div>
-          <div class="md:col-span-2">
-            <label for="observaciones" class="block text-xs font-medium text-text-muted">Observaciones</label>
-            <textarea id="observaciones" name="observaciones" rows="2"
-                      class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">{{ row.observaciones or '' }}</textarea>
-          </div>
+      <nav class="stepper" data-stepper-list aria-label="Pasos del lote">
+        <div class="stepper-item" data-step="1"><span class="stepper-label" id="stepper-label-1">Identificación por fila</span></div>
+        <div class="stepper-item" data-step="2"><span class="stepper-label" id="stepper-label-2">Contexto por fila</span></div>
+        <div class="stepper-item" data-step="3"><span class="stepper-label" id="stepper-label-3">Revisión y previsualización</span></div>
+      </nav>
+
+      <fieldset id="step-1" data-step-panel="1" role="region" aria-labelledby="stepper-label-1" class="stepper-panel">
+        <legend class="font-heading text-lg text-text">Identificación por fila</legend>
+        <div class="mt-3 space-y-4">
+          {% for row in rows %}
+          <fieldset class="border border-border rounded-card p-4 space-y-3">
+            <legend class="text-sm font-semibold text-text-muted px-2">Entrada {{ loop.index }}</legend>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label for="animal_id" class="block text-xs font-medium text-text-muted">Animal (UUID) <span class="text-rose-700">*</span></label>
+                <input type="text" id="animal_id" name="animal_id"
+                       value="{{ row.animal_id or '' }}"
+                       class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                       required>
+              </div>
+              <div>
+                <label for="fecha_entrada" class="block text-xs font-medium text-text-muted">Fecha de entrada <span class="text-rose-700">*</span></label>
+                <input type="date" id="fecha_entrada" name="fecha_entrada"
+                       value="{{ row.fecha_entrada or '' }}"
+                       class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                       required>
+              </div>
+            </div>
+          </fieldset>
+          {% endfor %}
         </div>
       </fieldset>
-      {% endfor %}
-    </div>
 
-    <p class="text-xs text-text-muted">
-      Deja una fila vacía para descartarla. Las filas con campos obligatorios
-      vacíos se mostrarán como error en la previsualización.
-    </p>
+      <fieldset id="step-2" data-step-panel="2" role="region" aria-labelledby="stepper-label-2" class="stepper-panel" hidden>
+        <legend class="font-heading text-lg text-text">Contexto por fila</legend>
+        <div class="mt-3 space-y-4">
+          {% for row in rows %}
+          <fieldset class="border border-border rounded-card p-4 space-y-3">
+            <legend class="text-sm font-semibold text-text-muted px-2">Entrada {{ loop.index }}</legend>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label for="voluntario_entrada_id" class="block text-xs font-medium text-text-muted">Voluntario de entrada</label>
+                <input type="text" id="voluntario_entrada_id" name="voluntario_entrada_id"
+                       value="{{ row.voluntario_entrada_id or '' }}"
+                       class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+              </div>
+              <div>
+                <label for="origen" class="block text-xs font-medium text-text-muted">Origen</label>
+                <input type="text" id="origen" name="origen"
+                       value="{{ row.origen or '' }}"
+                       class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+              </div>
+              <div>
+                <label for="motivo" class="block text-xs font-medium text-text-muted">Motivo</label>
+                <input type="text" id="motivo" name="motivo"
+                       value="{{ row.motivo or '' }}"
+                       class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+              </div>
+              <div class="md:col-span-2">
+                <label for="observaciones" class="block text-xs font-medium text-text-muted">Observaciones</label>
+                <textarea id="observaciones" name="observaciones" rows="2"
+                          class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">{{ row.observaciones or '' }}</textarea>
+              </div>
+            </div>
+          </fieldset>
+          {% endfor %}
+        </div>
+      </fieldset>
 
-    <div class="flex justify-end gap-3 pt-4 border-t border-border">
-      <a href="/entradas" class="px-4 py-2 text-text-muted hover:text-text">Cancelar</a>
-      <button type="submit" class="bg-primary text-white px-6 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
-        Previsualizar lote
-      </button>
-    </div>
-  </form>
+      <fieldset id="step-3" data-step-panel="3" role="region" aria-labelledby="stepper-label-3" class="stepper-panel" hidden>
+        <legend class="font-heading text-lg text-text">Revisión y previsualización</legend>
+        <div class="mt-3 text-sm text-text">
+          <p class="text-text-muted">Revisa los datos antes de previsualizar. Los datos se conservan entre pasos; vuelve atrás con "Anterior" para corregirlos.</p>
+          <ul class="mt-2 list-disc pl-6 space-y-1 text-text-muted">
+            <li><strong>1. Identificación por fila</strong> — Animal (UUID) y fecha de entrada por cada fila.</li>
+            <li><strong>2. Contexto por fila</strong> — Voluntario de entrada, origen, motivo y observaciones por fila.</li>
+            <li><strong>3. Previsualización</strong> — Pulsa "Previsualizar lote" para validar el lote antes de confirmar; las filas se mantienen editables al volver atrás.</li>
+          </ul>
+        </div>
+      </fieldset>
+
+      <p class="text-xs text-text-muted">
+        Deja una fila vacía para descartarla. Las filas con campos obligatorios
+        vacíos se mostrarán como error en la previsualización.
+      </p>
+
+      <div class="flex justify-end gap-3 pt-4 border-t border-border">
+        <a href="/entradas" class="px-4 py-2 text-text-muted hover:text-text">Cancelar</a>
+        <div data-step-nav class="flex items-center gap-3">
+          <button type="button" data-step-prev class="px-4 py-2 text-text-muted hover:text-text" disabled>Anterior</button>
+          <button type="button" data-step-next class="bg-primary-dark text-white px-6 py-2 rounded font-semibold hover:bg-primary-dark shadow-sm">Siguiente</button>
+          <button type="submit" data-step-submit hidden class="bg-primary-dark text-white px-6 py-2 rounded font-semibold hover:bg-primary-dark shadow-sm">Previsualizar lote</button>
+        </div>
+      </div>
+    </form>
+    <script src="/static/js/form-stepper.js" defer></script>
+  {% else %}
+    <form method="post" action="/entradas/batch" class="bg-surface rounded-card shadow-card p-6 space-y-6">
+      {# PR-5B2: CSRF defense-in-depth (REQ-AH-7). #}
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+
+      <div class="space-y-4">
+        {% for row in rows %}
+        <fieldset class="border border-border rounded-card p-4 space-y-3">
+          <legend class="text-sm font-semibold text-text-muted px-2">Entrada {{ loop.index }}</legend>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label for="animal_id" class="block text-xs font-medium text-text-muted">Animal (UUID) <span class="text-rose-700">*</span></label>
+              <input type="text" id="animal_id" name="animal_id"
+                     value="{{ row.animal_id or '' }}"
+                     class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                     required>
+            </div>
+            <div>
+              <label for="fecha_entrada" class="block text-xs font-medium text-text-muted">Fecha de entrada <span class="text-rose-700">*</span></label>
+              <input type="date" id="fecha_entrada" name="fecha_entrada"
+                     value="{{ row.fecha_entrada or '' }}"
+                     class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                     required>
+            </div>
+            <div>
+              <label for="voluntario_entrada_id" class="block text-xs font-medium text-text-muted">Voluntario de entrada</label>
+              <input type="text" id="voluntario_entrada_id" name="voluntario_entrada_id"
+                     value="{{ row.voluntario_entrada_id or '' }}"
+                     class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+            </div>
+            <div>
+              <label for="origen" class="block text-xs font-medium text-text-muted">Origen</label>
+              <input type="text" id="origen" name="origen"
+                     value="{{ row.origen or '' }}"
+                     class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+            </div>
+            <div>
+              <label for="motivo" class="block text-xs font-medium text-text-muted">Motivo</label>
+              <input type="text" id="motivo" name="motivo"
+                     value="{{ row.motivo or '' }}"
+                     class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+            </div>
+            <div class="md:col-span-2">
+              <label for="observaciones" class="block text-xs font-medium text-text-muted">Observaciones</label>
+              <textarea id="observaciones" name="observaciones" rows="2"
+                        class="mt-1 block w-full border border-border rounded px-3 py-2 bg-surface text-text focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">{{ row.observaciones or '' }}</textarea>
+            </div>
+          </div>
+        </fieldset>
+        {% endfor %}
+      </div>
+
+      <p class="text-xs text-text-muted">
+        Deja una fila vacía para descartarla. Las filas con campos obligatorios
+        vacíos se mostrarán como error en la previsualización.
+      </p>
+
+      <div class="flex justify-end gap-3 pt-4 border-t border-border">
+        <a href="/entradas" class="px-4 py-2 text-text-muted hover:text-text">Cancelar</a>
+        <button type="submit" class="bg-primary text-white px-6 py-2 rounded font-semibold hover:bg-primary-dark transition-colors shadow-sm">
+          Previsualizar lote
+        </button>
+      </div>
+    </form>
+  {% endif %}
 {% endblock %}
