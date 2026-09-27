@@ -10,7 +10,9 @@ Endpoints (mounted at ``/acogidas`` by ``app/main.py``):
 - ``GET  /acogidas``                       list of stays (active + closed)
                                                 with optional ``?activas_solo=1``
                                                 filter.
-- ``GET  /acogidas/new``                   empty form.
+- ``GET  /acogidas/new``                   create form; optionally prefilled
+                                                from the /asignar redirect query
+                                                (issue #1008).
 - ``POST /acogidas``                       create; redirect to detail on
                                                 success.
 - ``GET  /acogidas/{id}``                  detail view with duration +
@@ -45,9 +47,16 @@ from app.core.data_access import (
     SqlExecutor,
     TransactionalSqlExecutor,
 )
+
+#: Canonical blank-to-None normalizer (§25: no helper duplication —
+#: entradas/salud/materiales/adopciones import the same shared helper;
+#: acogidas' local ``_opt`` copy was retired with issue #1008 to fit the
+#: routes.py mutation-site ratchet).
+from app.core.forms import optional_value as _opt
 from app.core.middleware import base_template_context_processor, current_path_context_processor
 from app.core.rbac import Permission, require_permission
 from app.modules.acogidas._actor_flow import close_acogida_or_403, create_acogida_with_actor
+from app.modules.acogidas._prefill_flow import prefill_form_data_from_query
 from app.modules.acogidas.forms import AcogidaForm
 from app.modules.animals import AnimalsPort, get_animals_port
 from app.modules.foster import assignment_service
@@ -87,13 +96,6 @@ _FORM_FIELDS = (
     "telefono",
     "observaciones",
 )
-
-
-def _opt(value: str | None) -> str | None:
-    if value is None:
-        return None
-    stripped = str(value).strip()
-    return stripped or None
 
 
 def _enforce_species_gate(
@@ -213,11 +215,31 @@ def list_acogidas_view(
 def new_acogida_form(
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ACOGIDAS))],
+    port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
-    """Render an empty create form."""
+    """Render the create form, honoring the /asignar redirect contract.
+
+    Issue #1008: ``POST /casas-acogida/{id}/asignar`` 303-redirects here
+    with ``animal_id``/``casa_acogida_id``/``override_id`` query params
+    (issues #142 + #919). The params are read from the request and
+    validated into form prefill by
+    :func:`app.modules.acogidas._prefill_flow.prefill_form_data_from_query`
+    (extracted out of this handler: routes.py is a mutation-site ratchet
+    baseline with no headroom). Only empty fields get prefilled — POST
+    resubmits never read query params, so explicit form values always
+    win. Malformed/unknown animal ids 404; a malformed
+    ``casa_acogida_id`` 404s; a malformed ``override_id`` is dropped,
+    never echoed unvalidated.
+    """
     if (early := return_early_if_response(user)) is not None:
         return early
-    return _render_form(request, user, {}, None, _ACOGIDAS_PATH)
+    return _render_form(
+        request,
+        user,
+        prefill_form_data_from_query(port, request),
+        None,
+        _ACOGIDAS_PATH,
+    )
 
 
 # --- create (submit) ------------------------------------------------------

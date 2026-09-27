@@ -10,8 +10,8 @@ namespace ``/acogidas`` stays contiguous with the parent
 Endpoints (mounted WITHOUT a prefix so the handler URLs are absolute):
 
 - ``GET  /acogidas/{estancia_id}/materiales``              list the
-  assigned materials for this stay; ``require_authorized_user``
-  (any reader+ can view).
+  assigned materials for this stay; ``require_permission(READ_MATERIALES)``
+  (fail-closed, issue #1019).
 - ``POST /acogidas/{estancia_id}/materiales``              assign
   a material to this stay; ``require_writer_user``; 303 to the
   per-stay list; 422 on inactive material / closed stay;
@@ -23,7 +23,8 @@ Endpoints (mounted WITHOUT a prefix so the handler URLs are absolute):
 
 RBAC (REQ-FOSTER-04-03 + issue #144):
 
-- ``GET`` routes use ``require_authorized_user`` (any reader+ can view).
+- ``GET`` routes use ``require_permission(READ_MATERIALES)`` (issue
+  #1019: fail-closed via the RBAC matrix; D-44 keeps legacy readers).
 - ``POST`` routes use ``require_writer_user`` (writers + developers +
   key_user). This is enforced at the dep layer — the ``reader`` test
   in ``tests/test_materiales_routes.py`` atom 13 sees 403 BEFORE the
@@ -61,13 +62,13 @@ from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
     AuthenticatedUser,
-    require_authorized_user,
     require_writer_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
 from app.core.forms import optional_value as _opt
 from app.core.middleware import base_template_context_processor, current_path_context_processor
+from app.core.rbac import Permission, require_permission
 from app.modules.materiales import application as materiales_application
 from app.modules.materiales.application.assign_material_to_estancia import (
     MaterialValidationError,
@@ -185,7 +186,7 @@ def _render_per_stay_list(  # noqa: PLR0913  # non-route helper; 7 args needed t
 def list_estancia_materiales_view(
     estancia_id: str,
     request: Request,
-    user: Annotated[AuthenticatedUser, Depends(require_authorized_user)],
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_MATERIALES))],
     port: Annotated[MaterialesPort, Depends(get_materiales_port)],
 ):
     """Per-stay junction list.
@@ -195,7 +196,8 @@ def list_estancia_materiales_view(
     applies the ordering in SQL) and the catalog of active materials
     for the writer-only assign dropdown.
 
-    The page is reachable by any authorized user; the assign +
+    Reach requires the matrix ``READ_MATERIALES`` permission (issue
+    #1019); the assign +
     remove forms are gated by ``user.rol in (writer, developer,
     key_user)`` in the template (mirrors the RBAC pattern used by
     the catalog list at ``app/templates/materiales/list.html``).
