@@ -71,6 +71,102 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: python scripts/check_issue_specs.py pr-event "$GITHUB_EVENT_PATH"
 
+  # Issue #895: computes the no-UI-change marker for the SHA under test so
+  # the e2e job runs exactly when the revision touches a UI path, and so
+  # the `required` checker can accept a skipped e2e only when the run
+  # carries the marker. The UI path list lives in
+  # scripts/check_required_jobs.py (single source of truth, shared with
+  # deploy.yml's ui-e2e-gate) and is consumed via --print-ui-paths.
+  ui-detection:
+    name: ui-detection
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # Issue #879: does not read issues.
+    permissions:
+      contents: read
+    outputs:
+      ui_changed: ${{ steps.detect.outputs.ui_changed }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # The diff needs the full history (same rationale as pr-size.yml).
+          fetch-depth: 0
+
+      # The hosted image ships no `python` (issue #533 precedent in
+      # pr-size.yml), and the UI path list lives in the checker script.
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12.11"
+
+      - name: Detect UI-path changes
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          # Single source of truth for the UI surface (issue #895, fix round
+          # 1, JD-B-001): detection is INVERTED and fail-closed. The checker
+          # prints the NON-UI allowlist and classifies the changed-file set
+          # (via --ui-changed); ui_changed is true unless EVERY changed file
+          # is allowlisted, because FastAPI renders Jinja from Python — all
+          # of app/** (routes, _form_render, templates, static) affects the
+          # browser, so a UI-path prefix list could never be exhaustive.
+          NON_UI_PATHS="$(python scripts/check_required_jobs.py --print-ui-paths)"
+          CHANGED=""
+          ui_changed=true
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            if [ -z "$BASE_REF" ]; then
+              echo "::error::pull_request event without base_ref" >&2
+              exit 1
+            fi
+            git fetch --no-tags origin "$BASE_REF"
+            BASE="$(git merge-base "origin/${BASE_REF}" HEAD)"
+            CHANGED="$(git diff --name-only "${BASE}...HEAD")"
+            ui_changed="$(printf '%s\n' "$CHANGED" | python scripts/check_required_jobs.py --ui-changed)"
+          else
+            # Issue #895 fix round 1 (JD-B-002): on push the diff base is
+            # github.event.before — the SHA the branch pointed at before
+            # the push. The parent-commit diff only covers the LAST commit,
+            # so a UI change hidden in an earlier commit of a multi-commit
+            # push used to skip e2e. HEAD^ remains only as the fallback for
+            # a zero-SHA initial push and for workflow_dispatch (which has
+            # no event.before). A root commit (no parent) fails closed:
+            # assume the UI changed.
+            if [ -n "$EVENT_BEFORE" ] \
+               && [ "$EVENT_BEFORE" != "0000000000000000000000000000000000000000" ] \
+               && git cat-file -e "$EVENT_BEFORE" 2>/dev/null; then
+              CHANGED="$(git diff --name-only "$EVENT_BEFORE" 'HEAD')"
+              ui_changed="$(printf '%s\n' "$CHANGED" | python scripts/check_required_jobs.py --ui-changed)"
+            elif git rev-parse --verify -q 'HEAD^' >/dev/null; then
+              CHANGED="$(git diff --name-only 'HEAD^' 'HEAD')"
+              ui_changed="$(printf '%s\n' "$CHANGED" | python scripts/check_required_jobs.py --ui-changed)"
+            else
+              echo "::warning::no event.before and no parent commit; assuming UI changed (fail-closed)" >&2
+            fi
+          fi
+          # ANTI-SELF-EXEMPTION toll (issue #895 fix round 1, JD-A-001): the
+          # gate's own source cannot be edited without paying the e2e toll.
+          # These three files DEFINE the detection, so a change to any of
+          # them forces ui_changed=true — otherwise an allowlist edit could
+          # reclassify future UI changes without e2e evidence.
+          for path in $CHANGED; do
+            case "$path" in
+              scripts/check_required_jobs.py|.github/workflows/ci.yml|.github/workflows/deploy.yml)
+                ui_changed=true
+                echo "::notice::gate-source change ($path) forces ui_changed=true (anti-self-exemption toll, issue #895)."
+                break
+                ;;
+            esac
+          done
+          echo "ui_changed=${ui_changed}" >> "$GITHUB_OUTPUT"
+          # NON_UI_PATHS is the live allowlist from the single source of
+          # truth; echoing it keeps every run's detection auditable.
+          echo "::notice::ui-detection: ui_changed=${ui_changed} (non-UI allowlist: ${NON_UI_PATHS})"
+
   lint:
     name: lint
     needs: pr-size
@@ -1026,21 +1122,23 @@ jobs:
     name: e2e
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    needs: build
+    needs: [build, ui-detection]
     # Issue #879: does not read issues. Issue #973: `packages: read`
     # lets the service pull the private GHCR MinIO replica with the
     # ephemeral GITHUB_TOKEN.
     permissions:
       contents: read
       packages: read
-    # E2E suite requires Postgres + MinIO + Chromium; the Docker
-    # pull for those services flakes intermittently on the hosted
-    # runner. Run only on release events (workflow_dispatch / tag
-    # push) so PRs are not blocked by infrastructure flakes. PRs
-    # that need e2e validation can dispatch this workflow manually.
+    # Release events (workflow_dispatch / tag push) always run the suite
+    # (issue #780/#766). Since issue #895, a pull_request or branch push
+    # also runs it when the ui-detection job detected a UI-path change on
+    # the SHA under test; with ui_changed=false the job skips explicitly
+    # (never silently — the `required` checker accepts the skip only when
+    # the run carries that marker).
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      startsWith(github.ref, 'refs/tags/')
+      startsWith(github.ref, 'refs/tags/') ||
+      needs.ui-detection.outputs.ui_changed == 'true'
     services:
       postgres:
         image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
@@ -1184,6 +1282,7 @@ jobs:
       - verify-fallback-ready
       - build
       - e2e
+      - ui-detection
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

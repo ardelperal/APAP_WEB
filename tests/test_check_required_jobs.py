@@ -1,10 +1,26 @@
 from __future__ import annotations
 
-from scripts.check_required_jobs import ALL_JOBS, check_results
+from pathlib import Path
+
+from scripts.check_required_jobs import (
+    ALL_JOBS,
+    GATE_SOURCE_FILES,
+    NON_UI_PATH_PREFIXES,
+    check_results,
+    ui_changed_for_paths,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _needs(result: str = "success") -> dict[str, dict[str, str]]:
     return {job: {"result": result} for job in ALL_JOBS}
+
+
+def _marker(needs: dict[str, dict], ui_changed: str) -> dict[str, dict]:
+    """Attach a ui-detection output payload to a needs fixture."""
+    needs["ui-detection"] = {"result": "success", "outputs": {"ui_changed": ui_changed}}
+    return needs
 
 
 def test_pull_request_accepts_only_the_two_deliberate_heavy_job_skips() -> None:
@@ -23,19 +39,255 @@ def test_non_pr_events_skip_issue_spec_but_pull_requests_require_it() -> None:
     assert check_results(needs, "pull_request") == ["issue-spec: result='skipped'"]
 
 
-def test_e2e_skip_is_allowed_on_pull_request() -> None:
-    """E2E requires Postgres + MinIO + Chromium; the Docker pull for those
-    images flakes intermittently on the hosted runner. Run only on
-    release events (tag push / workflow_dispatch) per AGENTS
-    §PR_DISCIPLINE so PRs are not blocked by infrastructure flakes. A
-    skipped e2e job on a PR or a regular push is therefore NOT a policy
-    violation.
+def test_e2e_skip_on_pull_request_requires_no_ui_change_marker() -> None:
+    """Issue #895: e2e ``skipped`` on a pull_request is acceptable ONLY when
+    the run carries the no-UI-change marker (the ui-detection job reported
+    ``ui_changed=false``). Without the marker, a skipped e2e violates the
+    required policy — a UI change must never merge with untested UI.
+    """
+    needs = _needs()
+    needs["e2e"]["result"] = "skipped"
+    _marker(needs, "false")
+    assert check_results(needs, "pull_request") == []
+
+    for marker in ("true", "", "maybe"):
+        _marker(needs, marker)
+        assert check_results(needs, "pull_request") == [
+            f"e2e: result='skipped' without ui_changed='false' (got {marker!r})"
+        ]
+
+
+def test_e2e_skip_on_branch_push_requires_no_ui_change_marker() -> None:
+    """Issue #895: the same marker contract applies to a branch push
+    (staging), whose e2e runs only when the parent-commit diff touches a
+    UI path.
+    """
+    needs = _needs()
+    needs["e2e"]["result"] = "skipped"
+    _marker(needs, "false")
+    assert check_results(needs, "push") == []
+
+    _marker(needs, "true")
+    assert check_results(needs, "push") == [
+        "e2e: result='skipped' without ui_changed='false' (got 'true')"
+    ]
+
+
+def test_e2e_missing_marker_fails_closed() -> None:
+    """A run whose ui-detection job never published ``ui_changed`` (absent
+    job payload, absent outputs, non-string value) fails closed: the skip
+    acceptance requires the marker to be exactly ``'false'``.
     """
     needs = _needs()
     needs["e2e"]["result"] = "skipped"
 
-    assert check_results(needs, "pull_request") == []
-    assert check_results(needs, "push") == []
+    # ui-detection ran but published no outputs.
+    needs["ui-detection"] = {"result": "success"}
+    assert check_results(needs, "pull_request") == [
+        "e2e: result='skipped' without ui_changed='false' (got '')"
+    ]
+    # Malformed output type.
+    needs["ui-detection"] = {"result": "success", "outputs": {"ui_changed": 1}}
+    assert check_results(needs, "pull_request") == [
+        "e2e: result='skipped' without ui_changed='false' (got '')"
+    ]
+
+
+def test_e2e_skip_blocks_required_on_release_events_even_with_marker() -> None:
+    """Issue #766: workflow_dispatch and tag push are release events where
+    the e2e suite MUST terminate SUCCESS. The no-UI-change marker never
+    exempts those events (issue #895).
+    """
+    needs = _needs()
+    needs["e2e"]["result"] = "skipped"
+    _marker(needs, "false")
+
+    assert check_results(needs, "workflow_dispatch") == ["e2e: result='skipped'"]
+    assert check_results(needs, "push", "refs/tags/v1.2.3") == ["e2e: result='skipped'"]
+
+
+def test_failed_or_cancelled_e2e_blocks_required_despite_marker() -> None:
+    """Issue #895: a failed, cancelled or timed-out e2e run blocks the gate
+    on every event, marker or no marker — acceptance criterion "Un E2E
+    fallido, cancelado, omitido inesperadamente o sin pruebas bloquea".
+    """
+    for outcome in ("failure", "cancelled", "timed_out"):
+        needs = _needs()
+        needs["e2e"]["result"] = outcome
+        _marker(needs, "false")
+        assert check_results(needs, "pull_request") == [f"e2e: result={outcome!r}"]
+        assert check_results(needs, "push") == [f"e2e: result={outcome!r}"]
+
+
+def test_ui_detection_job_is_required_on_every_event() -> None:
+    """Issue #895: the ui-detection job is the structural marker source.
+    A run without it (or where it failed or was skipped) cannot carry a
+    trustworthy marker and fails closed.
+    """
+    assert "ui-detection" in ALL_JOBS
+
+    needs = _needs()
+    needs.pop("ui-detection")
+    assert check_results(needs, "pull_request") == ["missing jobs: ui-detection"]
+
+    for outcome in ("failure", "skipped"):
+        needs = _needs()
+        needs["ui-detection"]["result"] = outcome
+        assert check_results(needs, "pull_request") == [
+            f"ui-detection: result={outcome!r}"
+        ]
+
+
+def test_non_ui_path_prefixes_pin_the_fail_closed_allowlist() -> None:
+    """Issue #895 fix round 1 (JD-B-001): detection is INVERTED. The single
+    source of truth now holds the NON-UI allowlist: ``ui_changed`` is true
+    unless EVERY changed file matches it. ``app/**`` is deliberately NOT
+    allowlisted (FastAPI renders Jinja from Python, so routes and
+    _form_render affect the browser) and neither is ``tailwindcss/`` (the
+    Tailwind source compiles into app/static/css/output.css).
+    """
+    directories = {p for p in NON_UI_PATH_PREFIXES if p.endswith("/")}
+    root_files = {p for p in NON_UI_PATH_PREFIXES if not p.endswith("/")}
+
+    # Conservative directory allowlist derived from the real tracked tree.
+    assert {
+        ".atl/",
+        ".codegraph/",
+        ".github/",
+        ".pi/",
+        "coolify/",
+        "docs/",
+        "git-hooks/",
+        "migration/",
+        "odd/",
+        "openspec/",
+        "scripts/",
+        "skills/",
+        "tests/",
+    } <= directories
+    # UI-relevant surfaces are never allowlisted.
+    assert not any(p.startswith(("app/", "tailwindcss/")) for p in NON_UI_PATH_PREFIXES)
+    # Root-level non-UI files are exact entries.
+    assert {
+        "AGENTS.md",
+        "Makefile",
+        "README.md",
+        "pyproject.toml",
+        "uv.lock",
+        "Dockerfile",
+    } <= root_files
+
+
+def test_ui_changed_for_paths_is_true_when_any_file_is_outside_the_allowlist() -> None:
+    """Fail-closed inversion: a template change (or ANY file outside the
+    allowlist) marks the revision UI-relevant, even mixed with docs edits.
+    """
+    assert ui_changed_for_paths(["app/templates/index.html"]) is True
+    assert ui_changed_for_paths(["docs/x.md", "app/static/css/output.css"]) is True
+    assert ui_changed_for_paths(["tailwindcss/styles/app.css"]) is True
+
+
+def test_ui_changed_for_paths_is_false_when_every_file_is_in_the_allowlist() -> None:
+    assert ui_changed_for_paths(["docs/x.md", "tests/test_x.py", "Makefile"]) is False
+    assert ui_changed_for_paths(["scripts/check_rules.py", ".github/workflows/pr-name.yml"]) is False
+
+
+def test_ui_changed_for_paths_is_true_when_the_allowlist_is_emptied() -> None:
+    """Emptying the allowlist must force e2e to run for any change — the
+    fail-closed direction of the inversion (JD-B-001 pin).
+    """
+    assert ui_changed_for_paths(["docs/x.md"], allowlist=()) is True
+    assert ui_changed_for_paths(["README.md"], allowlist=()) is True
+
+
+def test_root_file_entries_match_exactly_not_by_prefix() -> None:
+    """A root-file entry (no trailing slash) matches exactly, so a new file
+    like ``Makefile.bak`` is NOT silently treated as the allowlisted
+    ``Makefile`` — fail-closed by default.
+    """
+    assert ui_changed_for_paths(["Makefile"]) is False
+    assert ui_changed_for_paths(["Makefile.bak"]) is True
+
+
+def test_gate_source_files_pay_the_e2e_toll() -> None:
+    """Anti-self-exemption toll (JD-A-001 structural fix): the gate's own
+    source cannot be edited without paying the e2e toll. Editing any gate
+    file — even together with an obvious non-UI docs change — forces
+    ``ui_changed=true``, so an allowlist edit can never reclassify future
+    UI changes without e2e evidence.
+    """
+    assert set(GATE_SOURCE_FILES) == {
+        "scripts/check_required_jobs.py",
+        ".github/workflows/ci.yml",
+        ".github/workflows/deploy.yml",
+    }
+    for gate_file in GATE_SOURCE_FILES:
+        assert ui_changed_for_paths([gate_file]) is True
+        # Gate-file edit + template change ⇒ e2e runs (trivially true under
+        # the inversion, but pinned so the toll cannot regress to OR-less).
+        assert ui_changed_for_paths([gate_file, "docs/x.md"]) is True
+        # The toll must not be bypassable by allowlisting tricks either.
+        assert ui_changed_for_paths([gate_file], allowlist=NON_UI_PATH_PREFIXES + (gate_file,)) is True
+
+
+def test_two_merge_push_scenario_ui_change_in_the_first_commit_is_detected() -> None:
+    """JD-B-002 pin: a push delivering two commits where only the FIRST one
+    touches UI. Diffing against github.event.before yields the union of both
+    commits, so the UI change is detected. The old parent-commit diff saw
+    only the second commit and would have skipped e2e — that stale behavior
+    is pinned here as the regression the event.before base prevents.
+    """
+    first_commit_files = ["app/templates/acogidas/form.html"]
+    second_commit_files = ["docs/codebase/ci-cd.md"]
+    union = first_commit_files + second_commit_files
+
+    assert ui_changed_for_paths(union) is True
+    # The old HEAD^ diff would only have seen the second commit.
+    assert ui_changed_for_paths(second_commit_files) is False
+
+
+def test_ui_changed_flag_reads_changed_paths_from_stdin() -> None:
+    """The workflows classify the changed-file set through the single source
+    of truth via ``--ui-changed`` (one path per line on stdin); the flag
+    must work without the CI_NEEDS_JSON environment.
+    """
+    import os
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "scripts/check_required_jobs.py", "--ui-changed"],
+        cwd=REPO_ROOT,
+        input="docs/x.md\napp/templates/index.html\n",
+        env={"PATH": os.environ["PATH"]},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "true"
+
+
+def test_print_ui_paths_flag_emits_the_non_ui_allowlist() -> None:
+    """The workflows (ci.yml ui-detection, deploy.yml ui-e2e-gate) consume the
+    single source of truth through ``--print-ui-paths`` (space-separated
+    list; the flag name predates the fix round — it now emits the NON-UI
+    allowlist); the flag must work without the CI_NEEDS_JSON environment.
+    """
+    import os
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "scripts/check_required_jobs.py", "--print-ui-paths"],
+        cwd=REPO_ROOT,
+        env={"PATH": os.environ["PATH"]},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == list(NON_UI_PATH_PREFIXES)
 
 
 def test_schedule_event_is_unreachable_and_fails_closed() -> None:

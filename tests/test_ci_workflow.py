@@ -107,10 +107,9 @@ def test_ci_workflow_defines_lint_test_and_build_jobs() -> None:
 
 
 def test_ci_workflow_runs_release_e2e_job_with_playwright() -> None:
-    """Issue #780: E2E has no feature flag but runs only for release events.
-
-    Tags and manual dispatch must execute the Playwright suite; pull requests,
-    regular pushes, and the removed schedule trigger must not reach the job.
+    """E2E executes the Playwright suite on release events and, since issue
+    #895, on any pull_request / branch push whose ui-detection job detected
+    a UI-path change.
     """
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
@@ -129,6 +128,116 @@ def test_ci_workflow_runs_release_e2e_job_with_playwright() -> None:
     assert "playwright" in workflow.lower()
     # And it must actually execute the suite.
     assert "pytest tests/e2e_ci/" in workflow
+
+
+# --- issue #895: UI e2e gate ------------------------------------------------
+
+
+def test_ci_workflow_defines_ui_detection_job_consuming_the_checker() -> None:
+    """Issue #895 (design D1/D2): ci.yml must define a ``ui-detection`` job
+    whose UI path list comes from the single source of truth in
+    scripts/check_required_jobs.py (``--print-ui-paths``), never from an
+    inline copy that could drift from the checker and the deploy gate.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    block = _job_block(workflow, "ui-detection")
+
+    assert "scripts/check_required_jobs.py --print-ui-paths" in block
+    # The marker is published as a job output so `required`'s checker can
+    # verify the skip semantics structurally from toJSON(needs).
+    assert "ui_changed:" in block
+    assert 'echo "ui_changed=' in block
+    # The diff needs the full history.
+    assert "fetch-depth: 0" in block
+    # pull_request: merge-base diff against the event base ref (same shape
+    # as pr-size.yml, issue #525); push/dispatch: event.before with the
+    # parent commit as fallback (fix round 1, JD-B-002).
+    assert "github.base_ref" in block
+    assert "merge-base" in block
+    assert "github.event.before" in block
+    assert "HEAD^" in block
+
+
+def test_ci_workflow_ui_detection_fails_closed_by_default() -> None:
+    """Issue #895 fix round 1 (JD-B-001, workflow half): detection is
+    inverted — the step starts from ``ui_changed=true`` and only reports
+    false when the checker's fail-closed classifier (``--ui-changed``)
+    proves every changed file is inside the NON-UI allowlist. A diff base
+    that cannot be resolved also fails closed.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    block = _job_block(workflow, "ui-detection")
+
+    assert "ui_changed=true" in block, (
+        "ui-detection must default to ui_changed=true (fail-closed)"
+    )
+    assert "--ui-changed" in block, (
+        "the changed-file set must be classified by the checker's "
+        "fail-closed classifier, not by inline prefix matching"
+    )
+    assert "--print-ui-paths" in block
+    assert "assuming UI changed (fail-closed)" in block
+
+
+def test_ci_workflow_ui_detection_pays_the_gate_file_toll() -> None:
+    """Anti-self-exemption toll (JD-A-001, workflow half): editing any of
+    the gate's own source files forces ui_changed=true — the gate cannot
+    be edited without paying the e2e toll.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    block = _job_block(workflow, "ui-detection")
+
+    toll_pattern = (
+        "scripts/check_required_jobs.py|.github/workflows/ci.yml"
+        "|.github/workflows/deploy.yml"
+    )
+    assert toll_pattern in block, (
+        "the ui-detection step must force ui_changed=true when any gate "
+        "source file changes (anti-self-exemption toll)"
+    )
+
+
+def test_ci_workflow_push_diff_uses_event_before_with_parent_fallback() -> None:
+    """JD-B-002: on push the diff base must be github.event.before (the SHA
+    the branch pointed at before the push), not HEAD^ — the parent-commit
+    diff only covers the LAST commit, so a UI change hidden in an earlier
+    commit of a multi-commit push used to skip e2e. HEAD^ remains only as
+    the fallback for a zero-SHA initial push and for workflow_dispatch.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    block = _job_block(workflow, "ui-detection")
+
+    assert "EVENT_BEFORE: ${{ github.event.before }}" in block
+    # Zero-SHA guard for the initial push.
+    assert "0000000000000000000000000000000000000000" in block
+    assert "git diff --name-only" in block
+
+
+def test_ci_workflow_e2e_runs_when_ui_changed_or_on_release_events() -> None:
+    """Issue #895 (design D2): the e2e job must run on the SHA under test
+    when ui-detection reports ui_changed=true, in addition to the release
+    events from issue #780. A UI change can no longer reach a merge with a
+    silently skipped e2e.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    start = workflow.index("\n  e2e:")
+    section = workflow[start : workflow.index("\n  required:", start)]
+
+    assert "needs: [build, ui-detection]" in section
+    if_clause = section[section.index("if:") : section.index("services:")]
+    assert "needs.ui-detection.outputs.ui_changed == 'true'" in if_clause
+
+
+def test_ci_workflow_required_consumes_the_ui_detection_output() -> None:
+    """Issue #895: ``required`` must depend on ui-detection so its
+    ``ui_changed`` output is part of the ``toJSON(needs)`` payload the
+    checker reads structurally (no second, drift-prone env channel).
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    required = _job_block(workflow, "required")
+
+    assert "\n      - ui-detection" in required
+    assert "CI_NEEDS_JSON: ${{ toJSON(needs) }}" in required
 
 
 def test_ci_workflow_does_not_include_diagnostic_secret_leak_scan() -> None:
@@ -526,9 +635,10 @@ def test_deploy_workflow_gates_on_evidence() -> None:
 
     assert "  deploy:" in workflow
     assert "  name: deploy" in workflow
-    # Issue #908: release-e2e-gate joined the needs list. deploy still gates on
-    # the evidence job's verdict; the e2e gate is fail-closed on its own terms.
-    assert "needs: [evidence, release-e2e-gate]" in workflow
+    # Issue #908: release-e2e-gate joined the needs list. Issue #895:
+    # ui-e2e-gate joined it too — deploy still gates on the evidence job's
+    # verdict; each e2e gate is fail-closed on its own terms.
+    assert "needs: [evidence, release-e2e-gate, ui-e2e-gate]" in workflow
     assert "if: needs.evidence.outputs.verified == 'true'" in workflow, (
         "deploy must run only when the evidence job proved the tree was verified"
     )
@@ -2328,6 +2438,62 @@ def test_minio_replica_workflow_is_dispatch_only_and_pushes_pinned_replica() -> 
     assert "GITHUB_STEP_SUMMARY" in workflow, (
         "the workflow must print the image digest to the job summary"
     )
+
+
+# --- issue #895: deploy-side ui-e2e gate ------------------------------------
+
+
+def test_deploy_workflow_defines_fail_closed_ui_e2e_gate() -> None:
+    """Issue #895 (design D3): deploy.yml must define a signal-only
+    ``ui-e2e-gate`` job (same pattern as release-e2e-gate from #908, which
+    stays untouched) that recomputes ui_changed for the merged revision and
+    fails closed when a UI-changing revision lacks green e2e evidence.
+    """
+    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+    assert "  ui-e2e-gate:" in workflow
+    gate = _job_block(workflow, "ui-e2e-gate")
+
+    # The UI path list comes from the checker (single source of truth).
+    assert "scripts/check_required_jobs.py --print-ui-paths" in gate
+    # Recomputes ui_changed from the event.before diff (HEAD^ fallback).
+    assert "HEAD^" in gate
+    # Same-SHA verification through the check-runs API (read-only, GITHUB_TOKEN).
+    assert "/commits/" in gate and "check-runs" in gate
+    # Fix round 1 (F4): every e2e selection is scoped to the github-actions
+    # app so a third-party check named 'e2e' cannot satisfy the gate.
+    assert 'select(.name == "e2e" and .app.slug == "github-actions")' in gate
+    assert "!= \"success\"" in gate
+    # The failure message points at the CI workflow.
+    assert ".github/workflows/ci.yml" in gate
+    # Explicit exemption line for non-UI revisions.
+    assert "ui-e2e-gate exemption" in gate
+
+
+def test_deploy_workflow_ui_e2e_gate_resolves_the_reviewed_head_sha() -> None:
+    """pull_request check-runs are reported on the PR head SHA, not on the
+    merge commit, so the gate must resolve the reviewed head (HEAD^2 for a
+    merge commit, evidence-job precedent) and bind the tree before querying.
+    """
+    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+    gate = _job_block(workflow, "ui-e2e-gate")
+
+    assert "HEAD^2" in gate
+    assert "HEAD^{tree}" in gate
+
+
+def test_deploy_workflow_ui_e2e_gate_has_no_secrets_and_least_privilege() -> None:
+    """The gate holds no secret and reads only: contents (checkout) and
+    checks (check-runs API). It never touches packages or id-token.
+    """
+    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+    gate = _job_block(workflow, "ui-e2e-gate")
+
+    assert "secrets." not in gate
+    permissions = gate[gate.index("permissions:") : gate.index("steps:")]
+    assert "contents: read" in permissions
+    assert "checks: read" in permissions
+    assert "packages: write" not in permissions
+    assert "issues: read" not in permissions
 
 
 # --- issue #986: post-hoc main-history audit ----------------------------
