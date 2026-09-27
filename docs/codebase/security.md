@@ -86,6 +86,16 @@ Cuando el digest más nuevo disponible todavía arrastra vulnerabilidades sin fi
 
 El gate falla ante cualquier vulnerabilidad con fix disponible no ignorada. Es deliberado: una vulnerabilidad reaparecida tras un re-pin debe detener el merge, no filtrarse en silencio. Cualquier cambio que debilite esta propiedad (flag global, expiración indefinida, ignorar una vulnerabilidad con fix) es una regresión de seguridad del repo.
 
+### Excepción documentada para vulnerabilidades fixables de etapa de build (issue #1043)
+
+La invariant anterior admite una única excepción documentada, aprobada por el mantenedor el 2026-09-27. Una vulnerabilidad con fix disponible puede listarse en `.trivyignore` solo cuando se cumplen las tres condiciones a la vez:
+
+1. **Exposición confinada a una etapa de build que no llega a producción.** En #1043, los cuatro hallazgos fixables de `tailwind-base` (node:24-bookworm-slim, paquetes npm-bundled: brace-expansion, ip-address, tar) no existen en el runtime de producción (python:3.12.14-slim-bookworm, con cero fixables).
+2. **Ninguna base alcanzable hoy reduce el recuento.** node 20 (EOL, congelado) = 29 fixables; node 22 = 8; node 24 = 4.
+3. **Entrada con fecha de expiración a 90 días**, igual que el resto del registro.
+
+Las vulnerabilidades fixables en la etapa de runtime **nunca** se exceptúan. La excepción se limpia con el próximo rebuild upstream de la imagen node: re-pinee el digest y elimine las cuatro entradas en el mismo cambio.
+
 ## Resumen de reglas conectadas
 
 | Regla | Página | Resumen |

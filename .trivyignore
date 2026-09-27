@@ -4,8 +4,11 @@
 #   - One entry per CVE, with the date added, a 90-day expiry, and an inline
 #     justification. Nothing global, nothing open-ended.
 #   - Only CVEs WITHOUT an available fix (trivy "Fixed version" empty) may be
-#     listed. A CVE with a Fixed version is NEVER ignored — re-pin the base
-#     image to a rebuilt digest instead (fail-closed).
+#     listed, with ONE documented exception (see below): a fixable CVE may be
+#     excepted ONLY when the exposure is build-stage-only AND no reachable
+#     base reduces it AND the entry carries a dated expiry. Runtime-stage
+#     fixable CVEs are never excepted — re-pin the base image instead
+#     (fail-closed).
 #   - `--ignore-unfixed` is never used on the command line; the per-CVE
 #     register above is the only sanctioned suppression mechanism.
 #   - Every entry is re-justified at expiry (2026-12-26); stale entries are
@@ -53,3 +56,26 @@ CVE-2026-54369  # 2026-09-27; expires 2026-12-26; no fix available in bookworm l
 CVE-2025-7458   # 2026-09-27; expires 2026-12-26; no fix available in bookworm libsqlite3-0; application data layer is PostgreSQL, not sqlite
 CVE-2026-11822  # 2026-09-27; expires 2026-12-26; no fix available in bookworm libsqlite3-0; application data layer is PostgreSQL, not sqlite
 CVE-2026-11824  # 2026-09-27; expires 2026-12-26; no fix available in bookworm libsqlite3-0; application data layer is PostgreSQL, not sqlite
+
+# ----------------------------------------------------------------------
+# DOCUMENTED EXCEPTION (issue #1043, maintainer-approved 2026-09-27):
+# fixable CVEs, build-stage-only exposure.
+#
+# The four entries below have a Fixed version and would normally be
+# forbidden here. They are excepted because ALL of the amendment's
+# conditions hold at once (docs/codebase/security.md):
+#   1. Build-stage-only exposure: they exist ONLY in the tailwind-base
+#      build stage (node:24-bookworm-slim). Production runtime is
+#      python:3.12.14-slim-bookworm (zero fixable HIGH/CRITICAL); the
+#      flagged npm-bundled packages (brace-expansion, ip-address, tar)
+#      never ship to production.
+#   2. No reachable base reduces them today: node 20 (EOL 2026-04-30,
+#      frozen) = 29 fixable, node 22 = 8, node 24 = 4.
+#   3. Dated expiry: 2026-12-26, same as every other entry.
+# They clear with the next upstream node image rebuild: re-pin the
+# digest and DELETE these four entries in the same change.
+
+CVE-2026-14257  # 2026-09-27; expires 2026-12-26; EXCEPTION (build-stage-only): fix available (5.0.8) but npm-bundled in tailwind-base only, no production exposure; clears on next node image rebuild
+CVE-2026-69152  # 2026-09-27; expires 2026-12-26; EXCEPTION (build-stage-only): fix available (5.0.8) but npm-bundled in tailwind-base only, no production exposure; clears on next node image rebuild
+CVE-2026-69192  # 2026-09-27; expires 2026-12-26; EXCEPTION (build-stage-only): fix available (10.3.1) but npm-bundled in tailwind-base only, no production exposure; clears on next node image rebuild
+CVE-2026-73566  # 2026-09-27; expires 2026-12-26; EXCEPTION (build-stage-only): fix available (7.5.21) but npm-bundled in tailwind-base only, no production exposure; clears on next node image rebuild
