@@ -25,6 +25,7 @@ from fastapi.templating import Jinja2Templates
 from app.core.auth_dependencies import (
     get_local_postgres_executor_dep,  # noqa: F401  - LocalBackend deprecation migration
     require_authorized_user,
+    return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
 from app.core.data_access import SqlExecutor
@@ -55,6 +56,11 @@ def listar_tareas(  # noqa: PLR0913  # 4 query filters + 3 fixed deps; filters n
     vinculo_id: str | None = None,
 ):
     """List tareas with optional filters (estado, responsable, vinculo)."""
+    # Issue #1002 (JD-B-001): propagate the auth-denial redirect. Without
+    # this, a deactivated user with a still-valid session got the page
+    # rendered (require_authorized_user's RedirectResponse was ignored).
+    if (early := return_early_if_response(current_user)) is not None:
+        return early
     try:
         tareas = tareas_service.listar_tareas(
             client=client,
@@ -116,6 +122,9 @@ def detalle_tarea(
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Render the detail view for a single tarea."""
+    # Issue #1002: propagate the auth-denial redirect (see listar_tareas).
+    if (early := return_early_if_response(current_user)) is not None:
+        return early
     tarea = tareas_service.obtener_tarea(client=client, tarea_id=tarea_id)
     if tarea is None:
         return RedirectResponse(url="/tareas", status_code=302)
@@ -145,6 +154,10 @@ def crear_tarea(
     On success redirects to GET /tareas.
     On validation error redirects back to /tareas with error flash.
     """
+    # Issue #1002: propagate the auth-denial redirect — pre-fix a
+    # deactivated user's POST created the tarea (silent state mutation).
+    if (early := return_early_if_response(current_user)) is not None:
+        return early
     try:
         tareas_service.crear_tarea(
             client=client,
@@ -173,6 +186,9 @@ def asignar_tarea(
     responsable_id: Annotated[str | None, Form()] = None,
 ):
     """Assign a tarea to a responsable (or unassign)."""
+    # Issue #1002: propagate the auth-denial redirect (see crear_tarea).
+    if (early := return_early_if_response(current_user)) is not None:
+        return early
     try:
         tareas_service.asignar_tarea(
             client=client,
@@ -196,6 +212,9 @@ def cerrar_tarea(
     comentario: Annotated[str | None, Form()] = None,
 ):
     """Close a tarea (transition to 'completada')."""
+    # Issue #1002: propagate the auth-denial redirect (see crear_tarea).
+    if (early := return_early_if_response(current_user)) is not None:
+        return early
     try:
         tareas_service.cerrar_tarea(
             client=client,

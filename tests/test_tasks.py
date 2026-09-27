@@ -50,6 +50,22 @@ class _FakeTasksLocalBackend(LocalPostgresExecutor):
     def execute_sql(self, query: str, params=None):
         """Route SQL to the appropriate handler."""
         normalised = re.sub(r"\s+", " ", query.strip())
+        # Auth revalidation (require_authorized_user, issue #1002): the
+        # fake must answer GET_USER_BY_EMAIL_SQL with an ACTIVE user row.
+        # Pre-fix this fake returned [] and the denial RedirectResponse
+        # was silently swallowed by the route handlers (JD-B-001); now
+        # the handler propagates it, so authenticated-flow tests need the
+        # revalidation to succeed (same pattern as test_acogidas_routes).
+        if "FROM usuarios_autorizados" in normalised:
+            email = params[0] if params else "test@example.com"
+            return [
+                {
+                    "id": "u-test",
+                    "email": email,
+                    "rol": "developer",
+                    "activo": True,
+                }
+            ]
         # INSERT INTO tarea
         if "INSERT INTO tarea" in normalised and "VALUES" in normalised:
             return self._insert_tarea(params)
