@@ -644,6 +644,9 @@ jobs:
         # the digests pinned in the Dockerfile, so those are the layers whose
         # CVE exposure actually matters. Digests are read from the Dockerfile
         # itself, so re-pinning a base image automatically re-points this scan.
+        # Issue #1043: the working directory is mounted into the container so
+        # trivy reads the repo's `.trivyignore` — the per-CVE suppression
+        # register is the only sanctioned suppression mechanism.
         run: |
           set -euo pipefail
           images=$(grep -oE '^FROM [^ ]+@sha256:[a-f0-9]+' Dockerfile \
@@ -675,6 +678,7 @@ jobs:
           for img in $resolved_images; do
             echo "::group::trivy $img"
             docker run --rm \
+              -v "$PWD:/repo" -w /repo \
               aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
               image "$img" --severity HIGH,CRITICAL --exit-code 1 --quiet || status=1
             echo "::endgroup::"
