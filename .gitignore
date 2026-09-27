@@ -59,6 +59,10 @@ build/
 /coverage.json
 /coverage_full.json
 
+# E2E storageState files minted by scripts/e2e_login.py (issue #906).
+# They hold live session cookies on disk (written 0600) — never commit.
+.auth/
+
 # Virtual environment
 .venv/
 venv/

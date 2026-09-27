@@ -171,7 +171,7 @@ BASELINE: dict[str, int] = {
     # regla desconocida y para el CI en vez de consumir una cuota.
     "TRY003": 186,  # baseline was 177; violations introduced pre-epic; epic #420 current round reduced 182 -> 180
     "TRY004": 10,
-    "TRY300": 2,
+    "TRY300": 1,
 }
 
 #: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). The

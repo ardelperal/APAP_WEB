@@ -522,7 +522,9 @@ def test_deploy_workflow_gates_on_evidence() -> None:
 
     assert "  deploy:" in workflow
     assert "  name: deploy" in workflow
-    assert "needs: [evidence]" in workflow
+    # Issue #908: release-e2e-gate joined the needs list. deploy still gates on
+    # the evidence job's verdict; the e2e gate is fail-closed on its own terms.
+    assert "needs: [evidence, release-e2e-gate]" in workflow
     assert "if: needs.evidence.outputs.verified == 'true'" in workflow, (
         "deploy must run only when the evidence job proved the tree was verified"
     )
@@ -856,7 +858,9 @@ def test_ci_workflow_does_not_run_retired_quality_envelope() -> None:
 # block instead of silently inheriting a scope it does not use — the same
 # pattern deploy.yml's `deploy` job already followed for issue #682.
 
-CI_JOBS_REQUIRING_ISSUES_READ = frozenset({"issue-spec"})
+# Issue #926: `pr-size` joined this set once pr-size.yml started reading
+# the PR's live labels via the GitHub API instead of the event payload.
+CI_JOBS_REQUIRING_ISSUES_READ = frozenset({"issue-spec", "pr-size"})
 
 
 @pytest.mark.parametrize("job_name", sorted(_workflow_job_names(WORKFLOW_PATH)))
@@ -1132,6 +1136,39 @@ def test_cosmic_ray_toml_includes_adopciones_service_in_module_path() -> None:
     )
 
 
+def test_cosmic_ray_baseline_targets_existing_files_and_collects_tests() -> None:
+    """Issue #902: the unmutated command must have real targets and tests."""
+    import json
+
+    with (REPO_ROOT / "docs/quality/cosmic-ray.toml").open("rb") as fh:
+        config = tomllib.load(fh)["cosmic-ray"]
+    baseline = json.loads(
+        (REPO_ROOT / "docs/quality/mutation-baseline.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    targets = config["module-path"]
+    assert set(targets) == set(baseline["modules"]) | set(
+        baseline["awaiting_acquisition"]
+    )
+    assert all((REPO_ROOT / target).is_file() for target in targets)
+
+    command = shlex.split(config["test-command"])
+    test_nodes = [arg for arg in command if arg.startswith("tests/")]
+    assert test_nodes
+    assert all((REPO_ROOT / node.split("::", 1)[0]).is_file() for node in test_nodes)
+
+    collected = subprocess.run(
+        [sys.executable, *command[1:], "--collect-only"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert collected.returncode == 0, collected.stdout + collected.stderr
+    assert "tests collected" in collected.stdout or "test collected" in collected.stdout
+
+
 def test_mutation_baseline_adopciones_has_been_acquired() -> None:
     """Issue #434: adopciones/service.py must carry a real survivor count, not a marker.
 
@@ -1270,6 +1307,118 @@ def test_pr_size_excludes_generated_lockfiles_not_manifests() -> None:
     assert "':(exclude)uv.lock'" in pr_size
     assert "':(exclude)**/package.json'" not in pr_size
     assert "':(exclude)pyproject.toml'" not in pr_size
+
+
+# --- issue #926: pr-size concurrency race + stale event-payload labels -----
+#
+# pr-size.yml runs two ways: directly on `pull_request: types: [labeled,
+# unlabeled]`, and via `workflow_call` from ci.yml's own `pull_request`
+# trigger. Both used to share the concurrency group
+# `pr-size-${{ github.ref }}`, so every `labeled` event (e.g. `gh pr create
+# --label`) cancelled the workflow_call run in progress inside `ci`, leaving
+# `ci / required` red without ever running the dependent jobs (PR #925, run
+# 36041158202). Separately, `HAS_EXCEPTION` was computed from
+# `github.event.pull_request.labels` — the ORIGINAL webhook payload. Labels
+# added by `gh pr create --label` land after the `opened` event fires, and
+# `gh run rerun` replays that same stale payload, so a PR carrying
+# `size:exception` still failed the gate (PR #931, run 36046072242:
+# `HAS_EXCEPTION: false` with the label present).
+
+
+def test_pr_size_concurrency_group_is_trigger_scoped() -> None:
+    """The concurrency group must differ between the labeled/unlabeled
+    direct trigger and the workflow_call path from ci.yml, so a label event
+    never cancels the in-flight ci-triggered run (issue #926).
+    """
+    workflow = PR_SIZE_WORKFLOW_PATH.read_text(encoding="utf-8")
+    concurrency_block = workflow[
+        workflow.index("\nconcurrency:\n") : workflow.index("\npermissions:\n")
+    ]
+    group_line = next(
+        line
+        for line in concurrency_block.splitlines()
+        if line.strip().startswith("group:")
+    )
+
+    assert group_line.strip() != "group: pr-size-${{ github.ref }}", (
+        "pr-size.yml's concurrency group is a constant shared by both the "
+        "direct labeled/unlabeled trigger and the workflow_call from "
+        "ci.yml (issue #926) — a labeled event cancels the ci-triggered "
+        "run instead of only cancelling other label runs."
+    )
+    assert "github.event.action" in group_line, (
+        "the concurrency group must derive a trigger-dependent suffix from "
+        "github.event.action so the labeled path and the ci-call path "
+        "never share a cancellation group (issue #926)."
+    )
+
+
+def test_pr_size_exception_label_read_from_live_api_not_event_payload() -> None:
+    """HAS_EXCEPTION must come from a live GitHub API read, not the static
+    event payload, so labels added after PR creation or replayed by
+    `gh run rerun` are still seen (issue #926).
+    """
+    workflow = PR_SIZE_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    assert "github.event.pull_request.labels" not in workflow, (
+        "pr-size.yml must not derive the size:exception flag from the "
+        "static event payload (issue #926) — labels added after the "
+        "triggering event, or a rerun of a stale payload, go unseen."
+    )
+    # Issue #533: the runner backing this job does not provide the `gh`
+    # CLI, so the live fetch must go through curl + jq (deploy.yml's
+    # existing pattern), not `gh api`.
+    assert re.search(
+        r"https://api\.github\.com/repos/\$\{GITHUB_REPOSITORY\}"
+        r"/issues/\$\{PR_NUMBER\}/labels\b",
+        workflow,
+    ), (
+        "pr-size.yml must fetch the PR's live labels from the GitHub REST "
+        "API (curl + jq, per issue #533 — this runner has no `gh` CLI) "
+        "instead of the event payload (issue #926)."
+    )
+    assert "gh api" not in workflow, (
+        "pr-size.yml's runner does not provide the `gh` CLI (issue #533); "
+        "use curl + jq instead, matching deploy.yml's evidence step."
+    )
+
+    workflow_block = workflow[: workflow.index("\njobs:\n")]
+    assert "issues: read" in workflow_block, (
+        "reading labels via the GitHub API needs `issues: read` at the "
+        "workflow level (issue #926), alongside the existing "
+        "`contents: read` (issue #682)."
+    )
+
+
+def test_pr_size_exception_label_fetch_fails_closed() -> None:
+    """A failed label fetch must fail the job, not silently pass the gate
+    as if no exception label were present (issue #926).
+    """
+    workflow = PR_SIZE_WORKFLOW_PATH.read_text(encoding="utf-8")
+    api_call_index = workflow.index("api.github.com")
+    # The step containing the API call must exit non-zero on failure
+    # somewhere in the next ~700 characters (its own run: block).
+    step_tail = workflow[api_call_index : api_call_index + 700]
+    assert "exit 1" in step_tail, (
+        "the label-fetch step must exit non-zero when the GitHub API call "
+        "fails, so the gate fails closed instead of treating a fetch "
+        "failure as 'no size:exception label' (issue #926)."
+    )
+
+
+def test_pr_size_job_in_ci_yml_declares_issues_read() -> None:
+    """A called reusable workflow cannot exceed the caller's permissions,
+    so ci.yml's `pr-size` job needs `issues: read` too (issue #926).
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    block = _job_block(workflow, "pr-size")
+
+    assert "issues: read" in block, (
+        "ci.yml's pr-size job must declare `issues: read` — pr-size.yml "
+        "now reads live PR labels via the GitHub API, and a called "
+        "workflow cannot exceed the caller's granted permissions "
+        "(issue #926)."
+    )
 
 
 def test_dependabot_excludes_ratchet_coupled_ruff_updates() -> None:
@@ -1992,3 +2141,179 @@ def test_ci_workflow_verify_fallback_ready_job_has_no_standalone_path_comment() 
 
     assert "migration/cli_verify_fallback_ready" not in job
     assert "temporary workaround" not in job
+
+
+def test_bare_pytest_excludes_every_suite_the_ci_test_job_excludes() -> None:
+    """A plain local ``pytest`` must match the CI ``test`` job's scope (issue #940).
+
+    ``tests/e2e_ci`` needs a deployed app and MinIO. The CI test job ignores it,
+    but ``addopts`` did not, so a bare local ``pytest`` ran it without services
+    and it leaked state into the route tests: 61 failed + 514 errors locally
+    while CI was green. Every ``--ignore`` of the CI test job must also be in
+    ``addopts``.
+    """
+    import tomllib  # lazy-import: stdlib, only this test reads pyproject.toml
+
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    addopts = pyproject["tool"]["pytest"]["ini_options"]["addopts"]
+    local_ignores = {
+        option.removeprefix("--ignore=").rstrip("/")
+        for option in addopts
+        if option.startswith("--ignore=")
+    }
+
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    test_job_start = workflow.index("\n  test:")
+    test_job = workflow[test_job_start : workflow.index("\n  integration:", test_job_start)]
+    ci_ignores = {
+        match.rstrip("/")
+        for match in re.findall(r"^\s*--ignore=(\S+?)\s*\\?$", test_job, flags=re.MULTILINE)
+    }
+
+    assert ci_ignores, "could not read the CI test job's --ignore options"
+    assert ci_ignores <= local_ignores, (
+        f"addopts must also ignore {sorted(ci_ignores - local_ignores)} (issue #940)"
+    )
+
+# --- issue #973: repo-owned GHCR MinIO replica ------------------------------
+#
+# MinIO Community Edition went source-only in late 2025 and its binary images
+# were removed from Docker Hub, quay.io, and every public mirror, so
+# `minio/minio:latest` cannot be pulled at all — not even with Docker Hub
+# credentials (minio/minio#21662). The e2e service must instead pull a
+# replica built from pinned MinIO CE source by
+# .github/workflows/minio-replica.yml.
+
+MINIO_REPLICA_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "minio-replica.yml"
+#: The MinIO CE release tag the replica is built from. Verified against
+#: `git ls-remote --tags https://github.com/minio/minio` on 2026-09-26:
+#: the highest existing RELEASE.2025-* tag.
+MINIO_REPLICA_RELEASE_TAG = "RELEASE.2025-10-15T17-29-55Z"
+#: Digest of the GHCR replica image recorded by replica build run
+#: 36249625652; the e2e service in ci.yml pins the image by digest
+#: (issue #973, per the repo's digest-pinning rule, issue #338).
+MINIO_REPLICA_DIGEST = "sha256:6140fe7015bd97e4e6340c9a8ead775c09bc1a226b7c36e41d24852f839dae8f"
+
+
+def _e2e_minio_service_section(workflow: str) -> str:
+    """Return the ``minio:`` service block of the e2e job, comments excluded."""
+    e2e = _job_block(workflow, "e2e")
+    section = e2e[e2e.index("      minio:") : e2e.index("    steps:")]
+    return "\n".join(
+        line for line in section.splitlines() if not line.lstrip().startswith("#")
+    )
+
+
+def test_ci_workflow_e2e_minio_service_pulls_repo_owned_ghcr_replica() -> None:
+    """Issue #973: the e2e MinIO service must pull the repo-owned GHCR replica.
+
+    The previous fix (authenticate the Docker Hub pull with
+    DOCKERHUB_USERNAME/DOCKERHUB_TOKEN secrets) is dead by design: the
+    binary images no longer exist upstream, so authentication cannot
+    help. The service must reference the digest-pinned
+    `ghcr.io/ardelperal/minio@sha256:...` — the replica built from
+    pinned MinIO CE source by minio-replica.yml, with the digest
+    recorded by build run 36249625652 —
+    and pull it with the ephemeral GITHUB_TOKEN, since the package is
+    private. Every DOCKERHUB reference must be gone.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    service = _e2e_minio_service_section(workflow)
+
+    image_line = next(
+        line.strip() for line in service.splitlines() if line.strip().startswith("image:")
+    )
+    assert image_line == f"image: ghcr.io/ardelperal/minio@{MINIO_REPLICA_DIGEST}", (
+        f"the e2e minio service must pull the digest-pinned GHCR replica; "
+        f"got {image_line!r}"
+    )
+    # The GHCR package is private: the service container pull needs the
+    # ephemeral GITHUB_TOKEN (service containers accept expressions in
+    # credentials).
+    assert "username: ${{ github.actor }}" in service
+    assert "password: ${{ github.token }}" in service
+    # The Docker Hub approach is removed everywhere, comments included.
+    assert "DOCKERHUB" not in workflow
+    assert "docker-hub-anonymous-pull" not in workflow
+
+
+def test_ci_workflow_e2e_job_grants_packages_read_for_ghcr_replica() -> None:
+    """Issue #973: the e2e job needs `packages: read` to pull the private replica.
+
+    The repo scopes permissions per job (issue #879); the e2e job used to
+    declare only `contents: read`, which is not enough to pull a private
+    GHCR package with the ephemeral GITHUB_TOKEN.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    block = _job_block(workflow, "e2e")
+
+    permissions = block[block.index("permissions:") : block.index("services:")]
+    assert "packages: read" in permissions, (
+        "the e2e job must grant packages: read to pull the private "
+        "ghcr.io/ardelperal/minio replica (issue #973)"
+    )
+
+
+def test_minio_replica_workflow_is_dispatch_only_and_pushes_pinned_replica() -> None:
+    """Issue #973: minio-replica.yml builds and publishes the pinned replica.
+
+    The workflow must be manual-dispatch only (it publishes a package, so
+    it must never run on untrusted PR code), pin a MinIO CE `RELEASE.`
+    tag (the upstream binary images are gone, so the replica is built
+    from source), grant `packages: write`, push both the release tag and
+    the `ci` tag to ghcr.io/ardelperal/minio, and report the resulting
+    image digest both as a step output and in the job summary — the
+    digest is what a later commit pins in ci.yml.
+    """
+    workflow = MINIO_REPLICA_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    triggers = _trigger_lines(workflow)
+    assert set(triggers) == {"workflow_dispatch:"}, (
+        f"minio-replica.yml must be dispatch-only; got {sorted(triggers)}"
+    )
+
+    # The build is pinned to exactly one MinIO CE release tag.
+    release_tags = set(
+        re.findall(r"RELEASE\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z", workflow)
+    )
+    assert release_tags == {MINIO_REPLICA_RELEASE_TAG}, (
+        f"minio-replica.yml must pin MinIO CE {MINIO_REPLICA_RELEASE_TAG}; got {release_tags}"
+    )
+
+    # Issue #973 follow-up: the build must come from pinned MinIO CE source.
+    # The upstream `Dockerfile` at the pinned tag is a thin wrapper over the
+    # removed `minio/minio:latest` image, and `dl.min.io` community release
+    # archives return HTTP 410, so no binary-download path may appear: the
+    # workflow must carry its own multi-stage source build (Go builder stage).
+    assert "FROM golang:1.24-alpine AS build" in workflow, (
+        "minio-replica.yml must build the replica from source with a "
+        "golang:1.24-alpine builder stage (the upstream Dockerfile is a "
+        "wrapper over the removed minio/minio image)"
+    )
+    assert "dl.min.io" not in workflow, (
+        "minio-replica.yml must not reference dl.min.io: community release "
+        "archives return HTTP 410, so that path is dead"
+    )
+
+    # It builds and pushes the replica under the repo's GHCR namespace.
+    assert "ghcr.io/ardelperal/minio:" in workflow
+    assert "docker build" in workflow
+    assert "docker push" in workflow
+    assert "ghcr.io/ardelperal/minio:ci" in workflow
+
+    # Least privilege, workflow level and job level (issue #879 convention).
+    workflow_permissions = workflow[: workflow.index("\njobs:")]
+    assert "contents: read" in workflow_permissions
+    assert "packages: write" in workflow_permissions
+    job = _job_block(workflow, "build-and-push")
+    assert "packages: write" in job
+
+    # The digest is the handoff to ci.yml: recorded as a step output and
+    # published to the job summary.
+    digest_output = re.search(
+        r'echo "digest=\$?\{?[A-Za-z_]*\}?"\s*>>\s*"\$GITHUB_OUTPUT"', workflow
+    )
+    assert digest_output, "the workflow must expose a step output named digest"
+    assert "GITHUB_STEP_SUMMARY" in workflow, (
+        "the workflow must print the image digest to the job summary"
+    )

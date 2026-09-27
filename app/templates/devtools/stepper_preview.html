@@ -1,0 +1,105 @@
+{% extends base_template %}
+{# Developer-only stepper component preview (issue #821).
+
+   Rendered by app/core/devtools/routes.py when devtools_enabled is
+   True. Playground for the reusable form stepper — no production form
+   is converted in this slice.
+
+   Markup contract consumed by /static/js/form-stepper.js:
+   - form[data-stepper="true"][data-step-current][data-step-validate]
+   - ol.stepper[data-stepper-list] > li[data-step="N"]
+   - fieldset#step-N[data-step-panel="N"][hidden] (role="region" +
+     aria-labelledby pointing at the list label)
+   - div[data-step-nav] with data-step-prev / data-step-next /
+     data-step-submit (submit starts hidden) #}
+
+{% block title %}Devtools · Stepper{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-3xl px-4 py-8">
+  <h1 class="font-heading text-2xl text-text">Vista previa: stepper</h1>
+  <p class="mt-2 text-sm text-text-muted">
+    Página interna de desarrollo (issue #821) para probar el componente
+    reutilizable de pasos. No se persiste ningún dato.
+  </p>
+
+  <form
+    method="post"
+    action="/devtools/stepper-preview"
+    class="mt-6 rounded-card border border-border bg-surface p-6 shadow-card"
+    data-stepper="true"
+    data-step-current="1"
+    data-step-validate='[
+      {"step": 1, "selector": "#step-1 input, #step-1 select", "required": true},
+      {"step": 2, "selector": "#step-2 input, #step-2 select", "required": true},
+      {"step": 3, "selector": "#step-3 input, #step-3 select", "required": true},
+      {"step": 4, "selector": "#step-4 input, #step-4 select", "required": true},
+      {"step": 5, "selector": "#step-5 input", "required": true}
+    ]'
+  >
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+
+    <ol class="stepper" data-stepper-list>
+      <li data-step="1"><span class="stepper-label" id="stepper-label-1">Identificación</span></li>
+      <li data-step="2"><span class="stepper-label" id="stepper-label-2">Características</span></li>
+      <li data-step="3"><span class="stepper-label" id="stepper-label-3">Procedencia</span></li>
+      <li data-step="4"><span class="stepper-label" id="stepper-label-4">Salud</span></li>
+      <li data-step="5"><span class="stepper-label" id="stepper-label-5">Revisión</span></li>
+    </ol>
+
+    <fieldset id="step-1" data-step-panel="1" role="region" aria-labelledby="stepper-label-1" class="stepper-panel">
+      <legend class="font-heading text-lg text-text">Identificación</legend>
+      <div class="mt-3">
+        <label for="nombre" class="block text-sm font-semibold text-text">Nombre</label>
+        <input id="nombre" name="nombre" type="text" class="mt-1 w-full rounded-card border border-border px-3 py-2 text-text" />
+      </div>
+    </fieldset>
+
+    <fieldset id="step-2" data-step-panel="2" role="region" aria-labelledby="stepper-label-2" hidden class="stepper-panel">
+      <legend class="font-heading text-lg text-text">Características</legend>
+      <div class="mt-3">
+        <label for="especie" class="block text-sm font-semibold text-text">Especie</label>
+        <select id="especie" name="especie" class="mt-1 w-full rounded-card border border-border px-3 py-2 text-text">
+          <option value="">—</option>
+          <option value="caballo">Caballo</option>
+          <option value="perro">Perro</option>
+        </select>
+      </div>
+    </fieldset>
+
+    <fieldset id="step-3" data-step-panel="3" role="region" aria-labelledby="stepper-label-3" hidden class="stepper-panel">
+      <legend class="font-heading text-lg text-text">Procedencia</legend>
+      <div class="mt-3">
+        <label for="origen" class="block text-sm font-semibold text-text">Origen</label>
+        <input id="origen" name="origen" type="text" class="mt-1 w-full rounded-card border border-border px-3 py-2 text-text" />
+      </div>
+    </fieldset>
+
+    <fieldset id="step-4" data-step-panel="4" role="region" aria-labelledby="stepper-label-4" hidden class="stepper-panel">
+      <legend class="font-heading text-lg text-text">Salud</legend>
+      <div class="mt-3">
+        <label for="estado_salud" class="block text-sm font-semibold text-text">Estado de salud</label>
+        <input id="estado_salud" name="estado_salud" type="text" class="mt-1 w-full rounded-card border border-border px-3 py-2 text-text" />
+      </div>
+    </fieldset>
+
+    <fieldset id="step-5" data-step-panel="5" role="region" aria-labelledby="stepper-label-5" hidden class="stepper-panel">
+      <legend class="font-heading text-lg text-text">Revisión</legend>
+      <div class="mt-3">
+        <label class="flex items-center gap-2 text-sm text-text">
+          <input id="confirmacion" name="confirmacion" type="checkbox" />
+          Confirmo que los datos revisados son correctos
+        </label>
+      </div>
+    </fieldset>
+
+    <div data-step-nav class="mt-6 flex items-center gap-3">
+      <button type="button" data-step-prev class="rounded-card border border-border px-4 py-2 text-sm text-text hover:bg-bg" disabled>Anterior</button>
+      <button type="button" data-step-next class="rounded-card bg-primary px-4 py-2 text-sm text-white hover:bg-primary-dark">Siguiente</button>
+      <button type="submit" data-step-submit hidden class="rounded-card bg-primary px-4 py-2 text-sm text-white hover:bg-primary-dark">Enviar</button>
+    </div>
+  </form>
+</div>
+
+<script src="/static/js/form-stepper.js" defer></script>
+{% endblock %}

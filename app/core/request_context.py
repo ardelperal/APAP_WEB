@@ -24,6 +24,7 @@ No ``print(...)`` or ``logging.getLogger(...)`` calls in this module.
 from __future__ import annotations
 
 import contextvars
+import re
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any, cast
@@ -85,6 +86,13 @@ X_REQUEST_ID_HEADER: str = "X-Request-ID"
 #: Number of hex characters to retain from the UUID4 (16 chars = 64 bits).
 _CORRELATION_ID_LENGTH: int = 16
 
+#: Inbound ``X-Request-ID`` values are honoured only when they match this
+#: pattern (issue #920, finding A-08): URL-safe characters, 1-128 chars.
+#: Anything else — a 10 kB header, control characters, an over-long id —
+#: is replaced by a freshly generated id so a hostile upstream cannot
+#: poison ``log_safe`` records or collide correlation ids.
+_REQUEST_ID_PATTERN: re.Pattern[str] = re.compile(r"[A-Za-z0-9._-]{1,128}")
+
 
 def _generate_correlation_id() -> str:
     """Generate a short UUID4 hex string for use as a correlation id."""
@@ -95,8 +103,10 @@ class CorrelationIdMiddleware:
     """FastAPI middleware that stamps every request with a unique correlation id.
 
     On each request:
-    1. Reads ``X-Request-ID`` from inbound headers — if present and non-empty,
-       it is honoured (allows propagation from an upstream gateway).
+    1. Reads ``X-Request-ID`` from inbound headers — if present, non-empty
+       and matching ``[A-Za-z0-9._-]{1,128}``, it is honoured (allows
+       propagation from an upstream gateway); anything else is replaced
+       by a freshly generated id (issue #920).
     2. Otherwise generates a fresh 16-char UUID4 hex string.
     3. Stores it on ``request.state.correlation_id`` for downstream access.
     4. Sets it in the ``correlation_id_var`` ContextVar so ``log_safe`` can
@@ -135,9 +145,15 @@ class CorrelationIdMiddleware:
 
         request = Request(scope, _receive)
 
-        # Honour inbound X-Request-ID header if present, otherwise generate.
+        # Honour a well-formed inbound X-Request-ID; otherwise generate a
+        # fresh one so hostile values (oversized, control chars) never
+        # reach logs or the response (issue #920).
         inbound = request.headers.get(X_REQUEST_ID_HEADER, "")
-        correlation_id = inbound if inbound else _generate_correlation_id()
+        correlation_id = (
+            inbound
+            if _REQUEST_ID_PATTERN.fullmatch(inbound)
+            else _generate_correlation_id()
+        )
 
         # Store on request state for any downstream code that needs it.
         request.state.correlation_id = correlation_id

@@ -576,8 +576,10 @@ def test_ensure_domain_schema_emits_casa_fk_migration_after_acogidas_create() ->
     assert len(create_queries) == 18, (
         f"expected 18 CREATE TABLEs, got {len(create_queries)}: {create_queries}"
     )
-    assert len(alter_queries) == 2, (
-        f"expected 2 ALTER TABLEs (FOSTER-02 casa FK + issue #142 estancia FK), got {len(alter_queries)}: {alter_queries}"
+    # Issue #947: +2 ALTER TABLEs replacing the lifecycle event_type CHECK.
+    assert len(alter_queries) == 4, (
+        f"expected 4 ALTER TABLEs (FOSTER-02 casa FK + issue #142 estancia FK + "
+        f"issue #947 event_type CHECK drop/add), got {len(alter_queries)}: {alter_queries}"
     )
     # The ALTER TABLE must come AFTER the CREATE TABLE for ``acogidas``
     # and AFTER the CREATE TABLE for ``casas_acogida``.
@@ -1225,8 +1227,9 @@ def test_ensure_domain_schema_creates_twelve_tables_plus_one_alter() -> None:
     # 1 CREATE OR REPLACE FUNCTION for the append-only trigger +
     # 1 DROP TRIGGER IF EXISTS + 1 CREATE TRIGGER on animal_lifecycle_events
     # for the append-only guard).
-    assert len(queries) == 27, (
-        f"expected 27 statements (18 CREATE TABLE + 2 ALTER TABLE + "
+    # Issue #947: +2 ALTER TABLE (event_type CHECK drop/add) -> 29.
+    assert len(queries) == 29, (
+        f"expected 29 statements (18 CREATE TABLE + 4 ALTER TABLE + "
         f"4 CREATE INDEX + 1 CREATE FUNCTION + 1 DROP TRIGGER + "
         f"1 CREATE TRIGGER), got {len(queries)}: {queries}"
     )
@@ -1246,43 +1249,53 @@ def test_ensure_domain_schema_creates_twelve_tables_plus_one_alter() -> None:
     assert queries[9].startswith("ALTER TABLE foster_capacity_overrides")
     assert queries[10].startswith("CREATE TABLE IF NOT EXISTS adopciones")
     assert queries[11].startswith("CREATE TABLE IF NOT EXISTS animal_lifecycle_events")
-    # LIFECYCLE-02 (#32): indices on animal_lifecycle_events land RIGHT
-    # AFTER the CREATE TABLE so the table exists when the index is built.
+    # Issue #947: the event_type CHECK is replaced right after the CREATE
+    # TABLE so an existing table picks up newly emitted event types.
     assert queries[12].startswith(
-        "CREATE INDEX IF NOT EXISTS idx_animal_lifecycle_events_animal_timestamp"
+        "ALTER TABLE animal_lifecycle_events DROP CONSTRAINT IF EXISTS "
+        "animal_lifecycle_events_event_type_check"
     )
     assert queries[13].startswith(
+        "ALTER TABLE animal_lifecycle_events ADD CONSTRAINT "
+        "animal_lifecycle_events_event_type_check"
+    )
+    # LIFECYCLE-02 (#32): indices on animal_lifecycle_events land RIGHT
+    # AFTER the CREATE TABLE so the table exists when the index is built.
+    assert queries[14].startswith(
+        "CREATE INDEX IF NOT EXISTS idx_animal_lifecycle_events_animal_timestamp"
+    )
+    assert queries[15].startswith(
         "CREATE INDEX IF NOT EXISTS idx_animal_lifecycle_events_caused_by"
     )
-    assert queries[14].startswith("CREATE TABLE IF NOT EXISTS animal_current_state")
-    assert queries[15].startswith(
+    assert queries[16].startswith("CREATE TABLE IF NOT EXISTS animal_current_state")
+    assert queries[17].startswith(
         "CREATE INDEX IF NOT EXISTS idx_animal_current_state_state"
     )
-    assert queries[16].startswith("CREATE TABLE IF NOT EXISTS cesiones_propietario")
-    assert queries[17].startswith("CREATE TABLE IF NOT EXISTS contratos")
-    assert queries[18].startswith("CREATE TABLE IF NOT EXISTS actuacion_sanitaria")
+    assert queries[18].startswith("CREATE TABLE IF NOT EXISTS cesiones_propietario")
+    assert queries[19].startswith("CREATE TABLE IF NOT EXISTS contratos")
+    assert queries[20].startswith("CREATE TABLE IF NOT EXISTS actuacion_sanitaria")
     # HEALTH-04 (#53): terapias + recomendaciones land after actuacion_sanitaria
     # so that the FKs to ``animales`` / ``voluntarios`` resolve.
-    assert queries[19].startswith("CREATE TABLE IF NOT EXISTS terapias")
-    assert queries[20].startswith("CREATE TABLE IF NOT EXISTS recomendaciones")
+    assert queries[21].startswith("CREATE TABLE IF NOT EXISTS terapias")
+    assert queries[22].startswith("CREATE TABLE IF NOT EXISTS recomendaciones")
     # FOSTER-04 (#46): materiales + estancia_materiales land at the very end
     # so that the junction's FKs to ``acogidas`` and ``materiales`` resolve.
-    assert queries[21].startswith("CREATE TABLE IF NOT EXISTS materiales")
-    assert queries[22].startswith("CREATE TABLE IF NOT EXISTS estancia_materiales")
+    assert queries[23].startswith("CREATE TABLE IF NOT EXISTS materiales")
+    assert queries[24].startswith("CREATE TABLE IF NOT EXISTS estancia_materiales")
     # Partial unique index emitted right after the junction CREATE TABLE.
-    assert queries[23].startswith(
+    assert queries[25].startswith(
         "CREATE UNIQUE INDEX IF NOT EXISTS estancia_materiales_active_unique"
     )
     # LIFECYCLE-02 (#32): append-only trigger installation (function +
     # DROP IF EXISTS + CREATE TRIGGER) lands LAST so the function is
     # guaranteed to exist before the trigger references it.
-    assert queries[24].startswith(
+    assert queries[26].startswith(
         "CREATE OR REPLACE FUNCTION raise_append_only_violation"
     )
-    assert queries[25].startswith(
+    assert queries[27].startswith(
         "DROP TRIGGER IF EXISTS animal_lifecycle_events_append_only"
     )
-    assert queries[26].startswith(
+    assert queries[28].startswith(
         "CREATE TRIGGER animal_lifecycle_events_append_only"
     )
 

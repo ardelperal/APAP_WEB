@@ -35,7 +35,7 @@ Las notas detalladas por tag viven en GitHub Releases; este changelog agrega los
 ### Notes
 
 - `migration/cli.py:639-640` and `migration/storage_spike.py:406-407` still read the removed settings fields. CLI-tool paths covered by issue #8 (migration package rewrite); the migration tests don't run on PR CI.
-- `app/core/local_backend.py` and `app/core/backend_error_translation.py` still exist (kept for issue #5). Their docstrings now reference the generic handler in `app/main.py` instead of the deleted `backend_error_handler` module.
+- `app/core/local_backend.py` and `app/core/backend_error_translation.py` no longer exist on the tree; their deletion landed in `8bd9432` (`refactor(core): remove unused InsForge error-handler chain`). The remaining InsForge adapter shim at `app/core/adapters/insforge/__init__.py` is removed by the chained cleanup that closes #967 / #641 / #666 / #670.
 
 ## v0.1.0 — 2026-08-01
 

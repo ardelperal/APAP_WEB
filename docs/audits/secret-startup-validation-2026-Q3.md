@@ -2,7 +2,15 @@
 
 # secret-startup-validation-2026-Q3.md
 
-This audit documents the scope, methodology, findings, and verdict for the audit listed in the title. Esta auditoría documenta el alcance, la metodología, los hallazgos y el veredicto del estudio de validación de secretos en el arranque (SECRET-01 / issue #275), que rechaza `APAP_SESSION_SECRET` con valor placeholder publicado y secretos de longitud inferior a 32 caracteres, además de `APAP_INSFORGE_SERVICE_KEY` vacío, antes de cualquier conexión a LocalBackend, ejecutado en 2026 Q3.
+> **Superseded by PR #962 (closes #658)**: the `APAP_INSFORGE_SERVICE_KEY`
+> validation gate described here was retired in v0.1.0. The audit is
+> retained as historical evidence of the SECRET-01 contract that
+> applied during the LocalBackend / InsForge coexistence window
+> (2026 Q3). The current contract lives in
+> `app/core/config.py::_validate_secrets` and gates
+> `APAP_SESSION_SECRET` only.
+
+This audit documents the scope, methodology, findings, and verdict for the audit listed in the title. Esta auditoría documenta el alcance, la metodología, los hallazgos y el veredicto del estudio de validación de secretos en el arranque (SECRET-01 / issue #275), que rechazaba `APAP_SESSION_SECRET` con valor placeholder publicado y secretos de longitud inferior a 32 caracteres, además de `APAP_INSFORGE_SERVICE_KEY` vacío, antes de cualquier conexión a LocalBackend, ejecutado en 2026 Q3.
 
 | Sección | Descripción |
 |---|---|
@@ -18,7 +26,7 @@ This audit documents the scope, methodology, findings, and verdict for the audit
 |---|---|
 | Feature | SECRET-01 — validación de secretos en startup |
 | Issue | #275 |
-| Datos sensibles | `APAP_SESSION_SECRET` (HMAC cookie), `APAP_INSFORGE_SERVICE_KEY` (service key) |
+| Datos sensibles | `APAP_SESSION_SECRET` (HMAC cookie), `APAP_INSFORGE_SERVICE_KEY` (service key — retired in v0.1.0) |
 | Ficheros revisados | `app/core/config.py`, `app/main.py`, `tests/test_startup_config_validation.py`, `tests/test_lifespan.py`, `scripts/pytest_plugin/coverage_gate.py` |
 | Controles principales | `_validate_secrets` invocado antes de `LocalBackendClient`, `log_safe` antes de raise, `StartupConfigError` no-echo, by-pass `debug=True`, `_validate_secrets` en `CRITICAL_HELPERS` |
 | Fecha | 2026-07-26 |

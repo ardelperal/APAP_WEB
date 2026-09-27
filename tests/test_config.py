@@ -80,12 +80,12 @@ def test_settings_does_not_expose_local_backend_fields() -> None:
 
 
 def test_settings_does_not_pick_up_apap_local_backend_env() -> None:
-    """Setting ``APAP_INSFORGE_*`` env vars has no effect (no such field)."""
+    """Setting ``APAP_LOCAL_BACKEND_*`` env vars has no effect (no such field)."""
     import pytest
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setenv("APAP_INSFORGE_URL", "https://legacy.example.com")
-        mp.setenv("APAP_INSFORGE_SERVICE_KEY", "ik_should_be_ignored")
+        mp.setenv("APAP_LOCAL_BACKEND_URL", "https://legacy.example.com")
+        mp.setenv("APAP_LOCAL_BACKEND_SERVICE_KEY", "ik_should_be_ignored")
         settings = Settings(_env_file=None)
 
     for attr_name in ("local_backend_url", "local_backend_service_key"):

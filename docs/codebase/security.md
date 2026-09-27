@@ -32,6 +32,24 @@ Los helpers en `app/` (funciones que matchean el regex `_row_to_*` + la lista ex
 
 El cache de auth que respalda `require_authorized_user` (`app/core/auth_cache.py`, issue original #143) soporta solo el backend `in_process`. `APAP_AUTH_CACHE_BACKEND` queda como guard de compatibilidad: `in_process` se acepta; `redis` y todo valor desconocido fallan la validación de settings durante el arranque de la aplicación, antes de servirse cualquier request. Cada proceso worker de uvicorn posee su propio cache en memoria, así que `invalidate_auth(email)` solo alcanza al worker que la llamó y la peor ventana de staleness cross-worker es `APAP_AUTH_CACHE_TTL_SECONDS` (default 300s). El deploy actual en Coolify se confirmó el 2026-07-25 como una réplica de la aplicación usando el `CMD` del Dockerfile con Uvicorn y sin override `--workers`, así que corre un solo worker hoy. Antes de aumentar la cuenta de workers o réplicas, fije `APAP_AUTH_CACHE_TTL_SECONDS=0` para revocación inmediata al costo de un `SELECT` de autorización extra por request autenticado. Los pasos completos de deploy, verificación y rollback viven en `docs/runbooks/auth-cache-multi-worker.md`.
 
+## Secretos históricos en `git history` — protocolo de allowlist (issue #967)
+
+Un secreto que queda en el historial de git es **inmune al borrado del archivo** — el commit que lo introdujo permanece referenciado por SHA. Reescribir el historial (`git filter-branch`, `git filter-repo`) rompería PRs abiertos, clones y la memoria de CI, así que no es la respuesta correcta. El protocolo del repo es:
+
+1. **Revocar o rotar la credencial** en el proveedor — esto lo hace el mantenedor, fuera del repositorio. Sin revocación, cualquier persona con acceso al historial puede usar la clave.
+2. **Desactivar el camino de runtime** que la consumía (en este repo, el árbol de `app/core/adapters/insforge/` y los DI/ports asociados quedaron eliminados en `8bd9432` + este cleanup; el runtime ya no lee la clave).
+3. **Allowlist por fingerprint** en `.gitleaksignore` — solo para el commit + archivo + regla + línea exactos del hallazgo histórico. Formato: `<file>:<rule>:<line>` (ver `gitleaks dir --report-format json` para los valores). Cada entry lleva un comentario con la fecha, la issue y la razón por la que no es un secreto activo.
+4. **Verificación**: una rama de prueba con un secreto ficticio de alta entropía en el mismo shape debe seguir fallando el gate `security-deep`. Si pasa, el allowlist se volvió genérico y hay que restringirlo.
+
+Aplicación concreta de este protocolo al `API_KEY` de InsForge que quedó en el commit inicial `7e06e58` (`opencode.json:12`, regla `generic-api-key`):
+
+- **Issue**: #967 (cierre por chained cleanup).
+- **Revocación**: confirmada por el mantenedor (InsForge está deprecado y el runtime no lo consume).
+- **Allowlist**: `.gitleaksignore` línea final con comentario explicativo.
+- **Verificación**: una rama de prueba con un valor `ik_*` en `opencode.json:12` falla el gate (el allowlist es por fingerprint exacto, no por regla).
+
+Si en el futuro aparece un nuevo `API_KEY` con la misma regla `generic-api-key`, el `security-deep` job lo detectará — el allowlist no es genérico.
+
 ## Resumen de reglas conectadas
 
 | Regla | Página | Resumen |

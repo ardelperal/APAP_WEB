@@ -240,6 +240,13 @@ _BASE_ADMIN_USER: dict[str, Any] = {
 # ``field_paths_to_mutate`` are dot-paths into the context dict; the
 # helper below replaces each path with the XSS payload before rendering.
 TEMPLATE_SPECS: list[tuple[str, list[str], dict[str, Any]]] = [
+    # Issue #821: developer-only stepper preview (no user data; the CSRF
+    # token is the only interpolated value and autoescape covers it).
+    (
+        "devtools/stepper_preview.html",
+        ["csrf_token"],
+        {"csrf_token": "test-csrf-token"},
+    ),
     # --- 8 templates explicitly listed in spec REQ-XSS-1 ---
     (
         "base.html",
