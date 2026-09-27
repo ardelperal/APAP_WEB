@@ -40,7 +40,7 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     # retirement; the BASELINE_MUTATION_SITES entry for the now-deleted
     # parent module was stale. No replacement entry is needed because
     # each submodule lives under its own file path now.
-    "app/modules/acogidas/routes.py": 367,
+    "app/modules/acogidas/routes.py": 362,
     "app/modules/acogidas/service.py": 343,
     "app/modules/adopciones/routes.py": 273,  # issue #945 part 2/2: local _actor_user_id migrated to the shared app.core._module_helpers._actor helper
     "app/modules/adopciones/service.py": 466,  # issue #945: created_by label literals replaced by the actor UUID
