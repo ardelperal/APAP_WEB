@@ -4,18 +4,31 @@ Tests the add/remove role POST endpoints:
 - POST /voluntarios/{id}/roles/add — assigns role.
 - POST /voluntarios/{id}/roles/remove — removes role.
 - RBAC: reader rol receives 403 on both write endpoints (issue #144).
+
+The reader-403 tests below (issue #1041, mirroring the closed PR #1033
+/ commit 4a9401b precedent) install a per-test SQL executor that echoes
+the cookie's ``rol`` on the auth revalidation SELECT. The conftest
+default spy hardcodes ``rol=key_user`` for every reval, masking
+reader-403 regressions — exactly the rot this slice closes. The autouse
+``_clear_settings_cache`` fixture in ``tests/conftest.py`` also calls
+``auth_cache.invalidate_all()`` so a prior test cannot prime the verdict
+for the same email under the wrong rol.
 """
 from __future__ import annotations
+
+from typing import Any
 
 import httpx
 import pytest
 
+from app.core.di.local_postgres_di import get_local_postgres_executor_dep
+from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app
 from app.modules.voluntarios.di import get_voluntarios_port
 from app.modules.voluntarios.domain.voluntario import Voluntario
 from app.modules.voluntarios.ports.voluntarios_port import VoluntariosPort
-from tests.conftest import make_csrf_request
+from tests.conftest import auth_reval_rows, make_csrf_request
 
 
 class _VoluntariosPortSpy:
@@ -112,8 +125,18 @@ def _install(client: httpx.AsyncClient, token: str) -> None:
 async def test_add_role_rejects_reader(
     client: httpx.AsyncClient,
     voluntarios_spy: _VoluntariosPortSpy,
+    auth_rol_spy: _AuthRolSqlExecutor,
 ) -> None:
-    """Reader rol gets 403 on POST /voluntarios/{id}/roles/add."""
+    """Reader rol gets 403 on POST /voluntarios/{id}/roles/add (issue #144).
+
+    Issue #1041: this test needs the same per-test SQL spy as the
+    reader-403 tests in ``tests/test_voluntarios_routes.py`` — the
+    conftest default spy hardcodes ``key_user`` for the reval so the
+    contract cannot be observed against it. The :fixture:`auth_rol_spy`
+    fixture later in this file provides that seam. Mirrors the closed
+    PR #1033 / commit 4a9401b precedent.
+    """
+    auth_rol_spy.auth_reval_rol = "reader"
     _install(client, _reader_session())
     response = await make_csrf_request(
         client, "POST", "/voluntarios/v-1/roles/add",
@@ -126,8 +149,15 @@ async def test_add_role_rejects_reader(
 async def test_remove_role_rejects_reader(
     client: httpx.AsyncClient,
     voluntarios_spy: _VoluntariosPortSpy,
+    auth_rol_spy: _AuthRolSqlExecutor,
 ) -> None:
-    """Reader rol gets 403 on POST /voluntarios/{id}/roles/remove."""
+    """Reader rol gets 403 on POST /voluntarios/{id}/roles/remove (issue #144).
+
+    See :func:`test_add_role_rejects_reader` for the issue #1041
+    isolation context. Mirrors the closed PR #1033 / commit 4a9401b
+    precedent.
+    """
+    auth_rol_spy.auth_reval_rol = "reader"
     _install(client, _reader_session())
     response = await make_csrf_request(
         client, "POST", "/voluntarios/v-1/roles/remove",
@@ -190,3 +220,66 @@ async def test_remove_role_calls_port(
     assert (
         "remove_voluntario_role", "v-1", "intake"
     ) in voluntarios_spy.captured_calls
+
+
+# ---------------------------------------------------------------------------
+# Per-test SQL spy for the auth revalidation SELECT (issue #1041, mirror of
+# PR #1033 commit 4a9401b)
+# ---------------------------------------------------------------------------
+# The conftest default spy hardcodes ``rol='key_user'`` for every auth
+# reval query, so reader-403 tests can never observe a 403 against it.
+# The seam below lets the two reader-403 tests above override the rol the
+# reval returns, so the per-request revalidation SELECT echoes the cookie
+# role and ``require_permission`` actually denies the request.
+# ---------------------------------------------------------------------------
+
+
+class _AuthRolSqlExecutor(LocalPostgresExecutor):
+    """SQL executor that honors a per-test ``auth_reval_rol``.
+
+    Mirrors :class:`tests.test_voluntarios_routes._AuthRolSqlExecutor`
+    so reader / unknown / developer cases observe the rol the cookie
+    carries rather than the conftest default. The route handlers in this
+    file go through the hexagonal ``voluntarios_port``, so any non-auth
+    SQL fired by the route would be a regression we want to surface as an
+    error here rather than let it pass.
+    """
+
+    def __init__(self) -> None:
+        import httpx as _httpx
+        self._client = _httpx.Client(base_url="https://auth-rol-spy.example")
+        self.auth_reval_rol: str = "key_user"
+
+    def execute_sql(self, query: str, params: Any = None):
+        _reval = auth_reval_rows(query, params, rol=self.auth_reval_rol)
+        if _reval is not None:
+            return _reval  # type: ignore[no-any-return]
+        raise AssertionError(
+            f"voluntarios role routes MUST NOT execute SQL directly: {query!r}"
+        )
+
+    def close(self) -> None:
+        pass  # no-op for spy
+
+
+@pytest.fixture
+def auth_rol_spy() -> _AuthRolSqlExecutor:
+    """Install :class:`_AuthRolSqlExecutor` as the auth reval seam.
+
+    Clears the in-process auth cache (issues #143/#145/#262/#287) so a
+    ``rocio@example.com`` verdict minted by an earlier test cannot leak
+    into the reader-403 path; tests that exercise the reader path assign
+    ``auth_rol_spy.auth_reval_rol = "reader"`` BEFORE installing the
+    reader cookie, mirroring the established pattern in
+    ``tests/test_voluntarios_routes.py`` and ``tests/test_animals_routes.py``.
+    """
+    from app.core import auth_cache
+
+    auth_cache.invalidate_all()
+    spy = _AuthRolSqlExecutor()
+    app.state.sql_executor = spy
+    app.dependency_overrides[get_local_postgres_executor_dep] = lambda: spy
+    yield spy
+    app.dependency_overrides.pop(get_local_postgres_executor_dep, None)
+    app.state.__dict__.pop("sql_executor", None)
+    auth_cache.invalidate_all()
