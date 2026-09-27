@@ -21,7 +21,11 @@
              endpoints answer a fail-closed 404, so rendering the form
              would hand the user a control that always errors. The
              OAuth section below is untouched. #}
-          {% if request.state.magic_link_enabled %}
+          {# The ``request is defined`` guard keeps the template renderable
+             standalone (XSS audit, issue #1005 JD-B-009 fix round 2):
+             when ``request`` exists but lacks the attribute, Jinja's
+             Undefined is falsy so the section stays hidden — fail-closed. #}
+          {% if request is defined and request.state.magic_link_enabled %}
           <p class="mt-4 text-base leading-7 text-text-muted">
             Introduce el correo autorizado. Te enviaremos un enlace de un
             solo uso válido durante 24 horas. Si tu cuenta todavía no tiene
@@ -97,7 +101,7 @@
     </div>
   </section>
 
-  {% if request.state.magic_link_enabled %}
+  {% if request is defined and request.state.magic_link_enabled %}
   <script src="/static/js/magic-link-form.js"></script>
   {% endif %}
 {% endblock %}

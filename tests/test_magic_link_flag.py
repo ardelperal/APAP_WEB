@@ -126,6 +126,36 @@ def test_flag_off_router_not_registered(monkeypatch) -> None:  # type: ignore[no
         )
 
 
+def test_local_backend_flag_off_router_not_registered(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """With the flag off, the standalone LocalBackend factory is gated too.
+
+    JD-B-012 (fix round 2): ``app/core/local_backend/app.py`` gates its
+    ``magic_link_router`` include on the same flag (JD-B-002). This atom
+    pins that gate directly: building the standalone factory with
+    ``APAP_AUTH_ENABLE_MAGIC_LINK=false`` must register NO ``/auth/magic``
+    path. (The flag-ON registration of ``app.main`` is already pinned by
+    ``test_flag_on_router_registered``; the standalone flag-ON include is
+    covered by ``tests/integration/test_magic_link_routes.py``.)
+    """
+    from app.core.local_backend.app import create_app as create_local_app
+
+    monkeypatch.setenv(FLAG_ENV_VAR, "false")
+    get_settings.cache_clear()
+    try:
+        app = create_local_app()
+    finally:
+        get_settings.cache_clear()
+
+    paths = _registered_paths(app)
+
+    for path in MAGIC_LINK_PATHS:
+        assert path not in paths, (
+            f"{path!r} is registered on the standalone LocalBackend app "
+            f"with {FLAG_ENV_VAR}=false; its router include must be "
+            f"gated by the same flag (issue #1005, fail-closed)"
+        )
+
+
 def test_flag_off_probes_receive_fail_closed_404(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     """With the flag off, ``/auth/magic/*`` probes receive a 404.
 
@@ -248,19 +278,48 @@ def test_flag_off_404_logs_magic_link_disabled(
         get_settings.cache_clear()
 
     assert response.status_code == 404
-    records = [
+    # JD-B-010 (fix round 2): caplog captures EVERY record reaching the
+    # logging system, including foreign httpx INFO records emitted by
+    # TestClient when a prior test left the root logger at INFO. Those
+    # records carry no ``_caller_fields`` stamp, so unguarded attribute
+    # access crashes with AttributeError. Inspect ONLY our log_safe
+    # records (stamped by ``app.core.logging._stamp_caller_fields``).
+    ours = [
         rec
         for rec in caplog.records
+        if getattr(rec, "_caller_fields", None) is not None
+    ]
+    records = [
+        rec
+        for rec in ours
         if rec._caller_fields.get("event") == "auth.magic_link_disabled"
     ]
     assert records, (
         "expected an auth.magic_link_disabled log record for the "
         "fail-closed 404; got events: "
-        f"{[r._caller_fields.get('event') for r in caplog.records]}"
+        f"{[r._caller_fields.get('event') for r in ours]}"
     )
     assert records[0]._caller_fields.get("path") == "/auth/magic/start", (
         "the event must carry the probed path so an operator can "
         "diagnose a mis-deploy"
+    )
+    # JD-B-013 (fix round 2): the docstring promises NOTHING beyond the
+    # path. Pin the field set to exactly the minimal pair (event + path)
+    # and assert no field value leaks a token-like or email-like string.
+    fields = records[0]._caller_fields
+    assert set(fields) == {"event", "path"}, (
+        "the flag-off 404 event must carry exactly {event, path}; "
+        f"got {sorted(fields)} — extra fields risk leaking probe data"
+    )
+    leaked = [
+        value
+        for value in fields.values()
+        if isinstance(value, str)
+        and ("token" in value.lower() or "@" in value or len(value) >= 64)
+    ]
+    assert not leaked, (
+        "the flag-off 404 event must never carry a token, email or "
+        f"64-char verify vector; leaked: {leaked!r}"
     )
 
 
