@@ -85,7 +85,7 @@ Lo verificado sano durante la auditoría, para que ninguna revisión futura lo t
 
 ## Maintenance rule
 
-Cada PR que cierre un hallazgo actualiza su fila (PR y estado) en esta misma rama o en la siguiente que toque el documento; el revisor no aprueba una fila `cerrado` sin número de PR y CI verde. La épica #911 se cierra cuando su checklist está completa y todas las filas de esta tabla están en `cerrado`. Estado actual: 14 de 15 filas cerradas; resta A-06 (#918), delegado al epic de CI.
+Cada PR que cierre un hallazgo actualiza su fila (PR y estado) en esta misma rama o en la siguiente que toque el documento; el revisor no aprueba una fila `cerrado` sin número de PR y CI verde. La épica #911 se cierra cuando su checklist está completa y todas las filas de esta tabla están en `cerrado`. Estado actual: las 15 filas están cerradas; la épica #911 está completa.
 
 ## References
 

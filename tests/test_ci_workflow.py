@@ -15,11 +15,15 @@ WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 DEPLOY_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "deploy.yml"
 PR_NAME_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "pr-name.yml"
 PR_SIZE_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "pr-size.yml"
+MAIN_AUDIT_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "main-audit.yml"
+MAIN_AUDIT_SCRIPT_PATH = REPO_ROOT / ".github" / "scripts" / "main_history_audit.py"
 MAKEFILE_PATH = REPO_ROOT / "Makefile"
 CHECK_RULES_SCRIPT_PATH = REPO_ROOT / "scripts" / "check_rules.py"
 BRANCH_PROTECTION_PATH = REPO_ROOT / ".github" / "branch-protection.md"
 DEVELOPMENT_GUIDE_PATH = REPO_ROOT / "docs" / "development.md"
 CI_CD_GUIDE_PATH = REPO_ROOT / "docs" / "codebase" / "ci-cd.md"
+MERGE_WORKFLOW_PATH = REPO_ROOT / "docs" / "codebase" / "merge-workflow.md"
+PROCESS_PATH = REPO_ROOT / "docs" / "proceso.md"
 
 
 def _workflow_job_names(path: Path) -> set[str]:
@@ -2431,3 +2435,127 @@ def test_deploy_workflow_ui_e2e_gate_has_no_secrets_and_least_privilege() -> Non
     assert "checks: read" in permissions
     assert "packages: write" not in permissions
     assert "issues: read" not in permissions
+
+
+# --- issue #986: post-hoc main-history audit ----------------------------
+#
+# The merge-restriction ruleset was deactivated in #892 to avoid the
+# `--admin` tax on a single-maintainer repo. With N agent sessions sharing
+# ONE admin credential, the ruleset cannot distinguish between sessions, so
+# the maintainer chose post-hoc detection (alert, no block) — not a blocking
+# ruleset. This section pins the workflow, the script, and the docs so the
+# policy and the enforcement stay aligned.
+
+
+def _main_audit_workflow() -> str:
+    """main-audit.yml text with comments stripped (mirrors sibling tests)."""
+    return "\n".join(
+        line
+        for line in MAIN_AUDIT_WORKFLOW_PATH.read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
+    )
+
+
+def test_main_audit_workflow_shape_and_pinning() -> None:
+    """Workflow exists, has one job, pins every action by SHA, schedules daily.
+
+    Combines existence, single-job, action-pinning (issue #526),
+    concurrency-group (issue #530), scheduled-trigger, permissions
+    (issues #682 and #879), and hosted-runner (issues #520 and #782)
+    assertions because they all probe one YAML file with the same
+    comment-stripping helper; a regression on any one is a regression
+    on the audit's audit-ability (issue #986).
+    """
+    assert MAIN_AUDIT_WORKFLOW_PATH.is_file(), (
+        ".github/workflows/main-audit.yml must exist (issue #986)."
+    )
+    text = _main_audit_workflow()
+    workflow_block = text[: text.index("\njobs:\n")]
+    job_block = text[text.index("\n  main-history:"):]
+
+    assert "name: main-audit" in text
+    assert _workflow_job_names(MAIN_AUDIT_WORKFLOW_PATH) == {"main-history"}
+
+    for line in text.splitlines():
+        if not line.lstrip().startswith("uses:") or "./" in line:
+            continue
+        match = re.search(r"uses:\s*([^@]+)@([0-9a-f]+)", line)
+        assert match is not None and len(match.group(2)) == 40, (
+            f"main-audit.yml: {line.strip()!r} is not pinned by 40-hex SHA."
+        )
+
+    assert "concurrency:" in workflow_block
+    assert "cancel-in-progress: true" in workflow_block
+    triggers = _trigger_lines(text)
+    assert "schedule:" in triggers
+    assert re.search(
+        r"cron:\s*\"\d+\s+5\s+\*\s+\*\s+\*\"", triggers["schedule:"]
+    ), "main-audit.yml: cron must run between 05:00 and 05:59 UTC."
+    assert "workflow_dispatch:" in triggers
+    assert "contents: read" in workflow_block
+    assert "issues: write" in workflow_block
+    assert "permissions:" in job_block
+    assert "contents: read" in job_block and "issues: write" in job_block
+    assert "runs-on: ubuntu-24.04" in job_block
+
+
+def test_main_audit_script_implements_detection_rule() -> None:
+    """Script uses urllib + Bearer (no `gh` CLI) and applies the documented rule.
+
+    Runner image lacks ``gh`` (issue #533); the script authenticates via
+    ``urllib`` + Bearer. Classification checks ``merge_commit_sha`` AND
+    consults git ancestry of merge-commit second parents to avoid flagging
+    intermediate PR-branch commits as direct pushes (issue #986).
+    """
+    script = MAIN_AUDIT_SCRIPT_PATH.read_text(encoding="utf-8")
+    assert "urllib.request" in script
+    assert re.search(r"(?:^|\s)gh\s+(?:api|pr|issue)\b", script, re.MULTILINE) is None
+    assert "subprocess" in script and "git" in script
+    assert "merge_commit_sha" in script
+    assert "second_parents" in script or "rev-list" in script
+    assert "Authorization" in script and "Bearer" in script
+
+
+def test_branch_protection_documents_the_post_hoc_audit() -> None:
+    """branch-protection.md must cite the audit and pin the verified state.
+
+    Combines the references to the audit, the verified live state
+    snapshot, the disabled ruleset reminder, and the multi-session
+    framing — the file is the contract readers reach first when they
+    ask "can a direct push land on main?" (issue #986).
+    """
+    note = BRANCH_PROTECTION_PATH.read_text(encoding="utf-8")
+    assert "main-audit" in note or "main_history_audit" in note
+    assert "issue #986" in note or "#986" in note
+    assert "2026-09-27" in note
+    assert "enforce_admins" in note
+    assert "disabled" in note
+
+
+def test_merge_workflow_documents_the_multi_session_norm() -> None:
+    """merge-workflow.md must add the multi-session norm (§16) and keep §15.
+
+    The norm spells out that N agent sessions share one admin credential,
+    so a direct push from one session destroys the PR+CI trail the other
+    sessions rely on. The §15 narrative stays intact (issue #986).
+    """
+    guide = MERGE_WORKFLOW_PATH.read_text(encoding="utf-8")
+    assert "issue #986" in guide or "#986" in guide
+    assert "main-audit" in guide
+    section = guide.split("### §15.5", 1)[1].split("###", 1)[0]
+    assert "main-audit" in section or "main_history_audit" in section
+    for marker in ("§15.1", "§15.2", "§15.4", "§15.5", "§15.7"):
+        assert marker in guide
+
+
+def test_process_doc_records_no_direct_push_invariant() -> None:
+    """docs/proceso.md must carry the P5 invariant (no direct push).
+
+    The invariant sits alongside P1–P4 so a session that loads
+    proceso.md sees the push-direct prohibition at the top (issue #986).
+    """
+    process = PROCESS_PATH.read_text(encoding="utf-8")
+    assert "P5-no-direct-push-multi-session" in process
+    assert "main-audit" in process
+    assert "push directo" in process
+>>>>>>> origin/main

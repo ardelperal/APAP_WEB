@@ -41,7 +41,7 @@ Cuando el usuario señale MVP alcanzado ("ya tenemos MVC", "MVP reached", "pasam
 
 ### §15.5 Lo que sigue no siendo automático en pre-MVP (consentimiento explícito requerido)
 
-- Commits o pushes directos a `main` — prohibidos por el ruleset vigente. Solo serían posibles tras autorización explícita del usuario para cambiar esa protección y verificación del cambio.
+- Commits o pushes directos a `main` — prohibidos por el ruleset vigente. Solo serían posibles tras autorización explícita del usuario para cambiar esa protección y verificación del cambio. La detección post-hoc vive en `.github/workflows/main-audit.yml` (issue #986), que alerta sobre cualquier commit en `origin/main` sin un pull request cuyo `merge_commit_sha` coincida; ver §16 a continuación.
 - `--force` a cualquier rama — stop absoluto, sin importar CI.
 - Etiquetado de releases / corte de `vX.Y.Z` — user OK.
 - Renombrado del default branch, cambio de branch protection en GitHub — user OK.
@@ -92,6 +92,42 @@ Decisión (2026-09-25, issue #972): **desactivar** `required_conversation_resolu
 **Aplicación**: la flag se desactiva con `gh api --method PATCH repos/ardelperal/APAP_WEB/branches/main/protection -F required_conversation_resolution=null` (acepta el valor ausente para borrarla; o `=false` si GitHub lo requiere así en la versión actual). Confirmar por read-back con `gh api .../protection --jq .required_conversation_resolution`. Si en el futuro hay que revertir: `gh api --method PATCH ... -F required_conversation_resolution='{"enabled":true}'`.
 
 Esta sección se complementa con §15.5 — cambiar branch protection requiere OK explícito del usuario por push (la ejecución del comando va en un comentario del PR, no automatizada en el merge).
+
+## §16 — Norma multi-sesión sobre push directo a `main` (issue #986)
+
+Varias sesiones de agente en paralelo operan contra este repositorio
+compartiendo una única credencial admin (`el-Gentleman
+<alan@apap.local>`). Una sesión puede pisar a otra sin trazabilidad si
+aterriza un commit por la vía de push directo, saltándose el trail de
+PR + CI que es la señal común entre sesiones.
+
+Por tanto, **ninguna sesión — incluido el propio mantenedor — puede
+realizar push directo a `main`**. Todo lo que llega a `main` debe hacerlo
+vía pull request revisado por la CI, incluidos los commits de integración
+(bookkeeping) y los merges de bookkeeping. La excepción `gh pr merge
+--admin` se reserva para una ventana de mantenimiento corta autorizada
+explícitamente por el usuario; cualquier uso rutinario es una violación
+de esta norma.
+
+La auditoría post-hoc vive en `.github/workflows/main-audit.yml`. El
+workflow:
+
+- Recorre los últimos 30 commits de `origin/main` cada día a las 05:30
+  UTC (y bajo `workflow_dispatch`).
+- Marca como infractor cualquier commit sin un pull request cuyo
+  `merge_commit_sha` coincida con su SHA — exceptuando los commits que
+  son ancestros del segundo padre de un merge commit de PR en `main`
+  (commits intermedios legítimos de la rama del PR).
+- Crea o actualiza **una** issue de seguimiento titulada
+  `chore(gobernanza): push directo detectado en main` con la evidencia
+  de cada infractor; no falla el workflow.
+
+El ruleset `main-maintainers-and-admins-merge` permanece desactivado
+(issue #892, 2026-09-23) y su condición de reactivación — segundo
+mantenedor humano con rol `Write` que no deba poder mergear sin
+supervisión — no cambia con esta norma: con N sesiones de agente
+compartiendo la misma credencial admin, los rulesets no distinguen entre
+sesiones y reintroducirían la fricción `--admin` que #892 cerró.
 
 ## Core invariants
 
