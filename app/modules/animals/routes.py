@@ -233,20 +233,8 @@ def create_animal_view(
         return _render_animal_form_error(
             request, user, form_data, str(exc)
         )
-    except UniqueViolationError:
-        return _templates.TemplateResponse(
-            request=request,
-            name="animales/form.html",
-            context={
-                "user": user,
-                "form_data": form_data,
-                "error": "Ya existe un animal con ese NCHIP. Compruebalo.",
-                "especies": [item.value for item in DomainEspecie],
-                "sexos": [item.value for item in DomainSexo],
-                "form_action": "/animales",
-            },
-            status_code=status.HTTP_409_CONFLICT,
-        )
+    except UniqueViolationError as exc:
+        return _render_animal_conflict(request, user, form_data, str(exc))
 
     return RedirectResponse(
         url=f"/animales/{animal.id}", status_code=status.HTTP_303_SEE_OTHER
@@ -496,6 +484,42 @@ def _render_animal_form_error(
             "form_action": form_action,
         },
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+    )
+
+
+def _render_animal_conflict(
+    request: Request,
+    user: Response | dict,
+    form_data: dict[str, Any],
+    _error: str,
+) -> Response:
+    """Render the 409 conflict response on create (issue #974).
+
+    Sibling of ``_render_animal_form_error`` for the
+    ``UniqueViolationError`` branch in ``create_animal_view``. The
+    helper hardcodes the operator-facing NCHIP message and the create
+    endpoint URL because the branch only fires on create — the update
+    flow does not catch ``UniqueViolationError`` today. Pinned by
+    ``test_create_animal_view_translates_unique_violation_to_409``.
+    Signature mirrors ``_render_animal_form_error`` for symmetry; the
+    body uses the hardcoded message so the create-flow conflict copy
+    stays centralized, matching the inline block it replaces. The
+    leading-underscore ``_error`` parameter is intentionally unused —
+    kept in the signature to mirror the sibling helper and silence
+    ARG001 without an inline ``# noqa``.
+    """
+    return _templates.TemplateResponse(
+        request=request,
+        name="animales/form.html",
+        context={
+            "user": user,
+            "form_data": form_data,
+            "error": "Ya existe un animal con ese NCHIP. Compruebalo.",
+            "especies": [item.value for item in DomainEspecie],
+            "sexos": [item.value for item in DomainSexo],
+            "form_action": "/animales",
+        },
+        status_code=status.HTTP_409_CONFLICT,
     )
 
 
