@@ -105,10 +105,19 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
+          EVENT_BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
-          # Single source of truth for the UI surface (issue #895, design D1).
-          UI_PATHS="$(python scripts/check_required_jobs.py --print-ui-paths)"
+          # Single source of truth for the UI surface (issue #895, fix round
+          # 1, JD-B-001): detection is INVERTED and fail-closed. The checker
+          # prints the NON-UI allowlist and classifies the changed-file set
+          # (via --ui-changed); ui_changed is true unless EVERY changed file
+          # is allowlisted, because FastAPI renders Jinja from Python — all
+          # of app/** (routes, _form_render, templates, static) affects the
+          # browser, so a UI-path prefix list could never be exhaustive.
+          NON_UI_PATHS="$(python scripts/check_required_jobs.py --print-ui-paths)"
+          CHANGED=""
+          ui_changed=true
           if [ "$EVENT_NAME" = "pull_request" ]; then
             if [ -z "$BASE_REF" ]; then
               echo "::error::pull_request event without base_ref" >&2
@@ -117,30 +126,46 @@ jobs:
             git fetch --no-tags origin "$BASE_REF"
             BASE="$(git merge-base "origin/${BASE_REF}" HEAD)"
             CHANGED="$(git diff --name-only "${BASE}...HEAD")"
+            ui_changed="$(printf '%s\n' "$CHANGED" | python scripts/check_required_jobs.py --ui-changed)"
           else
-            # Issue #895 (documented choice): on push/workflow_dispatch the
-            # diff base is the parent commit. Diffing against the previous
-            # successful deploy SHA is overkill — deploy.yml runs on every
-            # push to main, so diff(HEAD^, HEAD) is exactly the revision
-            # delta against what is already deployed. A root commit (no
-            # parent) fails closed: assume the UI changed.
-            if git rev-parse --verify -q 'HEAD^' >/dev/null; then
+            # Issue #895 fix round 1 (JD-B-002): on push the diff base is
+            # github.event.before — the SHA the branch pointed at before
+            # the push. The parent-commit diff only covers the LAST commit,
+            # so a UI change hidden in an earlier commit of a multi-commit
+            # push used to skip e2e. HEAD^ remains only as the fallback for
+            # a zero-SHA initial push and for workflow_dispatch (which has
+            # no event.before). A root commit (no parent) fails closed:
+            # assume the UI changed.
+            if [ -n "$EVENT_BEFORE" ] \
+               && [ "$EVENT_BEFORE" != "0000000000000000000000000000000000000000" ] \
+               && git cat-file -e "$EVENT_BEFORE" 2>/dev/null; then
+              CHANGED="$(git diff --name-only "$EVENT_BEFORE" 'HEAD')"
+              ui_changed="$(printf '%s\n' "$CHANGED" | python scripts/check_required_jobs.py --ui-changed)"
+            elif git rev-parse --verify -q 'HEAD^' >/dev/null; then
               CHANGED="$(git diff --name-only 'HEAD^' 'HEAD')"
+              ui_changed="$(printf '%s\n' "$CHANGED" | python scripts/check_required_jobs.py --ui-changed)"
             else
-              echo "::warning::no parent commit; assuming UI changed (fail-closed)" >&2
-              CHANGED="app/templates/"
+              echo "::warning::no event.before and no parent commit; assuming UI changed (fail-closed)" >&2
             fi
           fi
-          ui_changed=false
+          # ANTI-SELF-EXEMPTION toll (issue #895 fix round 1, JD-A-001): the
+          # gate's own source cannot be edited without paying the e2e toll.
+          # These three files DEFINE the detection, so a change to any of
+          # them forces ui_changed=true — otherwise an allowlist edit could
+          # reclassify future UI changes without e2e evidence.
           for path in $CHANGED; do
-            for prefix in $UI_PATHS; do
-              case "$path" in
-                "$prefix"*) ui_changed=true; break 2 ;;
-              esac
-            done
+            case "$path" in
+              scripts/check_required_jobs.py|.github/workflows/ci.yml|.github/workflows/deploy.yml)
+                ui_changed=true
+                echo "::notice::gate-source change ($path) forces ui_changed=true (anti-self-exemption toll, issue #895)."
+                break
+                ;;
+            esac
           done
           echo "ui_changed=${ui_changed}" >> "$GITHUB_OUTPUT"
-          echo "::notice::ui-detection: ui_changed=${ui_changed}"
+          # NON_UI_PATHS is the live allowlist from the single source of
+          # truth; echoing it keeps every run's detection auditable.
+          echo "::notice::ui-detection: ui_changed=${ui_changed} (non-UI allowlist: ${NON_UI_PATHS})"
 
   lint:
     name: lint

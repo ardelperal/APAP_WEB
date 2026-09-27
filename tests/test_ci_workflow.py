@@ -150,10 +150,67 @@ def test_ci_workflow_defines_ui_detection_job_consuming_the_checker() -> None:
     # The diff needs the full history.
     assert "fetch-depth: 0" in block
     # pull_request: merge-base diff against the event base ref (same shape
-    # as pr-size.yml, issue #525); push/dispatch: parent-commit diff.
+    # as pr-size.yml, issue #525); push/dispatch: event.before with the
+    # parent commit as fallback (fix round 1, JD-B-002).
     assert "github.base_ref" in block
     assert "merge-base" in block
+    assert "github.event.before" in block
     assert "HEAD^" in block
+
+
+def test_ci_workflow_ui_detection_fails_closed_by_default() -> None:
+    """Issue #895 fix round 1 (JD-B-001, workflow half): detection is
+    inverted — the step starts from ``ui_changed=true`` and only reports
+    false when the checker's fail-closed classifier (``--ui-changed``)
+    proves every changed file is inside the NON-UI allowlist. A diff base
+    that cannot be resolved also fails closed.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    block = _job_block(workflow, "ui-detection")
+
+    assert "ui_changed=true" in block, (
+        "ui-detection must default to ui_changed=true (fail-closed)"
+    )
+    assert "--ui-changed" in block, (
+        "the changed-file set must be classified by the checker's "
+        "fail-closed classifier, not by inline prefix matching"
+    )
+    assert "--print-ui-paths" in block
+    assert "assuming UI changed (fail-closed)" in block
+
+
+def test_ci_workflow_ui_detection_pays_the_gate_file_toll() -> None:
+    """Anti-self-exemption toll (JD-A-001, workflow half): editing any of
+    the gate's own source files forces ui_changed=true — the gate cannot
+    be edited without paying the e2e toll.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    block = _job_block(workflow, "ui-detection")
+
+    toll_pattern = (
+        "scripts/check_required_jobs.py|.github/workflows/ci.yml"
+        "|.github/workflows/deploy.yml"
+    )
+    assert toll_pattern in block, (
+        "the ui-detection step must force ui_changed=true when any gate "
+        "source file changes (anti-self-exemption toll)"
+    )
+
+
+def test_ci_workflow_push_diff_uses_event_before_with_parent_fallback() -> None:
+    """JD-B-002: on push the diff base must be github.event.before (the SHA
+    the branch pointed at before the push), not HEAD^ — the parent-commit
+    diff only covers the LAST commit, so a UI change hidden in an earlier
+    commit of a multi-commit push used to skip e2e. HEAD^ remains only as
+    the fallback for a zero-SHA initial push and for workflow_dispatch.
+    """
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    block = _job_block(workflow, "ui-detection")
+
+    assert "EVENT_BEFORE: ${{ github.event.before }}" in block
+    # Zero-SHA guard for the initial push.
+    assert "0000000000000000000000000000000000000000" in block
+    assert "git diff --name-only" in block
 
 
 def test_ci_workflow_e2e_runs_when_ui_changed_or_on_release_events() -> None:
@@ -2398,11 +2455,13 @@ def test_deploy_workflow_defines_fail_closed_ui_e2e_gate() -> None:
 
     # The UI path list comes from the checker (single source of truth).
     assert "scripts/check_required_jobs.py --print-ui-paths" in gate
-    # Recomputes ui_changed from the parent-commit diff.
+    # Recomputes ui_changed from the event.before diff (HEAD^ fallback).
     assert "HEAD^" in gate
     # Same-SHA verification through the check-runs API (read-only, GITHUB_TOKEN).
     assert "/commits/" in gate and "check-runs" in gate
-    assert 'select(.name == "e2e")' in gate
+    # Fix round 1 (F4): every e2e selection is scoped to the github-actions
+    # app so a third-party check named 'e2e' cannot satisfy the gate.
+    assert 'select(.name == "e2e" and .app.slug == "github-actions")' in gate
     assert "!= \"success\"" in gate
     # The failure message points at the CI workflow.
     assert ".github/workflows/ci.yml" in gate
