@@ -231,16 +231,10 @@ def create_animal_view(
         )
     except ValueError as exc:
         return _render_animal_form_error(
-            request, user, form_data, str(exc), status.HTTP_422_UNPROCESSABLE_CONTENT
+            request, user, form_data, str(exc)
         )
-    except UniqueViolationError:
-        return _render_animal_form_error(
-            request,
-            user,
-            form_data,
-            "Ya existe un animal con ese NCHIP. Compruebalo.",
-            status.HTTP_409_CONFLICT,
-        )
+    except UniqueViolationError as exc:
+        return _render_animal_conflict(request, user, form_data, str(exc))
 
     return RedirectResponse(
         url=f"/animales/{animal.id}", status_code=status.HTTP_303_SEE_OTHER
@@ -363,7 +357,11 @@ def update_animal_view(
         port.update_animal(animal_id, **_animal_update_kwargs(form_data))
     except ValueError as exc:
         return _render_animal_form_error(
-            request, user, form_data, str(exc), status.HTTP_422_UNPROCESSABLE_CONTENT
+            request,
+            user,
+            form_data,
+            str(exc),
+            form_action=f"/animales/{animal_id}/update",
         )
 
     return RedirectResponse(
@@ -455,9 +453,25 @@ def _render_animal_form_error(
     user: Response | dict,
     form_data: dict[str, Any],
     error: str,
-    status_code: int,
+    *,
+    form_action: str = "/animales",
 ) -> Response:
-    """Render the shared animal form error response."""
+    """Render the shared animal form error response.
+
+    Issue #974: ``form_action`` defaults to the create endpoint so the
+    create call site can keep its minimal positional invocation; the
+    update call site MUST pass ``f"/animales/{animal_id}/update"`` so
+    the error rerender posts back to the same handler that produced
+    the error (otherwise a corrected resubmit would hit the create
+    endpoint and duplicate the row).
+
+    Helper is 422-only — both remaining callers (create ``ValueError``
+    and update ``ValueError``) translate a domain validation failure to
+    ``HTTP_422_UNPROCESSABLE_CONTENT``. The duplicate-NCHIP branch is
+    handled inline with ``_templates.TemplateResponse`` so the 409
+    response keeps its own status. Folding the 422 status into the body
+    drops the signature from 6 → 5 params to satisfy the PLR0913 ratchet.
+    """
     return _templates.TemplateResponse(
         request=request,
         name="animales/form.html",
@@ -467,9 +481,45 @@ def _render_animal_form_error(
             "error": error,
             "especies": [item.value for item in DomainEspecie],
             "sexos": [item.value for item in DomainSexo],
+            "form_action": form_action,
+        },
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+    )
+
+
+def _render_animal_conflict(
+    request: Request,
+    user: Response | dict,
+    form_data: dict[str, Any],
+    _error: str,
+) -> Response:
+    """Render the 409 conflict response on create (issue #974).
+
+    Sibling of ``_render_animal_form_error`` for the
+    ``UniqueViolationError`` branch in ``create_animal_view``. The
+    helper hardcodes the operator-facing NCHIP message and the create
+    endpoint URL because the branch only fires on create — the update
+    flow does not catch ``UniqueViolationError`` today. Pinned by
+    ``test_create_animal_view_translates_unique_violation_to_409``.
+    Signature mirrors ``_render_animal_form_error`` for symmetry; the
+    body uses the hardcoded message so the create-flow conflict copy
+    stays centralized, matching the inline block it replaces. The
+    leading-underscore ``_error`` parameter is intentionally unused —
+    kept in the signature to mirror the sibling helper and silence
+    ARG001 without an inline ``# noqa``.
+    """
+    return _templates.TemplateResponse(
+        request=request,
+        name="animales/form.html",
+        context={
+            "user": user,
+            "form_data": form_data,
+            "error": "Ya existe un animal con ese NCHIP. Compruebalo.",
+            "especies": [item.value for item in DomainEspecie],
+            "sexos": [item.value for item in DomainSexo],
             "form_action": "/animales",
         },
-        status_code=status_code,
+        status_code=status.HTTP_409_CONFLICT,
     )
 
 
