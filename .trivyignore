@@ -1,0 +1,81 @@
+# .trivyignore — CVE suppression register for the pinned base images (#1043).
+#
+# Policy (docs/codebase/security.md, "Trivy CVE policy"):
+#   - One entry per CVE, with the date added, a 90-day expiry, and an inline
+#     justification. Nothing global, nothing open-ended.
+#   - Only CVEs WITHOUT an available fix (trivy "Fixed version" empty) may be
+#     listed, with ONE documented exception (see below): a fixable CVE may be
+#     excepted ONLY when the exposure is build-stage-only AND no reachable
+#     base reduces it AND the entry carries a dated expiry. Runtime-stage
+#     fixable CVEs are never excepted — re-pin the base image instead
+#     (fail-closed).
+#   - `--ignore-unfixed` is never used on the command line; the per-CVE
+#     register above is the only sanctioned suppression mechanism.
+#   - Every entry is re-justified at expiry (2026-12-26); stale entries are
+#     removed and the gate fails again until the CVE is fixed upstream or the
+#     justification is renewed with fresh evidence.
+#
+# Created: 2026-09-27 against the trivy DB of that date, for the digests
+# pinned in Dockerfile (issue #1043):
+#   node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+#   python:3.12.14-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e
+
+# zlib1g 1:1.2.13.dfsg-1 (both images) — minizip weak encryption; Debian 12 has no fixed release (wontfix for 1.2.13).
+CVE-2023-45853  # 2026-09-27; expires 2026-12-26; no fix available in bookworm zlib1g; minizip path not exercised by npm ci / uvicorn runtime
+
+# ncurses 6.4-4 (both images) — heap overflow in ncurses; no bookworm security update yet.
+CVE-2025-69720  # 2026-09-27; expires 2026-12-26; no fix available in bookworm ncurses (6.4-4); terminal library not attacker-facing in these images
+
+# perl-base 5.36.0-7+deb12u3 (both images) — perl interpreter present only as base-OS plumbing.
+CVE-2026-13221  # 2026-09-27; expires 2026-12-26; no fix available in bookworm perl-base
+CVE-2026-42496  # 2026-09-27; expires 2026-12-26; no fix available in bookworm perl-base
+CVE-2026-42497  # 2026-09-27; expires 2026-12-26; no fix available in bookworm perl-base
+CVE-2026-48962  # 2026-09-27; expires 2026-12-26; no fix available in bookworm perl-base
+CVE-2026-57432  # 2026-09-27; expires 2026-12-26; no fix available in bookworm perl-base
+CVE-2026-57433  # 2026-09-27; expires 2026-12-26; no fix available in bookworm perl-base
+CVE-2026-8376   # 2026-09-27; expires 2026-12-26; no fix available in bookworm perl-base
+CVE-2026-9538   # 2026-09-27; expires 2026-12-26; no fix available in bookworm perl-base
+
+# systemd shared libraries 252.39-1~deb12u2 (both images) — no bookworm security update yet.
+CVE-2026-16742  # 2026-09-27; expires 2026-12-26; no fix available in bookworm libsystemd0/libudev1; PID 1 is not systemd in these images
+
+# gzip 1.12-1 (both images) — no bookworm security update yet.
+CVE-2026-41992  # 2026-09-27; expires 2026-12-26; no fix available in bookworm gzip
+
+# util-linux 2.38.1-5+deb12u3 (both images) — mount/nsenter TOCTOU family; no bookworm security update yet.
+CVE-2026-53613  # 2026-09-27; expires 2026-12-26; no fix available in bookworm util-linux; containers run as non-root without mount privileges
+CVE-2026-76642  # 2026-09-27; expires 2026-12-26; no fix available in bookworm util-linux; containers run as non-root without mount privileges
+CVE-2026-78408  # 2026-09-27; expires 2026-12-26; no fix available in bookworm util-linux; containers run as non-root without mount privileges
+CVE-2026-78409  # 2026-09-27; expires 2026-12-26; no fix available in bookworm util-linux; containers run as non-root without mount privileges
+CVE-2026-78410  # 2026-09-27; expires 2026-12-26; no fix available in bookworm util-linux; containers run as non-root without mount privileges
+
+# libacl1 2.3.1-3 (both images) — no bookworm security update yet.
+CVE-2026-54369  # 2026-09-27; expires 2026-12-26; no fix available in bookworm libacl1
+
+# libsqlite3-0 3.40.1-2+deb12u2 (python images only) — the app uses PostgreSQL (LocalPostgresExecutor); sqlite is a transitive base-OS library.
+CVE-2025-7458   # 2026-09-27; expires 2026-12-26; no fix available in bookworm libsqlite3-0; application data layer is PostgreSQL, not sqlite
+CVE-2026-11822  # 2026-09-27; expires 2026-12-26; no fix available in bookworm libsqlite3-0; application data layer is PostgreSQL, not sqlite
+CVE-2026-11824  # 2026-09-27; expires 2026-12-26; no fix available in bookworm libsqlite3-0; application data layer is PostgreSQL, not sqlite
+
+# ----------------------------------------------------------------------
+# DOCUMENTED EXCEPTION (issue #1043, maintainer-approved 2026-09-27):
+# fixable CVEs, build-stage-only exposure.
+#
+# The four entries below have a Fixed version and would normally be
+# forbidden here. They are excepted because ALL of the amendment's
+# conditions hold at once (docs/codebase/security.md):
+#   1. Build-stage-only exposure: they exist ONLY in the tailwind-base
+#      build stage (node:24-bookworm-slim). Production runtime is
+#      python:3.12.14-slim-bookworm (zero fixable HIGH/CRITICAL); the
+#      flagged npm-bundled packages (brace-expansion, ip-address, tar)
+#      never ship to production.
+#   2. No reachable base reduces them today: node 20 (EOL 2026-04-30,
+#      frozen) = 29 fixable, node 22 = 8, node 24 = 4.
+#   3. Dated expiry: 2026-12-26, same as every other entry.
+# They clear with the next upstream node image rebuild: re-pin the
+# digest and DELETE these four entries in the same change.
+
+CVE-2026-14257  # 2026-09-27; expires 2026-12-26; EXCEPTION (build-stage-only): fix available (5.0.8) but npm-bundled in tailwind-base only, no production exposure; clears on next node image rebuild
+CVE-2026-69152  # 2026-09-27; expires 2026-12-26; EXCEPTION (build-stage-only): fix available (5.0.8) but npm-bundled in tailwind-base only, no production exposure; clears on next node image rebuild
+CVE-2026-69192  # 2026-09-27; expires 2026-12-26; EXCEPTION (build-stage-only): fix available (10.3.1) but npm-bundled in tailwind-base only, no production exposure; clears on next node image rebuild
+CVE-2026-73566  # 2026-09-27; expires 2026-12-26; EXCEPTION (build-stage-only): fix available (7.5.21) but npm-bundled in tailwind-base only, no production exposure; clears on next node image rebuild
