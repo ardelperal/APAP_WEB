@@ -1296,9 +1296,13 @@ jobs:
           MINIO_HOST_PORT: ${{ job.services.minio.ports['9000'] }}
           APAP_DEBUG: "true"
           APAP_MODE: test
-          # Issue #1005 (JD-B-001, fix round 1): exercise flag-ON
-          # magic-link against the real app so a flag-parity regression
-          # (gate without env, or env without gate) fails the e2e job.
+          # Issue #1005 (JD-B-011, fix round 2): this env var makes the
+          # e2e app START with the flag ON, matching production parity
+          # (Coolify sets it too). It does NOT by itself detect flag
+          # regressions: the e2e suite (tests/e2e_ci/) never exercises
+          # /login or /auth/magic/*. Flag-parity detection rests on the
+          # unit atoms in tests/test_magic_link_flag.py (login render in
+          # both flag states, fail-closed 404, gate short-circuit).
           APAP_AUTH_ENABLE_MAGIC_LINK: "true"
           APAP_E2E_AUTH_ENABLED: "true"
           APAP_E2E_AUTH_DEFAULT_EMAIL: e2e@apap.local
