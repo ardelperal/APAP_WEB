@@ -812,6 +812,43 @@ class TestE2ELoginRateLimit:
             "rotating client-supplied XFF entries must NOT reset the bucket"
         )
 
+    def test_rotating_leftmost_xff_entries_do_not_reset_e2e_login_bucket(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Issue #1007: with a trusted proxy peer, rotating the client-supplied
+        leftmost XFF entry does not reset the e2e_login bucket — the identity
+        is the rightmost (proxy-appended) entry, so the 6th attempt gets 429."""
+        monkeypatch.setenv("APAP_TRUST_XFF", "true")
+        monkeypatch.setenv("APAP_TRUSTED_PROXIES", '["198.51.100.0/24"]')
+        get_settings.cache_clear()
+        client = TestClient(
+            self._make_e2e_app(monkeypatch),
+            client=("198.51.100.1", 50000),
+        )
+
+        for i in range(5):
+            response = client.get(
+                "/e2e/login",
+                headers={
+                    "X-E2E-Secret": "wrong",
+                    "X-Forwarded-For": f"9.9.9.{i}, 203.0.113.77",
+                },
+            )
+            assert response.status_code == 401, (
+                f"attempt {i + 1} must reach the route: rotation must not 429 early"
+            )
+
+        response = client.get(
+            "/e2e/login",
+            headers={
+                "X-E2E-Secret": "wrong",
+                "X-Forwarded-For": "9.9.9.99, 203.0.113.77",
+            },
+        )
+        assert response.status_code == 429, (
+            "rotating leftmost XFF entries must NOT reset the e2e_login bucket"
+        )
+
     def test_flag_off_probes_get_bare_404_without_rate_limit_headers(self) -> None:
         """Issue #904 fix round 1 (JD-B-001/JD-A-003): flag off → bare 404s.
 
