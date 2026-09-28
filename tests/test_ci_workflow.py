@@ -1375,13 +1375,19 @@ def test_pr_size_concurrency_group_is_trigger_scoped() -> None:
     )
 
 
+_PR_SIZE_LABELS_URL_RE = re.compile(
+    r"https://api\.github\.com/repos/\$\{GITHUB_REPOSITORY\}"
+    r"/issues/\$\{PR_NUMBER\}/labels\b"
+)
+
+
 def _pr_size_fetch_step_run() -> str:
     """The ``run:`` body of pr-size.yml's live-labels fetch step."""
     pr_size_job = next(iter((_doc(PR_SIZE_WORKFLOW_PATH).get("jobs") or {}).values()))
     return next(
         str(step.get("run", ""))
         for step in _workflow_yaml.steps(pr_size_job)
-        if "api.github.com" in str(step.get("run", ""))
+        if _PR_SIZE_LABELS_URL_RE.search(str(step.get("run", "")))
     )
 
 
@@ -1404,11 +1410,7 @@ def test_pr_size_exception_label_read_from_live_api_not_event_payload() -> None:
     # Issue #533: the runner backing this job does not provide the `gh`
     # CLI, so the live fetch must go through curl + jq (deploy.yml's
     # existing pattern), not `gh api`.
-    assert re.search(
-        r"https://api\.github\.com/repos/\$\{GITHUB_REPOSITORY\}"
-        r"/issues/\$\{PR_NUMBER\}/labels\b",
-        fetch_run,
-    ), (
+    assert _PR_SIZE_LABELS_URL_RE.search(fetch_run), (
         "pr-size.yml must fetch the PR's live labels from the GitHub REST "
         "API (curl + jq, per issue #533 — this runner has no `gh` CLI) "
         "instead of the event payload (issue #926)."
