@@ -166,16 +166,18 @@ async def _magic_link_login(
     harness: _RealAppHarness,
     email: str,
 ) -> httpx.Response:
-    """Run start → extract token from the SMTP body → GET verify."""
+    """Run start → extract token + state from the SMTP body → GET verify."""
     start = await harness.client.post("/auth/magic/start", json={"email": email})
     assert start.status_code == 200, start.text
     assert len(harness.smtp.sent) == 1
     body = harness.smtp.sent[0]["body"]
     prefix = "https://apap.romancaba.com/auth/magic/verify?token="
     assert prefix in body
-    token = body.split(prefix, 1)[1].split()[0]
+    query = body.split(prefix, 1)[1].split()[0]
+    token, sep, state = query.partition("&state=")
+    assert sep and state, "verify URL must carry the state parameter (issue #1004)"
     harness.client.cookies.clear()
-    return await harness.client.get(f"/auth/magic/verify?token={token}")
+    return await harness.client.get(f"/auth/magic/verify?token={token}&state={state}")
 
 
 def _session_cookie(harness: _RealAppHarness) -> dict[str, object]:

@@ -104,7 +104,7 @@ async def magic_link_client(self_host_schema, monkeypatch: pytest.MonkeyPatch) -
         app.state.public_base_url = "https://apap.romancaba.com"
         client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
-            base_url="http://test",
+            base_url="https://test",
         )
         try:
             yield client, fake_smtp, app.state.public_base_url
@@ -124,6 +124,30 @@ def _seed_active_user(self_host_schema, email: str) -> None:
         "VALUES ($1, 'key_user', true)",
         [email],
     )
+
+
+# --- shared email-body parser ------------------------------------------------
+
+
+def _extract_token_and_state(body: str, base_url: str) -> tuple[str, str]:
+    """Parse ``(token, state)`` from the emailed verify URL.
+
+    Explicit parsing (issue #1004, JD-B-002/JD-A-002): the previous
+    ``body.split(prefix)[1].split()[0]`` cut swallowed ``&state=...``
+    into the token, so verify URLs were mangled and the state gate was
+    exercised only by accident. Both magic-link test modules import
+    this helper (the canonical definition lives here; the state tests
+    import it alongside ``_seed_active_user``).
+
+    Fails the test when the link does not carry the ``state`` query
+    parameter — the parameter IS the fix under test.
+    """
+    prefix = f"{base_url}/auth/magic/verify?token="
+    assert prefix in body, "email body must contain the verify URL"
+    query = body.split(prefix, 1)[1].split()[0]
+    token, sep, state = query.partition("&state=")
+    assert sep and state, "verify URL must carry a non-empty state parameter"
+    return token, state
 
 
 # --- POST /auth/magic/start -------------------------------------------------
@@ -220,19 +244,27 @@ async def test_magic_verify_consumes_token_and_sets_session_cookie(
     start = await client.post("/auth/magic/start", json={"email": "ana@test.com"})
     assert start.status_code == 200
 
-    # Extract the token from the recorded SMTP body.
+    # Extract token AND state explicitly from the recorded SMTP body
+    # (JD-B-002: the old split swallowed ``&state=``).
     assert len(fake_smtp.sent) == 1
-    body = fake_smtp.sent[0]["body"]
-    prefix = f"{base_url}/auth/magic/verify?token="
-    assert prefix in body
-    token = body.split(prefix, 1)[1].split()[0]  # strip trailing whitespace
+    token, state = _extract_token_and_state(
+        fake_smtp.sent[0]["body"], base_url
+    )
 
     # Fresh context: the start response may have set cookies; clear
-    # them so the verify response is the only cookie source.
+    # them so the verify response is the only cookie source. The state
+    # cookie is deliberately RE-SENT as an explicit Cookie header: the
+    # browser binding requires it, and this test pins the whole
+    # binding (URL state + cookie) on the happy path.
+    state_cookie = client.cookies.get("apap_magic_state")
+    assert state_cookie == state, "start must cookie-bind the URL state"
     client.cookies.clear()
+    verify_headers = {"Cookie": f"apap_magic_state={state_cookie}"}
     with caplog.at_level(logging.INFO, logger="app"):
         response = await client.get(
-            f"/auth/magic/verify?token={token}", follow_redirects=False
+            f"/auth/magic/verify?token={token}&state={state}",
+            headers=verify_headers,
+            follow_redirects=False,
         )
     assert response.status_code == 302
     assert response.headers["location"] == "/"
@@ -295,13 +327,16 @@ async def test_magic_verify_unknown_email_fails_closed(
     client, fake_smtp, base_url = magic_link_client
     # NOTE: ana@test.com is NOT seeded in this test.
     await client.post("/auth/magic/start", json={"email": "ana@test.com"})
-    body = fake_smtp.sent[0]["body"]
-    prefix = f"{base_url}/auth/magic/verify?token="
-    token = body.split(prefix, 1)[1].split()[0]
+    token, state = _extract_token_and_state(
+        fake_smtp.sent[0]["body"], base_url
+    )
 
+    state_cookie = client.cookies.get("apap_magic_state")
     client.cookies.clear()
     response = await client.get(
-        f"/auth/magic/verify?token={token}", follow_redirects=False
+        f"/auth/magic/verify?token={token}&state={state}",
+        headers={"Cookie": f"apap_magic_state={state_cookie}"},
+        follow_redirects=False,
     )
     assert response.status_code == 302
     assert response.headers["location"] == "/unauthorized"
@@ -314,10 +349,19 @@ async def test_magic_verify_returns_302_to_login_on_invalid_token(
     magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
 ) -> None:
     """An unknown token must NOT leak why it failed; we redirect to
-    /login with a generic reason."""
+    /login with a generic reason.
+
+    The state/cookie gate is deliberately SATISFIED (self-consistent
+    garbage state in both the URL and the cookie) so the failure is
+    provably the TOKEN gate — the no-oracle redirect is the same either
+    way, but this keeps the test honest about what it exercises.
+    """
     client, _, _ = magic_link_client
+    garbage_state = "A" * 43
     response = await client.get(
-        "/auth/magic/verify?token=0" * 64, follow_redirects=False
+        f"/auth/magic/verify?token={'0' * 64}&state={garbage_state}",
+        headers={"Cookie": f"apap_magic_state={garbage_state}"},
+        follow_redirects=False,
     )
     assert response.status_code == 302
     assert "/login" in response.headers["location"]
@@ -331,19 +375,35 @@ async def test_magic_verify_rejects_already_consumed_token(
     self_host_schema,
 ) -> None:
     """One-time use: a second consume of the same token returns the
-    same redirect-to-login, never a second session."""
+    same redirect-to-login, never a second session.
+
+    The state/cookie halves are deliberately PRESERVED across both
+    requests (state in the URL, cookie via an explicit Cookie header —
+    the first verify expired it in the client jar), so the second
+    failure is provably the TOKEN gate, not the state gate (JD-B-002).
+    """
     client, fake_smtp, base_url = magic_link_client
     _seed_active_user(self_host_schema, "ana@test.com")
     await client.post("/auth/magic/start", json={"email": "ana@test.com"})
-    body = fake_smtp.sent[0]["body"]
-    prefix = f"{base_url}/auth/magic/verify?token="
-    token = body.split(prefix, 1)[1].split()[0]
+    token, state = _extract_token_and_state(
+        fake_smtp.sent[0]["body"], base_url
+    )
+    state_cookie = client.cookies.get("apap_magic_state")
+    verify_headers = {"Cookie": f"apap_magic_state={state_cookie}"}
 
-    first = await client.get(f"/auth/magic/verify?token={token}", follow_redirects=False)
+    first = await client.get(
+        f"/auth/magic/verify?token={token}&state={state}",
+        headers=verify_headers,
+        follow_redirects=False,
+    )
     assert first.status_code == 302
     assert first.headers["location"] == "/"
 
-    second = await client.get(f"/auth/magic/verify?token={token}", follow_redirects=False)
+    second = await client.get(
+        f"/auth/magic/verify?token={token}&state={state}",
+        headers=verify_headers,
+        follow_redirects=False,
+    )
     assert second.status_code == 302
     assert "/login" in second.headers["location"]
     # ``Set-Cookie`` is NOT set the second time — the token was
