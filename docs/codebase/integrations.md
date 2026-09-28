@@ -51,7 +51,7 @@ Esta página posee el inventario de integraciones externas (LocalBackend, CodeGr
 | `APAP_S3_ACCESS_KEY` | Usuario de MinIO | unset | [`app/core/local_backend/s3.py`](../../app/core/local_backend/s3.py) |
 | `APAP_S3_SECRET_KEY` | Contraseña de MinIO | unset (secreto) | [`app/core/local_backend/s3.py`](../../app/core/local_backend/s3.py) |
 | `APAP_S3_BUCKET` | Nombre del bucket de fotos | `apap-photos` | [`app/core/local_backend/s3.py`](../../app/core/local_backend/s3.py) |
-| `APAP_S3_SECURE` | Usar HTTPS (``true/false``) | `false` | [`app/core/local_backend/s3.py`](../../app/core/local_backend/s3.py) |
+| `APAP_S3_SECURE` | Usar HTTPS (``0``/``false``/``no`` lo desactiva) | `true` | [`app/core/local_backend/s3.py`](../../app/core/local_backend/s3.py) |
 | `COOLIFY_WEBHOOK_URL` | Webhook de deploy a Coolify | Required para deploy | AGENTS §15.1 |
 
 ## Contributor checklist
