@@ -33,6 +33,8 @@ log_safe("user.did_x", user_id=user_id, action="X")
 
 Algunos eventos de auditoría exigen valores cuyos nombres canónicos están en la lista cerrada de redacción. En ese caso el llamante usa nombres de campo que expresan el rol semántico y están fuera de la lista — la lista cerrada no cambia y añadirle nombres sigue siendo un cambio deliberado de revisión. Ejemplo: el evento `e2e.login` (issue #904, `app/core/e2e_auth.py`) emite `target_email` y `client_ip` — no `email` ni `ip_address` — y nunca el valor del secreto.
 
+El valor de `client_ip` en `e2e.login` es la identidad que resuelve `_extract_identity` (`app/core/rate_limit.py`), la misma que usa la clave de bucket del limitador: con `APAP_TRUST_XFF=true` y proxies de confianza configurados, la entrada rightmost añadida por el proxy de confianza (política rightmost-hop, issue #1007); en cualquier otro caso, el par directo de la conexión. La auditoría y los buckets nunca divergen en la identidad.
+
 ## Contributor checklist
 
 - [ ] Cualquier log nuevo va por `log_safe("event.name", **kwargs)` con kwargs nombrados, no f-strings.

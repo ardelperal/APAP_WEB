@@ -289,6 +289,93 @@ class TestExtractIdentityTrustedProxies:
 
 
 # ---------------------------------------------------------------------------
+# Issue #1007 — rightmost-hop identity policy (multi-hop XFF)
+# ---------------------------------------------------------------------------
+
+
+class TestRightmostHopPolicy:
+    """Issue #1007: with ``trust_xff=True`` the identity resolves to the
+    rightmost, proxy-appended X-Forwarded-For entry — the one the trusted
+    ingress appended — never to a client-supplied leftmost entry.
+
+    Under the documented single-trusted-proxy topology (Coolify/Traefik
+    appends the real client IP), the rightmost untrusted entry walking
+    right-to-left from the peer IS the rightmost XFF entry, so rotating
+    client-supplied leftmost entries cannot change the identity. The
+    ``trust_xff=False`` pins live in ``TestExtractIdentityTrustedProxies``.
+    """
+
+    def test_multi_hop_xff_identity_is_rightmost_proxy_appended_entry(self) -> None:
+        """`client, evil, proxy-observed` with a trusted peer → the rightmost
+        entry (the proxy-observed client) is the identity, not `client` or
+        `evil`."""
+        from app.core.rate_limit import _extract_identity
+
+        settings = get_settings()
+        settings.trust_xff = True
+        settings.trusted_proxies = ["10.0.0.0/8"]
+
+        identity = _extract_identity(
+            _request(
+                xff="203.0.113.9, 203.0.113.10, 198.51.100.7", peer="10.0.0.1"
+            ),
+            settings,
+        )
+
+        assert identity.ip == "198.51.100.7"
+
+    def test_rotating_client_supplied_leftmost_entries_cannot_change_identity(
+        self,
+    ) -> None:
+        """Rotating the leftmost (client-supplied) XFF entry request after
+        request keeps the identity pinned to the proxy-appended rightmost
+        entry, so bucket rotation by header churn is impossible."""
+        from app.core.rate_limit import _extract_identity
+
+        settings = get_settings()
+        settings.trust_xff = True
+        settings.trusted_proxies = ["10.0.0.0/8"]
+
+        for i in range(10):
+            identity = _extract_identity(
+                _request(xff=f"9.9.9.{i}, 198.51.100.7", peer="10.0.0.1"), settings
+            )
+            assert identity.ip == "198.51.100.7", (
+                f"rotation {i}: leftmost entry must not become the identity"
+            )
+
+    def test_empty_and_whitespace_only_xff_fall_back_to_socket_peer(self) -> None:
+        """An empty (or whitespace-only) XFF header falls back to the direct
+        peer — fail-closed, never a crash and never an empty identity."""
+        from app.core.rate_limit import _extract_identity
+
+        settings = get_settings()
+        settings.trust_xff = True
+        settings.trusted_proxies = ["10.0.0.0/8"]
+
+        for xff in ("", "   ", " , , "):
+            identity = _extract_identity(
+                _request(xff=xff, peer="10.0.0.1"), settings
+            )
+            assert identity.ip == "10.0.0.1", f"xff={xff!r} must fall back to peer"
+
+    def test_single_entry_xff_unchanged(self) -> None:
+        """Backward compatibility: with one XFF entry leftmost == rightmost,
+        so the resolved identity is that entry."""
+        from app.core.rate_limit import _extract_identity
+
+        settings = get_settings()
+        settings.trust_xff = True
+        settings.trusted_proxies = ["10.0.0.0/8"]
+
+        identity = _extract_identity(
+            _request(xff="198.51.100.7", peer="10.0.0.1"), settings
+        )
+
+        assert identity.ip == "198.51.100.7"
+
+
+# ---------------------------------------------------------------------------
 # Middleware-level acceptance: forged XFF cannot evade the OAuth bucket
 # ---------------------------------------------------------------------------
 
@@ -374,6 +461,47 @@ class TestForgedXffCannotEvadeLimit:
 
         assert 429 in statuses, (
             f"expected 429 from the single proxy-appended bucket, got {statuses}"
+        )
+
+
+    async def test_rotating_leftmost_xff_entries_do_not_reset_oauth_bucket(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Issue #1007: multi-hop single-line XFF rotation cannot evade the
+        oauth bucket. With a trusted peer, the identity is the rightmost
+        (proxy-appended) entry, so rotating the client-supplied leftmost
+        prefixes keeps every request in ONE bucket and the limit trips."""
+        from app.core import config as config_module
+        from app.main import app as _app
+
+        base_settings = config_module.get_settings()
+        monkeypatch.setattr(
+            config_module,
+            "get_settings",
+            lambda: base_settings.__class__.model_copy(
+                base_settings,
+                update={"trust_xff": True, "trusted_proxies": ["10.0.0.0/8"]},
+            ),
+        )
+        # Trusted direct peer so the XFF walk is anchored (ASGITransport
+        # default peer is the unparseable "testclient").
+        transport = httpx.ASGITransport(app=_app, client=("10.0.0.1", 45678))
+
+        statuses: list[int] = []
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as scoped_client:
+            for i in range(12):
+                response = await scoped_client.get(
+                    "/auth/callback",
+                    headers={"X-Forwarded-For": f"9.9.9.{i}, 203.0.113.77"},
+                    follow_redirects=False,
+                )
+                statuses.append(response.status_code)
+
+        assert 429 in statuses, (
+            "rotating leftmost XFF entries must NOT reset the oauth bucket; "
+            f"got {statuses}"
         )
 
 
