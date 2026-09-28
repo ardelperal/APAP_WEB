@@ -100,7 +100,10 @@ def _origin_ip(request: Request, settings: Settings) -> str:
 
     Reuses the rate-limiter's identity resolution so the audit entry and
     the ``e2e_login`` bucket agree on what "origin IP" means (honours
-    ``Settings.trust_xff`` behind the Coolify reverse proxy).
+    ``Settings.trust_xff`` behind the Coolify reverse proxy). Under the
+    rightmost-hop policy (issue #1007) the value is the proxy-appended
+    X-Forwarded-For entry when XFF trust is active, and the direct peer
+    otherwise — never a client-supplied leftmost entry.
     """
     return _extract_identity(request, settings).ip or "unknown"
 

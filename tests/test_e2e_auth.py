@@ -342,6 +342,53 @@ def test_audit_log_emitted_on_success(
     assert "test-secret-value" not in str(fields)
 
 
+def test_audit_client_ip_is_rightmost_proxy_appended_entry(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #1007 (JD-B-004/JD-A-005): with ``trust_xff=True`` and a trusted
+    proxy peer, the ``e2e.login`` audit ``client_ip`` is the rightmost,
+    proxy-appended X-Forwarded-For entry — the same resolution the rate-limit
+    buckets use (via ``_extract_identity``) — not a client-supplied leftmost
+    entry."""
+    import app.core.e2e_auth as e2e_module
+
+    e2e_module.get_settings = lambda: Settings(  # type: ignore[assignment]
+        e2e_auth_enabled=True,
+        e2e_auth_secret="test-secret-value",
+        session_secret="test-session-secret-for-mock",
+        trust_xff=True,
+        trusted_proxies=["10.0.0.0/8"],
+    )
+    app = FastAPI()
+    register_e2e_auth_routes(app)
+    # Parseable, trusted direct peer (TestClient's default "testclient" peer
+    # would disable the XFF walk — see tests/test_trusted_proxies.py).
+    client = TestClient(app, client=("10.0.0.1", 50000))
+
+    with caplog.at_level(logging.INFO, logger="app"):
+        response = client.get(
+            "/e2e/login?email=audit@apap.local",
+            headers={
+                "X-E2E-Secret": "test-secret-value",
+                "X-Forwarded-For": "203.0.113.9, 203.0.113.10, 198.51.100.7",
+            },
+        )
+
+    assert response.status_code == 200
+    audit_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "_caller_fields", {}).get("event") == "e2e.login"
+    ]
+    assert len(audit_records) == 1, "expected exactly one audit entry on success"
+    fields = audit_records[0]._caller_fields
+    assert fields["outcome"] == "ok"
+    assert fields["client_ip"] == "198.51.100.7", (
+        "audit client_ip must be the rightmost proxy-appended XFF entry"
+    )
+
+
 def test_audit_log_emitted_on_invalid_secret(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,

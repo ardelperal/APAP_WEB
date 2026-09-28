@@ -96,6 +96,18 @@ La invariant anterior admite una única excepción documentada, aprobada por el 
 
 Las vulnerabilidades fixables en la etapa de runtime **nunca** se exceptúan. La excepción se limpia con el próximo rebuild upstream de la imagen node: re-pinee el digest y elimine las cuatro entradas en el mismo cambio.
 
+## Identidad de cliente: política rightmost-hop de X-Forwarded-For (issues #920, #1007)
+
+El limitador de peticiones (buckets `oauth`, `write` y `e2e_login`) y el evento de auditoría `e2e.login` resuelven la IP de cliente con la misma función, `_extract_identity` (`app/core/rate_limit.py`). Ambos consumidores comparten resolución, de modo que la clave de bucket y el `client_ip` de auditoría nunca divergen.
+
+La política es **rightmost-hop**: con `APAP_TRUST_XFF=true` y `APAP_TRUSTED_PROXIES` configurado, la identidad es la entrada de `X-Forwarded-For` que el proxy de confianza añadió al final de la cabecera. El recorrido va de derecha a izquierda, anclado en el par directo: si el par no es un proxy de confianza, el par gana y la cabecera no se consulta.
+
+- **Supuesto de topología única**: exactamente un ingress de confianza (Coolify/Traefik) que hace append de la IP real del cliente. Toda entrada a su izquierda es controlada por el cliente y no puede ganar mientras exista el salto añadido por el proxy; rotar la entrada leftmost no resetea ningún bucket ni falsifica el `client_ip` de auditoría.
+- **Fail-closed en los bordes**: cabecera vacía o sin entradas utilizables resuelve al par directo; una entrada no parseable se salta y jamás se adopta; sin par parseable (socket unix, sin info de par) la cabecera nunca se consulta.
+- **Default recomendado**: `APAP_TRUST_XFF=false` sigue siendo el valor recomendado. Con el default la cabecera se ignora por completo y la identidad es el par directo de la conexión TCP.
+
+Esta política cierra el riesgo residual aceptado en el judgment-day de #904 y registrado en [`docs/audits/e2e-login-hardening-2026-Q3.md`](../audits/e2e-login-hardening-2026-Q3.md): bajo `trust_xff=true`, la rotación de buckets mediante entradas leftmost y la falsificación del `client_ip` de auditoría ya no son posibles. La configuración operativa y el rollback están en el runbook [trusted-proxies.md](../runbooks/trusted-proxies.md).
+
 ## Resumen de reglas conectadas
 
 | Regla | Página | Resumen |
