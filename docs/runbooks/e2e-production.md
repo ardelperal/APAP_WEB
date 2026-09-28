@@ -284,8 +284,12 @@ rm -f .auth/state.json
 
 Record in the release evidence: the pytest invocation, the pass/fail
 verdict, the deployed revision, and the timestamps of the on and off
-transitions. `rm` is confined to the gitignored `.auth/` scratch file; it
-touches nothing else.
+transitions. The release gate itself is fail-closed on that record: the
+`release-e2e-gate` job of `deploy.yml` (issue #908) blocks any release while
+the repository variable `APAP_E2E_GATE_EVIDENCE` is empty, so store the run
+URL (or the artifact reference) there — or an auditable
+`APAP_E2E_GATE_EVIDENCE=skipped:<reason>` bypass — before tagging. `rm` is
+confined to the gitignored `.auth/` scratch file; it touches nothing else.
 
 ## Copyable checklist
 
