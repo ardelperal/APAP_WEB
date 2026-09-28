@@ -161,7 +161,16 @@ def create_app() -> FastAPI:
     # the effective path to /api/auth/magic/* and silently break the
     # integration suite that targets /auth/magic/* directly. No
     # prefix keeps both app.main and this standalone factory aligned.
-    app.include_router(magic_link_router)
+    # Issue #1005 (JD-B-002, fix round 1): the registration is gated on
+    # the same ``Settings.auth_enable_magic_link`` flag that gates
+    # ``app/main.py`` — with the flag off the standalone LocalBackend
+    # app also leaves ``/auth/magic/*`` unregistered (fail-closed). The
+    # factory reads the cached ``get_settings()`` (same pattern as the
+    # lifespan above); tests that exercise the router directly build
+    # their own app and include the router explicitly, so they are
+    # unaffected.
+    if get_settings().auth_enable_magic_link:
+        app.include_router(magic_link_router)
     return app
 
 

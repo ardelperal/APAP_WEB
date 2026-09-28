@@ -43,6 +43,14 @@ import pytest_asyncio
 # GitHub-hosted runner pool was blocked and tests never ran, masking this
 # configuration gap.
 os.environ.setdefault("APAP_MODE", "test")
+# Issue #1005: ``Settings.auth_enable_magic_link`` defaults to False
+# (default-deny), but the module-level ``app`` and several suites
+# (test_csrf.py's magic-link CSRF-exemption atoms,
+# tests/integration/test_magic_link_real_app.py's round-trip) exercise
+# the magic-link routes and must keep their pre-flag behaviour. The
+# flag-off behaviour is covered explicitly in
+# tests/test_magic_link_flag.py, which forces the env var per test.
+os.environ.setdefault("APAP_AUTH_ENABLE_MAGIC_LINK", "true")
 
 from app.core.config import get_settings  # noqa: E402  (must follow the env set)
 from app.core.di.local_postgres_di import get_local_postgres_executor_dep  # noqa: E402
