@@ -63,9 +63,9 @@ _FORM_CONTENT_TYPES: tuple[str, ...] = (
 
 # CSRF-exempt routes (issue #651, magic-link wiring): the magic-link
 # login flow accepts POSTs without a session CSRF token because the
-# user has not authenticated yet. The token in the email link IS the
-# authorization for the verify endpoint. Mirrors the auth-layer
-# PUBLIC_PATHS whitelist (PR #855).
+# user has not authenticated yet. The token + single-use state carried
+# in the email link (issue #1004) IS the authorization for the verify
+# endpoint. Mirrors the auth-layer PUBLIC_PATHS whitelist (PR #855).
 #
 # Module-private (leading underscore) on purpose: the set is an
 # implementation detail of ``CsrfMiddleware.dispatch`` and not part
@@ -240,8 +240,9 @@ class CsrfMiddleware(BaseHTTPMiddleware):
            These cannot mutate server state, so CSRF is meaningless.
         2. CSRF-exempt paths listed in ``_CSRF_EXEMPT_PATHS``
            (issue #651 / magic-link login). The user has not
-           authenticated yet; the magic-link token carried in the
-           email link IS the authorization for ``/auth/magic/verify``.
+           authenticated yet; the token + single-use state carried in
+           the email link (issue #1004) IS the authorization for
+           ``/auth/magic/verify``.
 
         Extracted from ``dispatch`` to keep the dispatch method's
         cyclomatic complexity flat — the helper carries the OR
