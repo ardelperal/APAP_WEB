@@ -21,13 +21,13 @@ Para cada alerta se trazó el flujo de datos completo en el código vigente
 (revisión de `routes.py`, `service.py` y plantillas) y se decidió
 disposición según evidencia ejecutable, no por lectura estática:
 
-- **FIXED** — la alerta describe un defecto real y se corrige en código.
-- **FALSE POSITIVE** — el flujo señalado está neutralizado por un control
+- **resuelto** — la alerta describe un defecto real y se corrige en código.
+- **falso positivo** — el flujo señalado está neutralizado por un control
   existente, demostrado con una prueba de comportamiento.
 
 ## Hallazgos y disposición
 
-### FIXED — `py/url-redirection` (#30, #31, #124, #125)
+### resuelto — `py/url-redirection` (#30, #31, #124, #125)
 
 Las redirecciones finales de las rutas de escritura interpolaban el
 parámetro de ruta `tarea_id` sin validar: ``RedirectResponse(url=f
@@ -43,7 +43,7 @@ constante `/tareas`. Ambos sitios de redirección usan el helper; no
 queda interpolación de un id sin validar. El comportamiento de las
 llamadas al servicio (paso de `ValueError`) no cambia.
 
-### FALSE POSITIVE — `py/reflective-xss` (#122, #123)
+### falso positivo — `py/reflective-xss` (#122, #123)
 
 Los campos `filter_estado` (parámetro de consulta) y `tarea` (modelo de
 dominio) llegan a la respuesta exclusivamente a través de
