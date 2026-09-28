@@ -26,7 +26,7 @@ La configuración completa vive en [`DOCS.md`](DOCS.md) y
 
 ## Workflow issue-first
 
-Todo cambio humano en `APAP_WEB` sigue este ciclo:
+Todo cambio humano en `APAP_WEB` sigue este ciclo. Si contribuye una IA, lea antes la [travesía completa del contribuidor](#travesía-del-contribuidor-vista-completa): enumera, en orden, cada gate que encontrará y la firma documental que la CI le exigirá.
 
 1. **Busque antes de crear.** Revise issues abiertas y cerradas; use la existente si ya cubre el problema.
 2. **Abra una issue si falta.** Use el formulario correcto y complete el [contrato issue-as-spec](docs/codebase/issue-specifications.md).
@@ -228,6 +228,55 @@ El merge conserva `--no-ff` y la rama remota. Consulte
 Sea técnico y directo. Critique el código y la decisión, no a la persona. Las revisiones usan `code-review-expert` (cada slice) y `judgment-day` (alto riesgo: auth, secretos, CSRF, PII, migraciones).
 
 Si una conversación pierde el foco técnico, pause y retome por escrito en la issue o el PR.
+
+## Travesía del contribuidor (vista completa)
+
+Esta sección es el mapa previo del recorrido: qué va a exigirle la CI en cada
+etapa, antes de que la encuentre a mitad del camino. El orden es el orden real
+de ejecución.
+
+1. **Issue aprobada y con spec completa.** El gate `issue-spec` valida el cuerpo
+   de la issue enlazada, no el de la PR: debe declarar las secciones «Problema y
+   contexto», «Evidencia verificable», «Alcance y no objetivos», «Plan de
+   validación» y «Dependencias y riesgos», tener `status:approved` y la PR debe
+   referenciarla con `Closes #N` fuera de bloques de código. Una issue sin estas
+   secciones pone la CI en rojo aunque el código sea correcto.
+2. **Rama y worktree.** `<tipo>/<nº issue>-<kebab-slug>` desde `main`, en un
+   worktree dedicado fuera del repositorio. El nombre lo valida el gate
+   `branch-name`.
+3. **Firma documental.** La CI ejecuta `check_alantyle` sobre todos los docs:
+   castellano peninsular formal (usted) en documentos raíz, inglés en código,
+   comentarios y commits. No escriba secuencias en mayúsculas fuera de los
+   acróbnimos técnicos admitidos — escriba «false positive», nunca esa
+   secuencia en versalitas (fallo real de CI en la PR #1050). No hay firma
+   criptográfica de commits exigida:
+   Conventional Commits en inglés, sin atribución de IA.
+4. **TDD cuando aplique.** RED → GREEN → REFACTOR con los tests junto al código;
+   los tests de integración corren contra PostgreSQL real y no cuentan en local
+   si falta el DSN (los verá como saltos, no como éxitos).
+5. **Batería local antes de `git push`.** La de [Validación local](#validación-local):
+   `make verify`, `make typecheck`, `make test-ci`, el comando `integration` con
+   su DSN, y `check_alantyle` sobre cada doc que haya tocado. El verde local
+   contra una base obsoleta no cuenta: sincronice la rama con `main` antes de
+   pedir revisión.
+6. **Apertura de PR.** Presupuesto de 400 líneas; si lo supera, divida o pida
+   `size:exception` con `size-exception-reason:` en el cuerpo. Recuerde que el
+   label sobre una PR abierta no recalcula el check: relance el run de `ci`
+   (ver [Excepción de tamaño](#excepción-de-tamaño)).
+7. **Ciclos de rebase.** Con merges concurrentes en `main`, espere de dos a
+   tres ciclos de «rama por detrás, merge de `main`, CI fresca» por PR.
+   Actualice la rama con un merge de `origin/main` (nunca force-push) y espere
+   la CI sobre la head nueva.
+8. **Cambios high-stakes.** Auth, secretos, CSRF, datos personales o
+   migraciones: antes de pedir merge corresponde la doble revisión adversarial
+   (judgment-day) con rondas de corrección limitadas. Si el cambio añade una
+   variable de entorno o un flag, coordine con el operador su valor en
+   producción **antes** del merge: el orden de despliegue es parte del cambio
+   (precedente: la PR #1052).
+9. **Cierre.** El merge cierra la issue enlazada; el worktree local se poda y
+   la rama remota se conserva referenciable.
+
+---
 
 ## Checklist del contribuidor
 
