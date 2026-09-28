@@ -39,9 +39,10 @@ from collections.abc import Awaitable, Callable
 from fastapi import FastAPI
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import RedirectResponse, Response
+from starlette.responses import JSONResponse, RedirectResponse, Response
 
 from app.core.csrf import CsrfMiddleware
+from app.core.logging import log_safe
 from app.core.session import read_session_payload
 from app.core.ua import is_mobile
 
@@ -72,10 +73,13 @@ PUBLIC_PATHS: frozenset[str] = frozenset(
         # yet) and the verify endpoint consumes the token to mint one.
         # The auth gate must NOT redirect these to /login before the
         # route runs, otherwise the magic-link flow can never start.
-        # The routes are registered UNCONDITIONALLY: both ``app/main.py``
-        # and the standalone local backend (issue #917 correction — the
-        # magic-link router is not gated behind any Settings flag), so
-        # these entries are always required for the flow to be reachable.
+        # Issue #1005: the routes are CONDITIONAL on
+        # ``Settings.auth_enable_magic_link`` — ``app/main.py`` only
+        # registers the router when the flag is on, and the auth
+        # middleware below answers probes with a fail-closed 404 when
+        # it is off (``MAGIC_LINK_PUBLIC_PATHS`` gate). These entries
+        # are only load-bearing with the flag on; with it off the gate
+        # below short-circuits before this frozenset is consulted.
         "/auth/magic/start",
         "/auth/magic/verify",
         "/logout",
@@ -90,6 +94,17 @@ PUBLIC_PATHS: frozenset[str] = frozenset(
     }
 )
 DISABLED_DOC_PATHS: frozenset[str] = frozenset({"/docs", "/redoc", "/openapi.json"})
+
+# Magic-link paths whose availability is flag-gated (issue #1005).
+# ``app/main.py`` registers the magic-link router only when
+# ``Settings.auth_enable_magic_link`` is True; with the flag off the
+# auth middleware answers these paths with a fail-closed 404 (same
+# status/body shape as FastAPI's default unknown-route 404) BEFORE the
+# session check, so the entries in ``PUBLIC_PATHS`` above only apply
+# when the flag is on.
+MAGIC_LINK_PUBLIC_PATHS: frozenset[str] = frozenset(
+    {"/auth/magic/start", "/auth/magic/verify"}
+)
 
 
 def _is_public_path(path: str) -> bool:
@@ -305,8 +320,9 @@ def install_auth_middleware(app: FastAPI, settings) -> None:
         app: ``FastAPI`` instance to configure. Mutated in place.
         settings: ``app.core.config.Settings`` (typed as object to
             avoid the import cycle flagged by Detector 11; the
-            installer reads only ``csrf_enabled`` and
-            ``session_secret`` from it).
+            installer reads ``csrf_enabled``, ``session_secret`` and
+            ``auth_enable_magic_link`` (via a deny-default ``getattr``,
+            issue #1005) from it).
     """
     # CSRF defense-in-depth (PR-5B2, REQ-AH-8). Registered AFTER the
     # static-files mount and BEFORE the auth middleware below so the
@@ -331,6 +347,31 @@ def install_auth_middleware(app: FastAPI, settings) -> None:
         connection, which keeps auth-before-validation cheap and deterministic.
         """
         path = request.url.path
+        # Expose the magic-link flag to templates (issue #1005, JD-A-002
+        # fix round 1): login.html renders the magic-link section
+        # conditionally on this flag so a flag-off deploy does not show a
+        # form that POSTs to the fail-closed 404. Fail-closed default: an
+        # absent attribute reads as False (§6).
+        request.state.magic_link_enabled = bool(
+            getattr(settings, "auth_enable_magic_link", False)
+        )
+        # Magic-link flag gate (issue #1005): with the flag off the
+        # router is not registered and the ``/auth/magic/*`` entries in
+        # ``PUBLIC_PATHS`` do not apply. Fail closed with the same
+        # status/body FastAPI emits for an unknown route — BEFORE the
+        # session check, so a probe is never redirected or validated.
+        # ``getattr`` with the deny default keeps the installer safe
+        # against incomplete settings objects (§6 default-deny).
+        # JD-B-005 (fix round 1): the 404 is logged with the probed path
+        # (event ``auth.magic_link_disabled``, naming style of
+        # ``csrf.disabled``) so a mis-deploy is diagnosable from the
+        # structured logs. Only the path is logged — never tokens or
+        # emails.
+        if path in MAGIC_LINK_PUBLIC_PATHS and not getattr(
+            settings, "auth_enable_magic_link", False
+        ):
+            log_safe("auth.magic_link_disabled", path=path)
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
         if _is_public_path(path) or path in DISABLED_DOC_PATHS:
             return await call_next(request)
 

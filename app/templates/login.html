@@ -13,6 +13,19 @@
           <h1 id="main-title" class="mt-4 text-3xl font-bold tracking-tight text-text sm:text-4xl">
             Entra para gestionar animales, entradas y voluntariado.
           </h1>
+          {# Magic-link section (issue #1005): rendered ONLY when the
+             ``Settings.auth_enable_magic_link`` flag reaches the
+             template via ``request.state.magic_link_enabled`` (set by
+             the auth middleware in ``app/core/middleware.py``, fail-closed
+             default False). With the flag off the ``/auth/magic/*``
+             endpoints answer a fail-closed 404, so rendering the form
+             would hand the user a control that always errors. The
+             OAuth section below is untouched. #}
+          {# The ``request is defined`` guard keeps the template renderable
+             standalone (XSS audit, issue #1005 JD-B-009 fix round 2):
+             when ``request`` exists but lacks the attribute, Jinja's
+             Undefined is falsy so the section stays hidden — fail-closed. #}
+          {% if request is defined and request.state.magic_link_enabled %}
           <p class="mt-4 text-base leading-7 text-text-muted">
             Introduce el correo autorizado. Te enviaremos un enlace de un
             solo uso válido durante 24 horas. Si tu cuenta todavía no tiene
@@ -65,6 +78,7 @@
               class="mt-3 hidden text-sm"
             ></p>
           </form>
+          {% endif %}
         </div>
 
         <aside class="bg-gradient-to-br from-primary-dark via-primary to-primary-light p-8 text-white sm:p-10">
@@ -87,5 +101,7 @@
     </div>
   </section>
 
+  {% if request is defined and request.state.magic_link_enabled %}
   <script src="/static/js/magic-link-form.js"></script>
+  {% endif %}
 {% endblock %}
