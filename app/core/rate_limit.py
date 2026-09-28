@@ -221,12 +221,22 @@ def _client_ip_from_xff(
 ) -> str | None:
     """Walk X-Forwarded-For right-to-left; the first untrusted IP wins.
 
-    Candidates are the XFF entries (leftmost = claimed original client)
-    followed by the direct peer. Trusted-proxy hops are skipped and
-    unparseable entries (garbage injected into the header) are skipped
-    too — garbage is never adopted as the identity (JD-B-005). When no
-    usable untrusted IP is found, the direct peer wins (fail-closed).
-    See docs/runbooks/trusted-proxies.md.
+    This implements the rightmost-hop identity policy (issue #1007): under
+    the documented single-trusted-proxy topology the trusted ingress
+    appends the real client IP as the LAST entry, so the value that wins
+    the walk is the rightmost, proxy-appended entry. Client-supplied
+    leftmost entries are never adopted while a proxy-appended hop exists,
+    so rotating them cannot change the identity (no bucket rotation, no
+    audit IP spoofing — closes the #904 residual risk JD-B-004/JD-A-005).
+
+    The walk is anchored on the direct peer: candidates are the XFF
+    entries followed by the peer, scanned right-to-left. Trusted-proxy
+    hops (including an untrusted peer encountered first) short-circuit the
+    header: if the peer itself is untrusted, the peer wins before any XFF
+    entry is consulted. Unparseable entries (garbage injected into the
+    header) are skipped — garbage is never adopted as the identity
+    (JD-B-005). When no usable untrusted IP is found, the direct peer
+    wins (fail-closed). See docs/runbooks/trusted-proxies.md.
     """
     candidates = _xff_entries(xff) + ([peer] if peer else [])
     for candidate in reversed(candidates):
@@ -292,9 +302,11 @@ def _extract_identity(request: Request, settings: Settings) -> Identity:
     1. When ``settings.trust_xff`` is True AND ``settings.trusted_proxies``
        is configured AND the direct peer is a parseable IP address,
        ``X-Forwarded-For`` is walked right-to-left and the first value
-       outside the trusted proxy networks is the client IP. Unparseable
-       entries are skipped; the direct peer wins when no usable untrusted
-       IP is found.
+       outside the trusted proxy networks is the client IP — the
+       rightmost, proxy-appended entry under the single-trusted-ingress
+       topology (issue #1007). Client-supplied leftmost entries cannot
+       rotate the bucket key. Unparseable entries are skipped; the direct
+       peer wins when no usable untrusted IP is found.
     2. ``request.client.host`` otherwise — including when ``trust_xff`` is
        True but ``trusted_proxies`` is empty (no header trust; issue #920,
        see docs/runbooks/trusted-proxies.md), and when the request has no
