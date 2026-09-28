@@ -36,7 +36,7 @@ Todo cambio humano en `APAP_WEB` sigue este ciclo:
 6. **Implemente con TDD.** La cobertura global es ≥ 85%; los `CRITICAL_HELPERS` exigen 100%.
 7. **Valide localmente.** Ejecute los comandos aplicables antes del push.
 8. **Abra un PR honesto.** Incluya referencia de cierre, validación real y un diff ≤ 400 líneas. El mantenedor comprueba manualmente que lleva exactamente un label `type:*`.
-9. **Espere CI verde.** `ci / required`, `pr-name / branch-name` y `pr-size / pr-size` son bloqueantes.
+9. **Espere CI verde.** Los checks requeridos de `main` son `branch-name`, `required` (rollup de `ci.yml`) y `pr-size / pr-size`.
 10. **Integre con `--no-ff`.** Solo `Maintain` o `Admin` pueden mergear. Mientras el equipo sea unipersonal se exigen cero aprobaciones humanas.
 
 Las secciones obligatorias son `Problema y contexto`, `Evidencia verificable`,
@@ -139,13 +139,32 @@ ejecutados con su resultado real en la sección «Comandos ejecutados» de la
 plantilla de PR. Indique también cualquier skip, fallo conocido o validación
 no aplicable.
 
-| Check | Estado | Comando local |
+| Check requerido | Qué valida | Reproducción local |
 |---|---|---|
-| `ci / required` | bloqueante | `make verify` como subconjunto local |
-| `pr-name / branch-name` | bloqueante | `scripts/check_branch_name.py` |
-| `pr-size / pr-size` | bloqueante | `scripts/check_pr_size.py` |
-| issue spec vinculada | agregada por `required` | Sin equivalente local; CI consulta la API de GitHub. |
+| `required` | Rollup de `ci.yml`: lint, typecheck, test, integration, security, e2e, build y el resto de jobs. | `make verify` (gates deterministas del job `lint`, `typecheck` y `check-issue-specs` en modo `forms`; incluye `test-ci`) más los comandos de [Validación local](#validación-local) para el resto. |
+| `pr-size / pr-size` | Presupuesto de 400 líneas contra la rama base del PR. | `scripts/check_pr_size.py` (el total del diff lo calcula la CI contra `github.base_ref`). |
+| `branch-name` | Patrón `<tipo>/<nº issue>-<slug>`. | `scripts/check_branch_name.py`. |
 | exactamente un `type:*` en el PR | control manual | El mantenedor lo comprueba antes del merge. |
+
+La validación del enlace issue-PR corre dentro de `ci.yml` (job `issue-spec`) y agrega al rollup `required`. En local, `make check-issue-specs` valida únicamente los formularios de issue (modo `forms`); la comprobación del `Closes #N` y del estado de la issue enlazada consulta la API de GitHub y solo corre en CI.
+
+---
+
+## PR encadenados
+
+Cuando el cambio no cabe en el presupuesto de 400 líneas, divídalo en PR encadenados ([D-35](docs/architecture/decisiones/d-35-presupuesto-400-lineas-pr.md)). Hoy `main` impone a cada tramo estas tres condiciones:
+
+- **Enlace a issue.** El gate `issue-spec` exige que todo PR declare `Closes #N` (o `Fixes`, `Resolves`) de al menos una issue con spec completa y `status:approved`; la referencia debe estar fuera de bloques de código. No existe todavía la figura del tramo intermedio sin cierre: la propuesta `Part of #N` está pendiente en #956. Mientras tanto, los tramos intermedios repiten `Closes #N` sobre la issue madre; la primera fusión la cierra, así que registre el estado de los tramos restantes en comentarios de la propia issue. No abra sub-issues solo para satisfacer el gate (#954, #955).
+- **Tamaño.** `pr-size` mide cada tramo contra su propia rama base (`github.base_ref`), no contra `main`; cada slice paga su propio diff.
+- **CI.** Los triggers de `pull_request` de `ci.yml` y de CodeQL filtran por rama base (`main`, `staging`): un tramo cuya base es otro PR encadenado no obtiene run de `ci` hasta que el tramo apunte a `main` **y reciba un push nuevo** (o se lance `ci` a mano): el cambio de rama base por sí solo no dispara el trigger. La eliminación de este filtro está propuesta en #962; planifique la validación final sobre el tramo que apunta a `main`.
+
+---
+
+## Excepción de tamaño
+
+Si el diff supera las 400 líneas y no cabe dividirlo más, pida el label `size:exception` e incluya `size-exception-reason:` con el motivo en el cuerpo del PR.
+
+Añadir (o quitar) el label en un PR ya abierto no recalcula el check requerido `pr-size / pr-size`: el evento `labeled`/`unlabeled` refresca solo el camino directo de `pr-size.yml`, no la llamada desde `ci`. Relance la CI a mano con `gh run rerun <run-id-del-run-de-ci>` (re-ejecuta el run completo, así `pr-size` vuelve a ejecutarse y lee los labels vivos por la API y pone el check en verde). No use `gh workflow run ci.yml --ref <rama>` para esto: en un `workflow_dispatch` el paso de diff corta a `total=0` y el paso de labels se salta (solo corre en `pull_request`), de modo que el check queda verde **sin** evaluar ni el diff ni el label — no es una revalidación. El re-run ve el label añadido; el refresco automático sin intervención manual está pendiente en #941.
 
 Cite la URL del run verde de `ci.yml` en el cuerpo del PR o en el merge commit (premisa de `AGENTS.md` §15.1).
 
@@ -153,14 +172,37 @@ Cite la URL del run verde de `ci.yml` en el cuerpo del PR o en el merge commit (
 
 ## Validación local
 
-Ejecute antes de `git push`. `make verify` cubre el subconjunto determinista
-local. CI añade PostgreSQL, Docker y Chromium.
+Ejecute antes de `git push`. Los comandos siguientes replican los jobs bloqueantes de `ci.yml`; `make verify` agrupa el subconjunto determinista (gates del job `lint`, `typecheck`, `check-issue-specs` en modo `forms` y el ratchet CRAP, que depende de `test-ci`).
 
 ```bash
 uv sync --frozen --extra dev
+source .venv/bin/activate
 make verify
-python -m build
 ```
+
+| Job de `ci.yml` | Comando local | Requisitos |
+|---|---|---|
+| `lint` | `make verify`; cada gate es además un target individual (`make lint`, `make check-rules`, …) | — |
+| `typecheck` | `make typecheck` | — |
+| `test` | `make test-ci` | `mdbtools` para los smoke tests de Access; `APAP_TEST_POSTGRES_DSN` opcional y `APAP_TEST_PG_DSN` opcional (sin ellos se saltan los tests que los usan) |
+| `integration` | comando siguiente | Postgres real con `APAP_TEST_POSTGRES_DSN` obligatorio |
+
+`make test-ci` replica la invocación exacta del job `test` (cobertura de `app` + `migration` con suelo del 85 %) e ignora `tests/e2e`, `tests/e2e_ci` y `tests/integration`. El job `integration` corre contra un Postgres real:
+
+```bash
+export APAP_TEST_POSTGRES_DSN=postgresql://postgres@127.0.0.1:5432/apap_test
+export APAP_LOCAL_DB_URL="$APAP_TEST_POSTGRES_DSN"
+export APAP_SESSION_SECRET=test-secret-for-ci-only-minimum-32-chars
+python -m pytest \
+  --override-ini="addopts=-ra --strict-markers --strict-config --randomly-dont-reorganize" \
+  -W error::DeprecationWarning \
+  --ignore=tests/e2e \
+  --no-cov \
+  tests/integration \
+  -m integration
+```
+
+Los jobs que requieren servicios de CI (Postgres efímero, Docker, Chromium, MinIO: `security`, `e2e`, `verify-fallback-ready`, `mutation`, `security-deep`) no se reproducen en una estación de trabajo; `python -m build` cubre la parte reproducible del job `build`.
 
 Las reglas de cada gate viven en `scripts/` y están pinneadas por tests bajo `tests/`. Una regresión en un script de gate trae su propio test.
 
@@ -196,7 +238,7 @@ Si una conversación pierde el foco técnico, pause y retome por escrito en la i
 - [ ] El PR tiene una referencia de cierre y resultados reales.
 - [ ] El mantenedor confirmó manualmente un único `type:*` en el PR.
 - [ ] `make verify` y las pruebas específicas están en verde.
-- [ ] El diff no supera 400 líneas o justifica `size:exception`.
+- [ ] El diff no supera 400 líneas o justifica `size:exception` (con `size-exception-reason:` en el cuerpo y el re-run de `ci` si el label se añadió a un PR abierto).
 - [ ] Todos los checks y conversaciones están resueltos antes del merge.
 
 ## Navegación

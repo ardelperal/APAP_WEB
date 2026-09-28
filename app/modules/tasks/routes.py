@@ -21,6 +21,7 @@ CSRF: all POST forms include csrf_token (CsrfMiddleware validates).
 
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 from typing import Annotated
 
@@ -88,6 +89,27 @@ _templates = Jinja2Templates(
     directory=_TEMPLATES_DIR,
     context_processors=[csrf_token_context_processor, base_template_context_processor, current_path_context_processor],
 )
+
+
+def _tarea_redirect(tarea_id: str) -> RedirectResponse:
+    """Redirect to the tarea detail URL after validating the id (issue #1038).
+
+    ``tarea_id`` is semantically a Postgres UUID (every query casts
+    ``::uuid``), so any value that does not parse as one never reaches
+    the redirect target: the handler logs via ``log_safe`` and falls
+    back to the ``/tareas`` list constant. This closes the CodeQL
+    ``py/url-redirection`` findings (#30, #31, #124, #125) — no
+    f-string interpolation of an unvalidated id into a redirect URL.
+    """
+    try:
+        uuid.UUID(tarea_id)
+    except (ValueError, TypeError, AttributeError):
+        log_safe(
+            "tareas.redirect_invalid_id",
+            reason="invalid_tarea_id",
+        )
+        return RedirectResponse(url="/tareas", status_code=302)
+    return RedirectResponse(url=f"/tareas/{tarea_id}", status_code=302)
 
 
 # --- GET /tareas ----------------------------------------------------------
@@ -245,7 +267,7 @@ def asignar_tarea(
         )
     except ValueError:
         pass
-    return RedirectResponse(url=f"/tareas/{tarea_id}", status_code=302)
+    return _tarea_redirect(tarea_id)
 
 
 # --- POST /tareas/<tarea_id>/cerrar ---------------------------------------
@@ -271,4 +293,4 @@ def cerrar_tarea(
         )
     except (ValueError, tareas_service.CerrarTareaError):
         pass
-    return RedirectResponse(url=f"/tareas/{tarea_id}", status_code=302)
+    return _tarea_redirect(tarea_id)
