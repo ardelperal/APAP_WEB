@@ -445,3 +445,86 @@ async def test_logout_clears_session_cookie_and_redirects_home(
     assert any(
         c.startswith("apap_session=") and "Max-Age=0" in c for c in set_cookies
     )
+
+
+# --- magic-link form visibility is flag-gated (issue #1005, JD-A-002) ------
+
+
+async def _login_response_from_fresh_app(
+    monkeypatch: pytest.MonkeyPatch,
+    flag_value: str,
+) -> httpx.Response:
+    """Build a fresh ``create_app()`` with the magic-link flag forced to
+    ``flag_value`` and return the ``GET /login`` response.
+
+    Patches ``config_module.get_settings`` with a ``model_copy`` update
+    (mirroring the ``google_configured`` fixture) so the Google OAuth
+    settings are populated (200 instead of the unconfigured 503) AND the
+    magic-link flag is forced deterministically, regardless of a
+    developer-local ``.env`` entry.
+    """
+    from app.core import config as config_module
+    from app.main import create_app
+
+    original_get_settings = config_module.get_settings
+
+    def patched_get_settings():  # type: ignore[no-untyped-def]
+        return original_get_settings().model_copy(
+            update={
+                "google_client_id": "test-client-id",
+                "google_client_secret": "test-client-secret",
+                "google_redirect_uri": "http://testserver/auth/callback",
+                "auth_enable_magic_link": flag_value == "true",
+            }
+        )
+
+    monkeypatch.setattr(config_module, "get_settings", patched_get_settings)
+    fresh_app = create_app()
+
+    transport = httpx.ASGITransport(app=fresh_app)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as fresh_client:
+        return await fresh_client.get("/login", follow_redirects=False)
+
+
+async def test_login_flag_off_renders_without_magic_link_form(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With the flag off, ``GET /login`` does NOT render the magic-link form.
+
+    Issue #1005 fix round 1 (JD-A-002): with the flag off the
+    ``/auth/magic/start`` endpoint answers the fail-closed 404, so
+    rendering the form would hand the user a control that always errors.
+    The whole magic-link section (intro copy, form, status region and
+    the form JS) must be absent from the render.
+    """
+    response = await _login_response_from_fresh_app(monkeypatch, "false")
+
+    assert response.status_code == 200
+    assert "/auth/magic/start" not in response.text, (
+        "GET /login rendered the magic-link form action with the flag "
+        "off; the form would POST to a fail-closed 404"
+    )
+    assert "magic-link-form" not in response.text, (
+        "GET /login rendered the magic-link form markup with the flag off"
+    )
+    assert "magic-link-form.js" not in response.text, (
+        "GET /login loaded the magic-link form script with the flag off"
+    )
+
+
+async def test_login_flag_on_renders_with_magic_link_form(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With the flag on, ``GET /login`` renders the magic-link form.
+
+    Flag-on parity with the pre-#1005 app: the form action, the status
+    region and the form script are all present.
+    """
+    response = await _login_response_from_fresh_app(monkeypatch, "true")
+
+    assert response.status_code == 200
+    assert "/auth/magic/start" in response.text
+    assert "magic-link-form" in response.text
+    assert "magic-link-form.js" in response.text
