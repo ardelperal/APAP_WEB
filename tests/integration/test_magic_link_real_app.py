@@ -176,7 +176,10 @@ async def _magic_link_login(
     query = body.split(prefix, 1)[1].split()[0]
     token, sep, state = query.partition("&state=")
     assert sep and state, "verify URL must carry the state parameter (issue #1004)"
-    harness.client.cookies.clear()
+    # Drop any stale session but KEEP the apap_magic_state cookie: verify
+    # requires cookie == URL state, so wiping the whole jar simulates the
+    # cross-browser attack and fail-closes the legit same-browser login.
+    harness.client.cookies.delete("apap_session")
     return await harness.client.get(f"/auth/magic/verify?token={token}&state={state}")
 
 
