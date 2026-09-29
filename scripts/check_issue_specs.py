@@ -18,7 +18,10 @@ import urllib.error
 import urllib.request
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple, Protocol
+
+# Sibling module: `python scripts/check_issue_specs.py` puts scripts/ on sys.path.
+import check_branch_name
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FORM_DIR = REPO_ROOT / ".github" / "ISSUE_TEMPLATE"
@@ -45,19 +48,24 @@ APPROVAL_LABEL = "status:approved"
 AUTOMATED_ACTORS = frozenset({"dependabot[bot]"})
 EMPTY_RESPONSES = frozenset({"", "_No response_"})
 PAGE_SIZE = 100
-# Issue #952: GitHub's documented forms only (KEYWORD #N, KEYWORD OWNER/REPO#N,
-# KEYWORD <issue URL>, optionally with a colon), keyword and reference on the
-# same line. A bare number, or a number on the next line ("... alias fix" /
-# "4706 passed"), is not a reference.
-REFERENCE_RE = re.compile(
-    r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?[ \t]+"
-    r"(?:https://github\.com/(?P<url_owner>[^/\s]+)/(?P<url_repo>[^/\s]+)/issues/(?P<url_number>\d+)"
-    r"|(?:(?P<owner>[\w.-]+)/(?P<repo>[\w.-]+))?#(?P<number>\d+))"
-)
-# Code is quoted, not declared: a chain diagram or an example in backticks
-# must not close anything (PR #931 closed #913 through a fenced diagram).
-_FENCED_CODE_RE = re.compile(r"^(```|~~~).*?^\1[^\n]*$", re.MULTILINE | re.DOTALL)
-_INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
+CHAIN_PARTIAL_LABEL = "chain:partial"
+# Issue #956: traceability is derived from the head branch, the PR labels and
+# GitHub's structured closingIssuesReferences, never from PR-body prose.
+_BRANCH_ISSUE_RE = re.compile(r"^[a-z]+/(?P<number>[0-9]+)-")
+_EXEMPT_HEAD_PREFIXES = ("archive/", "skill-fleet/")
+_EXEMPT_HEADS = frozenset({"main"})
+_CLOSING_REFERENCES_QUERY = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      labels(first: 100) { nodes { name } }
+      closingIssuesReferences(first: 100) {
+        nodes { number repository { nameWithOwner } }
+      }
+    }
+  }
+}
+"""
 
 SIGNALS = {
     "evidence": re.compile(r"(?i)\bevidencia\b|\bevidence\b|reproducci[oó]n|reproduction"),
@@ -213,21 +221,34 @@ def validate_forms(form_dir: Path = FORM_DIR) -> list[str]:
     return violations
 
 
-def extract_closing_issue_numbers(body: str, repository: str) -> list[int]:
-    """Extract same-repository issue numbers named by closing keywords."""
-    owner, repo = repository.split("/", maxsplit=1)
-    prose = _INLINE_CODE_RE.sub("", _FENCED_CODE_RE.sub("", body))
-    numbers: set[int] = set()
-    for match in REFERENCE_RE.finditer(prose):
-        referenced_owner = match.group("url_owner") or match.group("owner")
-        referenced_repo = match.group("url_repo") or match.group("repo")
-        if referenced_owner and (referenced_owner.lower(), referenced_repo.lower()) != (
-            owner.lower(),
-            repo.lower(),
-        ):
-            continue
-        numbers.add(int(match.group("url_number") or match.group("number")))
-    return sorted(numbers)
+class PullRequestLinks(NamedTuple):
+    """Labels and same-repository closing references of one pull request."""
+
+    labels: frozenset[str]
+    closing_issues: tuple[int, ...]
+
+
+def parse_pull_request_links(payload: object, repository: str, number: int) -> PullRequestLinks:
+    """Reduce a GraphQL response to the fields the gate reads."""
+    target = f"{repository}#{number}"
+    if not isinstance(payload, Mapping):
+        raise GitHubApiError("payload validation", target)
+    if payload.get("errors"):
+        raise GitHubApiError("graphql", target, payload["errors"])
+    try:
+        pull_request = payload["data"]["repository"]["pullRequest"]
+        label_nodes = pull_request["labels"]["nodes"]
+        closing_nodes = pull_request["closingIssuesReferences"]["nodes"]
+    except (KeyError, TypeError) as exc:
+        raise GitHubApiError("payload validation", target, "pull request not found") from exc
+    labels = frozenset(str(node["name"]) for node in label_nodes)
+    # Cross-repository references cannot be validated against this repository.
+    closing = sorted(
+        int(node["number"])
+        for node in closing_nodes
+        if str(node["repository"]["nameWithOwner"]).lower() == repository.lower()
+    )
+    return PullRequestLinks(labels=labels, closing_issues=tuple(closing))
 
 
 class GitHubClient:
@@ -236,6 +257,12 @@ class GitHubClient:
     def __init__(self, token: str = "", api_url: str = "https://api.github.com") -> None:
         self._token = token
         self._api_url = api_url.rstrip("/")
+        # GHES serves GraphQL at <host>/api/graphql, REST at <host>/api/v3.
+        self._graphql_url = (
+            "https://api.github.com/graphql"
+            if self._api_url == "https://api.github.com"
+            else self._api_url.removesuffix("/v3") + "/graphql"
+        )
 
     def get(self, path: str) -> tuple[Any, Mapping[str, str]]:
         headers = {
@@ -262,6 +289,31 @@ class GitHubClient:
             raise GitHubApiError.invalid_issue(number)
         return payload
 
+    def pull_request_links(self, repository: str, number: int) -> PullRequestLinks:
+        owner, name = repository.split("/", maxsplit=1)
+        body = json.dumps(
+            {
+                "query": _CLOSING_REFERENCES_QUERY,
+                "variables": {"owner": owner, "name": name, "number": number},
+            }
+        ).encode()
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+            "User-Agent": "APAP_WEB-issue-spec-check",
+        }
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
+        request = urllib.request.Request(  # noqa: S310
+            self._graphql_url, data=body, headers=headers, method="POST"
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
+                payload = json.load(response)
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+            raise GitHubApiError("graphql", f"{repository}#{number}", exc) from exc
+        return parse_pull_request_links(payload, repository, number)
+
     def issues(self, repository: str, cutoff: int) -> list[Mapping[str, Any]]:
         issues: list[Mapping[str, Any]] = []
         page = 1
@@ -285,38 +337,99 @@ class GitHubClient:
         return sorted(issues, key=lambda item: int(item["number"]))
 
 
-def validate_pr_event(event: Mapping[str, Any], client: GitHubClient) -> list[str]:
-    """Validate every issue that a human PR declares it will close."""
+class PullRequestClient(Protocol):
+    """The read-only GitHub surface the PR gate needs."""
+
+    def issue(self, repository: str, number: int) -> Mapping[str, Any]: ...
+
+    def pull_request_links(self, repository: str, number: int) -> PullRequestLinks: ...
+
+
+def _branch_issue_number(head_ref: str) -> int | None:
+    """Return N from a valid `<tipo>/<N>-<slug>` head branch, else None."""
+    branch_violations, _notices = check_branch_name.check(head_ref)
+    match = _BRANCH_ISSUE_RE.match(head_ref)
+    if branch_violations or match is None:
+        return None
+    return int(match.group("number"))
+
+
+def _branch_issue_errors(client: PullRequestClient, repository: str, number: int) -> list[str]:
+    """Validate the issue named by the branch: exists, open, approved, full spec."""
+    try:
+        issue = client.issue(repository, number)
+    except GitHubApiError as exc:
+        # Issue #952: a missing or unreadable issue is a contract violation
+        # to report, not a crash of the gate.
+        return [f"#{number}: cannot read the issue ({exc})"]
+    if "pull_request" in issue:
+        return [f"#{number}: reference resolves to a pull request"]
+    errors = [] if issue.get("state") == "open" else [f"#{number}: the branch issue must be open"]
+    return [*errors, *(f"#{number}: {error}" for error in issue_contract_errors(issue))]
+
+
+def _other_closing_errors(client: PullRequestClient, repository: str, number: int) -> list[str]:
+    """Validate an additional issue the PR will close on merge."""
+    try:
+        issue = client.issue(repository, number)
+    except GitHubApiError as exc:
+        return [f"#{number}: cannot read the issue ({exc})"]
+    if "pull_request" in issue:
+        return [f"#{number}: reference resolves to a pull request"]
+    # Closed approved issues predate full section requirements (issue #641)
+    if issue.get("state") == "closed" and APPROVAL_LABEL in _labels(issue):
+        return []
+    return [f"#{number}: {error}" for error in issue_contract_errors(issue)]
+
+
+def validate_pr_event(event: Mapping[str, Any], client: PullRequestClient) -> list[str]:
+    """Validate PR traceability from branch, labels and closing references."""
     pull_request = event.get("pull_request") or {}
     actor = (pull_request.get("user") or {}).get("login", "")
     head_ref = (pull_request.get("head") or {}).get("ref", "")
     # Automated actors and catalog propagation branches do not follow the
     # issue-first contract: the traceability lives in the catalog
     # (DysTelefonica/team-skills), not in the consumer repo.
-    if actor in AUTOMATED_ACTORS or head_ref.startswith("skill-fleet/"):
+    if (
+        actor in AUTOMATED_ACTORS
+        or head_ref in _EXEMPT_HEADS
+        or head_ref.startswith(_EXEMPT_HEAD_PREFIXES)
+    ):
         return []
     repository = (event.get("repository") or {}).get("full_name", "")
     if not repository or "/" not in repository:
         return ["event does not identify repository.full_name"]
-    numbers = extract_closing_issue_numbers(pull_request.get("body") or "", repository)
-    if not numbers:
-        return ["PR body must close at least one approved issue"]
-    violations: list[str] = []
-    for number in numbers:
-        try:
-            issue = client.issue(repository, number)
-        except GitHubApiError as exc:
-            # Issue #952: a missing or unreadable issue is a contract
-            # violation to report, not a crash of the gate.
-            violations.append(f"#{number}: cannot read the issue ({exc})")
-            continue
-        if "pull_request" in issue:
-            violations.append(f"#{number}: reference resolves to a pull request")
-            continue
-        # Closed approved issues predate full section requirements (issue #641)
-        if issue.get("state") == "closed" and APPROVAL_LABEL in _labels(issue):
-            continue
-        violations.extend(f"#{number}: {error}" for error in issue_contract_errors(issue))
+    pr_number = pull_request.get("number")
+    if not isinstance(pr_number, int):
+        return ["event does not identify the pull request number"]
+    issue_number = _branch_issue_number(head_ref)
+    if issue_number is None:
+        return [
+            f"head branch {head_ref!r} must be <tipo>/<N>-<slug> so the gate can "
+            "identify the issue it traces to (AGENTS.md section 15.2)"
+        ]
+    violations = _branch_issue_errors(client, repository, issue_number)
+    if any("cannot read the issue" in violation for violation in violations):
+        return violations
+    try:
+        links = client.pull_request_links(repository, pr_number)
+    except GitHubApiError as exc:
+        return [*violations, f"PR #{pr_number}: cannot read the pull request links ({exc})"]
+    closes_branch_issue = issue_number in links.closing_issues
+    if CHAIN_PARTIAL_LABEL in links.labels and closes_branch_issue:
+        violations.append(
+            f"PR has {CHAIN_PARTIAL_LABEL} but GitHub would close #{issue_number} on merge: "
+            f"remove the closing keyword for #{issue_number} from the PR (use Refs) or drop "
+            f"the {CHAIN_PARTIAL_LABEL} label if this is the final slice"
+        )
+    elif CHAIN_PARTIAL_LABEL not in links.labels and not closes_branch_issue:
+        violations.append(
+            f"PR must close #{issue_number} (from branch {head_ref!r}): add 'Closes #{issue_number}' "
+            f"to the PR body, or label the PR {CHAIN_PARTIAL_LABEL} if it is an intermediate slice"
+        )
+    for other in links.closing_issues:
+        if other != issue_number:
+            violations.extend(_other_closing_errors(client, repository, other))
     return violations
 
 
