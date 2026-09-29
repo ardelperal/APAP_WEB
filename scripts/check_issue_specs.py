@@ -100,6 +100,16 @@ class GitHubApiError(RuntimeError):
         """Build an invalid issue-page payload error."""
         return cls("payload validation", f"issue page {page}")
 
+    @classmethod
+    def invalid_pull_request(cls, target: str) -> GitHubApiError:
+        """Build an invalid pull-request payload error."""
+        return cls("payload validation", target)
+
+    @classmethod
+    def pull_request_not_found(cls, target: str) -> GitHubApiError:
+        """Build a pull-request-not-found payload error."""
+        return cls("payload validation", target, "pull request not found")
+
 
 class FormLoadError(ValueError):
     """Raised when an issue form cannot be loaded as YAML."""
@@ -232,7 +242,7 @@ def parse_pull_request_links(payload: object, repository: str, number: int) -> P
     """Reduce a GraphQL response to the fields the gate reads."""
     target = f"{repository}#{number}"
     if not isinstance(payload, Mapping):
-        raise GitHubApiError("payload validation", target)
+        raise GitHubApiError.invalid_pull_request(target)
     if payload.get("errors"):
         raise GitHubApiError("graphql", target, payload["errors"])
     try:
@@ -240,7 +250,7 @@ def parse_pull_request_links(payload: object, repository: str, number: int) -> P
         label_nodes = pull_request["labels"]["nodes"]
         closing_nodes = pull_request["closingIssuesReferences"]["nodes"]
     except (KeyError, TypeError) as exc:
-        raise GitHubApiError("payload validation", target, "pull request not found") from exc
+        raise GitHubApiError.pull_request_not_found(target) from exc
     labels = frozenset(str(node["name"]) for node in label_nodes)
     # Cross-repository references cannot be validated against this repository.
     closing = sorted(
