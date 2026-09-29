@@ -35,7 +35,7 @@ pull request
 
 | Evento | Comportamiento |
 |---|---|
-| Pull request | Ejecuta los checks obligatorios. `e2e` corre solo cuando `ui-detection` marca cambio de UI en la revisión; con `ui_changed=false` el job se omite de forma explícita y `required` acepta ese skip únicamente porque el run lleva el marcador (issue #895). |
+| Pull request | Ejecuta los checks obligatorios sea cual sea la rama base (issue #933), incluidos los tramos de un PR encadenado. `e2e` corre solo cuando `ui-detection` marca cambio de UI en la revisión; con `ui_changed=false` el job se omite de forma explícita y `required` acepta ese skip únicamente porque el run lleva el marcador (issue #895). |
 | Push a `staging` | Mismo contrato de e2e que el pull request: corre solo si el diff contra `github.event.before` (con fallback al commit padre) declara cambio de UI (issue #895). |
 | Tag `v*` | Ejecuta controles profundos y la matriz de release; `e2e` debe terminar en `success` y el marcador de no-UI no lo exime. Desde el issue #1046 el tag ya no dispara `security-deep` (su skip es resultado aceptado del agregador). |
 | Push a `main` | Ejecuta `deploy.yml`; no reconstruye una segunda CI. |
