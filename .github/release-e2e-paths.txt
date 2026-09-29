@@ -1,0 +1,49 @@
+# Paths whose change requires the authenticated production e2e battery (issue #1131).
+# One glob per line; format documented in scripts/check_release_e2e_required.py.
+# tests/test_check_release_e2e_required.py asserts each pattern matches a tracked file.
+
+# Authentication: login flows, allow-list, cache and dependencies guarding every route.
+app/core/auth*.py
+app/core/adapters/auth_local/**
+app/core/adapters/local_backend/auth_*.py
+app/core/adapters/local_backend/oauth_*.py
+app/core/application/auth/**
+app/core/application/oauth/**
+app/core/domain/auth/**
+app/core/domain/oauth/**
+app/core/di/auth*.py
+app/core/di/oauth_di.py
+app/core/local_backend/auth_*.py
+app/core/local_backend/oauth_*.py
+app/core/ports/auth*.py
+app/core/ports/oauth_port.py
+
+# Session, CSRF and the OAuth state cookie.
+app/core/session.py
+app/core/csrf.py
+app/core/local_backend/state_cookie.py
+
+# Cross-cutting request pipeline: middleware order and rate limiting decide who gets in.
+app/core/middleware.py
+app/core/rate_limit*.py
+
+# Settings and secrets: feature flags, default-deny switches, cookie and secret handling.
+app/core/config.py
+
+# Database migrations run on deploy and can break every authenticated page.
+app/core/migration/**
+
+# E2E mock login route and the helpers the battery uses to sign in.
+app/core/e2e_auth.py
+scripts/e2e_login.py
+tests/e2e/conftest.py
+
+# Runtime wiring: the image and the Coolify deployment configuration.
+# Deliberately NOT listed: dependency pins (pyproject.toml, uv.lock) and the deploy workflow.
+# Dependabot bumps the pins often and each bump would demand the manual battery again, and a
+# workflow change does not alter what the application does (issue #1131 keeps the list to
+# authentication, session, migrations, secrets and CSRF plus the runtime wiring).
+Dockerfile
+docker-compose.yml
+coolify/**
+scripts/coolify_webhook.py

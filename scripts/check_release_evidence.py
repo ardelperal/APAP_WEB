@@ -14,7 +14,9 @@ exactly the requested SHA is a refusal, and the message always names that SHA.
 Usage::
 
     gh api repos/OWNER/REPO/commits/SHA/status | \\
-        python scripts/check_release_evidence.py --sha SHA
+        python scripts/check_release_evidence.py --sha SHA [--context CONTEXT]
+
+``--context`` selects the commit-status context (default ``release/e2e-production``).
 
 The payload is the combined-status document (``{"sha": ..., "statuses": [...]}``).
 
@@ -57,24 +59,29 @@ def _refuse(code: str, message: str) -> Verdict:
     return Verdict(ok=False, code=code, message=message)
 
 
-def _latest_status(statuses: Sequence[object]) -> Mapping[str, object] | None:
-    """Return the newest status for the evidence context, or None.
+def _latest_status(
+    statuses: Sequence[object], context: str = STATUS_CONTEXT
+) -> Mapping[str, object] | None:
+    """Return the newest status for ``context``, or None.
 
     The GitHub API lists newest first; ``created_at`` breaks ties explicitly so
     the decision does not depend on the ordering of the payload.
     """
     matching = [
-        item
-        for item in statuses
-        if isinstance(item, Mapping) and item.get("context") == STATUS_CONTEXT
+        item for item in statuses if isinstance(item, Mapping) and item.get("context") == context
     ]
     if not matching:
         return None
     return max(matching, key=lambda item: str(item.get("created_at", "")))
 
 
-def evaluate(payload: object, sha: str) -> Verdict:
-    """Decide whether ``payload`` holds valid production e2e evidence for ``sha``."""
+def evaluate(payload: object, sha: str, context: str = STATUS_CONTEXT) -> Verdict:
+    """Decide whether ``payload`` holds valid evidence in ``context`` for ``sha``.
+
+    ``context`` defaults to the production e2e context; slice 2 of issue #1131
+    reuses the same fail-closed logic for ``release/smoke-production``. Statuses
+    of any other context are ignored.
+    """
     if not isinstance(payload, Mapping):
         return _refuse("malformed", f"statuses payload for {sha} is not a JSON object.")
     payload_sha = payload.get("sha")
@@ -83,34 +90,34 @@ def evaluate(payload: object, sha: str) -> Verdict:
             "wrong-sha",
             f"evidence is bound to {payload_sha!r}, not to the revision {sha}; "
             f"evidence for one revision never approves another. Record "
-            f"{STATUS_CONTEXT} on {sha} per {RUNBOOK}.",
+            f"{context} on {sha} per {RUNBOOK}.",
         )
     statuses = payload.get("statuses")
     if not isinstance(statuses, list):
         return _refuse("malformed", f"statuses payload for {sha} has no statuses list.")
 
-    latest = _latest_status(statuses)
+    latest = _latest_status(statuses, context)
     if latest is None:
         return _refuse(
             "absent",
-            f"no {STATUS_CONTEXT} status recorded for {sha}. Validate production "
+            f"no {context} status recorded for {sha}. Validate production "
             f"and record the verdict on that SHA per {RUNBOOK}.",
         )
 
     state = latest.get("state")
     description = str(latest.get("description") or "").strip()
     if state not in KNOWN_STATES:
-        return _refuse("malformed", f"{STATUS_CONTEXT} on {sha} has unknown state {state!r}.")
+        return _refuse("malformed", f"{context} on {sha} has unknown state {state!r}.")
     if state == "pending":
         return _refuse(
             "pending",
-            f"{STATUS_CONTEXT} on {sha} is still pending: production validation "
+            f"{context} on {sha} is still pending: production validation "
             f"has not been recorded. Follow {RUNBOOK}.",
         )
     if state in {"failure", "error"}:
         return _refuse(
             "failure",
-            f"{STATUS_CONTEXT} on {sha} is {state}: the revision failed production "
+            f"{context} on {sha} is {state}: the revision failed production "
             f"validation. Fix forward or roll back per {ROLLBACK_RUNBOOK}.",
         )
     if description.startswith(BYPASS_PREFIX):
@@ -140,6 +147,11 @@ def main(argv: list[str] | None = None) -> int:
     _pin_output_encoding()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--sha", required=True, help="revision the evidence must be bound to")
+    parser.add_argument(
+        "--context",
+        default=STATUS_CONTEXT,
+        help=f"commit-status context to evaluate (default: {STATUS_CONTEXT})",
+    )
     try:
         args = parser.parse_args(argv)
     except SystemExit:
@@ -150,7 +162,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"::error::statuses input is not valid JSON: {error}")
         return EXIT_USAGE_ERROR
 
-    verdict = evaluate(payload, args.sha)
+    verdict = evaluate(payload, args.sha, args.context)
     if verdict.ok:
         print(f"::notice::{verdict.message}")
         return EXIT_OK
