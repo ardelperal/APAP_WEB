@@ -16,14 +16,16 @@ Usage::
     gh api repos/OWNER/REPO/commits/SHA/status | \\
         python scripts/check_release_evidence.py --sha SHA [--context CONTEXT]
 
-``--context`` selects the commit-status context (default ``release/e2e-production``).
+``--context`` selects the commit-status context (default ``release/e2e-production``;
+the only other accepted value is ``release/smoke-production``, anything else is a
+usage error).
 
 The payload is the combined-status document (``{"sha": ..., "statuses": [...]}``).
 
 Exit codes:
     0 - valid evidence (success or a bypass with a reason) for the SHA
     1 - evidence missing, pending, failed, or bound to another SHA
-    2 - usage error or unreadable JSON input
+    2 - usage error (including an unknown --context) or unreadable JSON input
 
 Tests: ``tests/test_check_release_evidence.py``.
 """
@@ -37,6 +39,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 STATUS_CONTEXT = "release/e2e-production"
+SMOKE_CONTEXT = "release/smoke-production"
+#: Closed allow-list for ``--context``: a typo must be a usage error, never an
+#: "absent" verdict that reads like missing evidence.
+ALLOWED_CONTEXTS = frozenset({STATUS_CONTEXT, SMOKE_CONTEXT})
 BYPASS_PREFIX = "skipped:"
 EXIT_OK = 0
 EXIT_REFUSED = 1
@@ -150,6 +156,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--context",
         default=STATUS_CONTEXT,
+        choices=sorted(ALLOWED_CONTEXTS),
         help=f"commit-status context to evaluate (default: {STATUS_CONTEXT})",
     )
     try:

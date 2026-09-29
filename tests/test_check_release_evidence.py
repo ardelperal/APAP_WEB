@@ -212,3 +212,25 @@ def test_cli_context_flag(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(sys, "stdin", io.StringIO(body))
     assert cre.main(["--sha", SHA]) == 1
+
+
+def test_cli_accepts_only_the_two_known_contexts(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The CLI context is a closed allow-list: a typo must not read as 'absent'."""
+    payload = json.dumps(_payload(_status("success", context=SMOKE)))
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
+    assert cre.main(["--sha", SHA, "--context", SMOKE]) == 0
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(_payload(_status("success")))))
+    assert cre.main(["--sha", SHA, "--context", CTX]) == 0
+
+    for bad in ("release/smoke-prod", "ci / required", ""):
+        monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
+        assert cre.main(["--sha", SHA, "--context", bad]) == cre.EXIT_USAGE_ERROR
+    capsys.readouterr()
+
+
+def test_allowed_contexts_are_exactly_the_two_release_statuses() -> None:
+    assert frozenset({CTX, SMOKE}) == cre.ALLOWED_CONTEXTS

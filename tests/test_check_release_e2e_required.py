@@ -230,3 +230,26 @@ def test_real_pattern_file_selects_the_auth_surface_and_skips_docs() -> None:
 
     assert cer.matching_files(["app/core/csrf.py", "app/core/session.py"], patterns)
     assert cer.matching_files(["docs/roadmap.md", "README.md"], patterns) == []
+
+
+def test_rename_reports_both_the_old_and_the_new_path(repo: Path) -> None:
+    """A sensitive file renamed out of its pattern must still be selected.
+
+    ``git diff --name-only`` collapses a rename to the new path by default;
+    ``--no-renames`` keeps the old path so leaving a sensitive surface counts.
+    """
+    (repo / "app" / "core").mkdir(parents=True)
+    (repo / "app" / "core" / "csrf.py").write_text("token", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "add sensitive file")
+    base = _git(repo, "rev-parse", "HEAD")
+    (repo / "misc").mkdir()
+    _git(repo, "mv", "app/core/csrf.py", "misc/csrf.py")
+    _git(repo, "commit", "-q", "-m", "move it out of the sensitive surface")
+    head = _git(repo, "rev-parse", "HEAD")
+
+    files = cer.changed_files_from_git(base, head, cwd=repo)
+
+    assert "app/core/csrf.py" in files
+    assert "misc/csrf.py" in files
+    assert cer.matching_files(files, ["app/core/*.py"]) == ["app/core/csrf.py"]
