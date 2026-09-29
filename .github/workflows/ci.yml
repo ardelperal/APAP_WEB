@@ -70,10 +70,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     # Issue #879: the only job that calls the GitHub API for issue data,
-    # so it is the only one that keeps `issues: read`.
+    # so it is the only one that keeps `issues: read`. Issue #956: it also
+    # reads the PR's labels and `closingIssuesReferences` through GraphQL,
+    # which needs `pull-requests: read` (read-only, no write scope).
     permissions:
       contents: read
       issues: read
+      pull-requests: read
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -85,7 +88,7 @@ jobs:
         with:
           python-version: "3.12.11"
 
-      - name: Validate linked issue specifications
+      - name: Validate PR traceability (branch, labels, closing references)
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python scripts/check_issue_specs.py pr-event "$GITHUB_EVENT_PATH"
