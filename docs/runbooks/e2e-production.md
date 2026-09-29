@@ -92,6 +92,18 @@ required; every server-side action goes through the Coolify API.
 
 5. **Target reachable.** `https://apap.romancaba.com/healthz` reports the
    revision under validation before starting.
+6. **Default E2E user seeded in the database (issue #1073).** The login
+   endpoint resolves the target email against `usuarios_autorizados` —
+   the DB is the single allowlist and the role is READ FROM THE DATABASE.
+   `e2e@apap.local` (rol `developer`) is confirmed seeded in production;
+   verify it before a gate run if the user table was touched:
+
+   ```bash
+   psql "${APAP_LOCAL_DB_URL}" -c \
+     "SELECT email, rol, activo FROM usuarios_autorizados WHERE email = 'e2e@apap.local'"
+   ```
+
+   Without that row, Step 3 mints fail with `400` and the gate cannot run.
 
 ## Step 1 — Turn the e2e auth flag on (Coolify API)
 
@@ -146,6 +158,11 @@ curl -sS -o /dev/null -w '%{http_code}\n' "${APAP_E2E_BASE_URL}/e2e/login"
 - `404` — the flag did not take effect. Re-check the env edit and the
   restart; do not continue.
 
+A valid secret with an email that is NOT an active `usuarios_autorizados`
+row answers `400` (audited, issue #1073) — the endpoint no longer accepts
+arbitrary emails, and the `X-E2E-Email` request header is ignored (the
+target comes from `?email=` or the configured default only).
+
 The endpoint is audited and rate-limited (issue #904): every mint attempt
 writes an audit entry. Mint once per suite run, not in a loop.
 
@@ -170,9 +187,17 @@ Contract of the helper (issue #906):
 - Exit 0 means the `apap_session` cookie was minted and persisted; exit 1
   with a message on stderr means login or transport failure.
 
-The minted session mirrors the OAuth callback payload (role `developer`)
-and pre-populates the in-process auth cache, so it does not depend on the
-`usuarios_autorizados` seed.
+The minted session mirrors the OAuth callback payload shape, but the role
+and user id come from the `usuarios_autorizados` row (issue #1073) — the
+endpoint never hardcodes or elevates a role. Only the configured default
+email or an email that already exists as an ACTIVE `usuarios_autorizados`
+row is accepted; anything else answers `400` and seeds nothing. The login
+no longer pre-populates the in-process auth cache: the first authorized
+request revalidates against the DB (single cache writer,
+`require_authorized_user`), so the seed row above is REQUIRED, not
+optional. Note that `e2e_auth_secret` shorter than 32 chars now fails
+application startup when the mock is enabled (issue #1073); production's
+64-hex secret is unaffected.
 
 ## Step 4 — Run the gate suites
 

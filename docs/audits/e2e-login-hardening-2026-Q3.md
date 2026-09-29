@@ -80,6 +80,18 @@ Out of scope: the session minting performed by `app/core/session.py` (unchanged)
 - **No IP allowlist.** An allowlist restricting `/e2e/login` to known runner IPs is recorded as optional future hardening; the rate limit and the secret were chosen as the #904 scope.
 - **Rotation runbook pending.** Secret rotation currently relies on the sub-issue #907 runbook (#905) landing before the gate is used for a real release cycle.
 
+## Post-audit hardening — issue #1073 (2026-09-28)
+
+The residual "no IP allowlist" item above is superseded by a stronger control landed by issue #1073 (with #904 and #1065 as ancestors): the endpoint no longer trusts any caller-supplied email.
+
+1. **Allowlist restricted to fixed + authorized users.** `/e2e/login` now accepts ONLY (a) `Settings.e2e_auth_default_email` or (b) an email that exists as an ACTIVE row in `usuarios_autorizados` — in both cases resolving through the same `get_user_by_email` seam `require_authorized_user` revalidates through. Any other email answers `400` with an audited `invalid_request` entry and seeds nothing into the auth cache. The endpoint never hardcodes or elevates a role.
+2. **DB-role seeding replaces cache poisoning.** The login no longer calls `set_cached_auth` with a hardcoded `developer` verdict (the old behaviour minted a session whose role could diverge from the DB). The minted cookie carries the role READ FROM THE DATABASE, and `require_authorized_user` stays the single cache writer, so no cache entry can hold a role that differs from `usuarios_autorizados`. The mock now REQUIRES its target user to be seeded: `e2e@apap.local` (rol `developer`) is confirmed seeded in production, and the CI smoke harness seeds it into the ephemeral Postgres (`tests/e2e_ci/conftest.py`).
+3. **Startup validation of `e2e_auth_secret`.** When `e2e_auth_enabled=True` and the secret is shorter than 32 characters (empty included), `_validate_secrets` raises `StartupConfigError(env_var="APAP_E2E_AUTH_SECRET", reason="too_short")` — mirroring the `APAP_SESSION_SECRET` check; `debug=True` bypasses. The runtime 503 for an empty secret remains as defense-in-depth. Production's 64-hex secret is unaffected.
+4. **Fail-closed DB lookup.** A `usuarios_autorizados` lookup failure (or a missing executor) answers `503` with an audited `server_misconfigured` entry — the endpoint never mints a session it could not verify.
+5. **`X-E2E-Email` header.** The header some CI fixtures send is ignored (documented in the handler docstring and `docs/runbooks/e2e-production.md`); the target comes from `?email=` or the configured default only.
+
+Verified by the new tests in `tests/test_e2e_auth.py` (DB-role minting, second-session real-role via `require_authorized_user`, unknown-email 400 + empty cache, default-email through the DB, DB-failure 503, no-cache-seeding policy) and `tests/test_startup_config_validation.py` (31/32/33 boundary, disabled-flag and debug bypasses, log payload without the secret value). Runbook: `docs/runbooks/e2e-production.md` (precondition 6 and Step 2/3 contract).
+
 ## References
 
 - `app/core/e2e_auth.py` (`_secret_matches`, `_origin_ip`, `_audit_attempt`, `_cap_target_email`, `AUDIT_TARGET_EMAIL_MAX_LEN`, `register_e2e_auth_routes`).
