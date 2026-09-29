@@ -60,6 +60,15 @@ def _executor_with_user(user: dict[str, object] | None) -> HandlerSqlExecutor:
     return HandlerSqlExecutor(handler)
 
 
+def _executor_failing() -> HandlerSqlExecutor:
+    """Return an executor whose every query fails (DB unreachable)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"error": "db down"})
+
+    return HandlerSqlExecutor(handler)
+
+
 def _e2e_settings(**overrides: object) -> Settings:
     """Build an enabled Settings for the mock route with a usable session secret."""
     base: dict[str, object] = {
@@ -266,6 +275,181 @@ def test_happy_path_mints_session_with_the_db_role(
     assert decoded["rol"] == "reader"
     assert decoded["user_id"] == "u-vol-1"
     assert decoded["is_authorized"] is True
+
+
+def test_login_does_not_seed_the_auth_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #1073 decision: the mock no longer writes the auth cache.
+
+    ``require_authorized_user`` is the single cache writer and revalidates
+    against the DB on the first authorized request, so no cache entry can
+    ever hold a role that differs from ``usuarios_autorizados``. The login
+    endpoint therefore seeds NOTHING — pinned here so the old
+    ``set_cached_auth(..., rol='developer')`` poisoning cannot return.
+    """
+    user = {
+        "id": "u-vol-1",
+        "email": "vol@apap.local",
+        "rol": "reader",
+        "activo": True,
+    }
+    app = _build_app(_e2e_settings(), _executor_with_user(user))
+    client = TestClient(app)
+
+    response = client.get(
+        "/e2e/login?email=vol@apap.local",
+        headers={"X-E2E-Secret": SECRET},
+    )
+
+    assert response.status_code == 200
+    assert get_cached_auth("vol@apap.local", ttl_seconds=300) is None
+
+
+def test_second_session_sees_the_real_role_via_require_authorized_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #1073 acceptance: another session for the same email sees the REAL role.
+
+    After ``/e2e/login?email=<seeded reader>``, a separate request
+    (new browser session, same email) must be authorized with the role
+    read from ``usuarios_autorizados`` — today the poisoned cache makes
+    ``require_authorized_user`` answer ``developer``.
+    """
+    user = {
+        "id": "u-vol-1",
+        "email": "vol@apap.local",
+        "rol": "reader",
+        "activo": True,
+    }
+    app = _build_app(_e2e_settings(), _executor_with_user(user))
+    client = TestClient(app)
+
+    login = client.get(
+        "/e2e/login?email=vol@apap.local",
+        headers={"X-E2E-Secret": SECRET},
+    )
+    assert login.status_code == 200
+
+    # A second, independent request for the same email (no shared
+    # login state beyond the DB) resolves the REAL role.
+    probe = client.get("/e2e-probe", follow_redirects=False)
+    assert probe.status_code == 200, probe.text
+    assert probe.json()["rol"] == "reader"
+
+    # Whatever the cache now holds, it must agree with the DB row.
+    cached = get_cached_auth("vol@apap.local", ttl_seconds=300)
+    assert cached is not None
+    assert cached.is_authorized is True
+    assert cached.rol == "reader"
+
+
+def test_unknown_email_returns_400_audited_and_seeds_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #1073 RED-2: an email NOT in usuarios_autorizados is rejected.
+
+    The allowlist contract: only the default email (when configured) or
+    an existing ``usuarios_autorizados`` row may mint a session. Today
+    the endpoint answers 200 and poisons the cache with a developer
+    verdict for the unknown email — both must become impossible.
+    """
+    app = _build_app(_e2e_settings(), _executor_with_user(None))
+    client = TestClient(app)
+
+    with caplog.at_level(logging.INFO, logger="app"):
+        response = client.get(
+            "/e2e/login?email=ghost@apap.local",
+            headers={"X-E2E-Secret": SECRET},
+        )
+
+    assert response.status_code == 400
+    audit_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "_caller_fields", {}).get("event") == "e2e.login"
+    ]
+    assert len(audit_records) == 1, "expected exactly one audit entry on the 400"
+    fields = audit_records[0]._caller_fields
+    assert fields["outcome"] == "invalid_request"
+    assert fields["target_email"] == "ghost@apap.local"
+    # Nothing may be seeded into the auth cache for a rejected email.
+    assert get_cached_auth("ghost@apap.local", ttl_seconds=300) is None
+
+
+def test_default_email_must_also_exist_in_usuarios_autorizados(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #1073: the default email is allowlisted through the DB too.
+
+    Without ``?email=`` the route falls back to
+    ``e2e_auth_default_email``, but that email must still exist as an
+    active ``usuarios_autorizados`` row — the DB is the single
+    allowlist. An empty table rejects the login (400) and seeds nothing.
+    """
+    app = _build_app(_e2e_settings(), _executor_with_user(None))
+    client = TestClient(app)
+
+    response = client.get("/e2e/login", headers={"X-E2E-Secret": SECRET})
+
+    assert response.status_code == 400
+    assert get_cached_auth("e2e@apap.local", ttl_seconds=300) is None
+
+
+def test_default_email_login_mints_the_db_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression guard: the default-email login still works end to end.
+
+    Production seeds ``e2e@apap.local`` (rol developer) in
+    ``usuarios_autorizados`` (issue #1073 runbook note); the minted
+    session must carry that DB-read role.
+    """
+    user = {
+        "id": "u-e2e-default",
+        "email": "e2e@apap.local",
+        "rol": "developer",
+        "activo": True,
+    }
+    app = _build_app(_e2e_settings(), _executor_with_user(user))
+    client = TestClient(app)
+
+    response = client.get("/e2e/login", headers={"X-E2E-Secret": SECRET})
+
+    assert response.status_code == 200
+    assert response.json()["email"] == "e2e@apap.local"
+    assert response.json()["rol"] == "developer"
+
+
+def test_db_failure_returns_503_audited(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A DB failure during the allowlist lookup is a 503, audited.
+
+    The endpoint must never mint a session when it cannot verify the
+    email against ``usuarios_autorizados`` (fail closed).
+    """
+    app = _build_app(_e2e_settings(), _executor_failing())
+    client = TestClient(app)
+
+    with caplog.at_level(logging.INFO, logger="app"):
+        response = client.get(
+            "/e2e/login?email=vol@apap.local",
+            headers={"X-E2E-Secret": SECRET},
+        )
+
+    assert response.status_code == 503
+    audit_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "_caller_fields", {}).get("event") == "e2e.login"
+    ]
+    assert len(audit_records) == 1
+    assert audit_records[0]._caller_fields["outcome"] == "server_misconfigured"
+    # No session cookie may be minted.
+    assert session_cookie_name() not in response.cookies
 
 
 def test_debug_e2e_cookie_can_be_sent_over_loopback_http() -> None:
