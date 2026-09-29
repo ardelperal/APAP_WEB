@@ -81,6 +81,10 @@ Con `N > 1` workers o réplicas, sin backend compartido:
 
 Regla operativa: **no escale a varios workers sin migrar antes el almacén de estados a un backend compartido** (p. ej. la misma Postgres que ya usa el `MagicLinkPortImpl`, con TTL y borrado atómico). El escalado de la caché de auth con TTL cero no autoriza por sí solo el escalado del flujo magic-link.
 
+### Limitación conocida: single-binding por navegador (refs #1004, #1081)
+
+El estado viaja en la cookie `apap_magic_state`, que mantiene un único binding por navegador. Un nuevo `POST /auth/magic/start` sobrescribe la cookie y, con ello, invalida los enlaces mágicos anteriores emitidos a ese navegador y aún no abiertos: solo el último enlace es verificable. Esto es el binding único funcionando según diseño (fail-closed); no hay cambio de comportamiento que aplicar.
+
 ## Verificación
 
 1. Confirme que el despliegue está sano:
