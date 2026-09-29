@@ -128,8 +128,16 @@ def evaluate(payload: object, sha: str) -> Verdict:
     )
 
 
+def _pin_output_encoding() -> None:
+    """Pin stdout/stderr to UTF-8: output must not depend on the locale (issue #488)."""
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
     """Read a combined-status JSON document from stdin and print the verdict."""
+    _pin_output_encoding()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--sha", required=True, help="revision the evidence must be bound to")
     try:
