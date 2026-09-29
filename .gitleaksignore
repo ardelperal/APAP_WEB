@@ -111,3 +111,5 @@ bacd2f4fb45ebbef4ae8c0b8ef753de62c06d573:tests/integration/test_magic_link_state
 # of the magic-link state binding; the file itself was deleted from the
 # tree in that commit (state now travels in a cookie). Historical-only.
 01de084620a68d38ee62f6b4d3adf9ff17a793e1:tests/integration/test_magic_link_state.py:generic-api-key:334
+tests/integration/test_magic_link_state.py:generic-api-key:74
+tests/integration/test_magic_link_state.py:generic-api-key:334
