@@ -18,7 +18,7 @@ from collections.abc import Iterator
 
 import httpx
 import pytest
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from app.core.auth_cache import (
@@ -29,6 +29,7 @@ from app.core.config import (
     Settings,
     get_settings,
 )
+from app.core.di.auth_dependencies_session_di import require_authorized_user
 from app.core.e2e_auth import (
     register_e2e_auth_routes,
 )
@@ -77,13 +78,27 @@ def _e2e_settings(**overrides: object) -> Settings:
 
 
 def _build_app(settings: Settings, executor: object) -> FastAPI:
-    """Register the mock route on a bare app."""
+    """Register the mock route (and an auth probe) on a bare app.
+
+    The probe route runs the real ``require_authorized_user`` dependency
+    so tests can assert what a SECOND session for the same email sees
+    after the login — the issue #1073 acceptance criterion.
+    """
+    import app.core.di.auth_dependencies_session_di as di_module
     import app.core.e2e_auth as e2e_module
 
     e2e_module.get_settings = lambda: settings
+    # The probe route runs the real ``require_authorized_user``, which
+    # reads settings through the DI module's seam — point it at the
+    # same test settings so the session secret matches the minted cookie.
+    di_module.get_settings = lambda: settings
     app = FastAPI()
     app.state.sql_executor = executor
     register_e2e_auth_routes(app)
+
+    @app.get("/e2e-probe")
+    def _probe(user: object = Depends(require_authorized_user)) -> object:
+        return user
 
     return app
 
@@ -224,28 +239,26 @@ def test_route_rejects_wrong_secret_header(
 def test_happy_path_mints_session_with_the_db_role(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Valid secret + allowlisted email mints a session carrying the DB role.
+    """Issue #1073: a seeded user's session carries the DB role, never 'developer'.
 
-    Minimal variant: the full rewrite (cookie/CSRF/probe assertions) lands
-    in the contract-test branch; this keeps the happy path pinned here.
+    The endpoint reads the role from ``usuarios_autorizados`` (the same
+    ``get_user_by_email`` seam ``require_authorized_user`` uses). A user
+    seeded with a non-developer role must get that role in the response
+    JSON, in the signed cookie and (therefore) in every downstream
+    authorization decision.
     """
-    import app.core.e2e_auth as e2e_module
-
-    e2e_module.get_settings = lambda: Settings(
-        e2e_auth_enabled=True,
-        e2e_auth_secret="test-secret",
-        session_secret="test-session-secret-for-mock",
-    )
-    app = FastAPI()
-    app.state.sql_executor = _executor_with_user(
-        {"id": "u-vol-1", "email": "vol@apap.local", "rol": "reader", "activo": True}
-    )
-    register_e2e_auth_routes(app)
+    user = {
+        "id": "u-vol-1",
+        "email": "vol@apap.local",
+        "rol": "reader",
+        "activo": True,
+    }
+    app = _build_app(_e2e_settings(), _executor_with_user(user))
     client = TestClient(app)
 
     response = client.get(
         "/e2e/login?email=vol@apap.local",
-        headers={"X-E2E-Secret": "test-secret"},
+        headers={"X-E2E-Secret": SECRET},
     )
 
     assert response.status_code == 200
@@ -256,16 +269,17 @@ def test_happy_path_mints_session_with_the_db_role(
     assert payload["rol"] == "reader"
     assert len(payload["csrf_token"]) >= 32
 
+    # Cookie set with the production-compatible shape, carrying the
+    # DB role (not the legacy hardcoded mock role).
     cookie_name = session_cookie_name()
     assert cookie_name in response.cookies
-    decoded = read_session(
-        response.cookies[cookie_name], secret="test-session-secret-for-mock"
-    )
+    decoded = read_session(response.cookies[cookie_name], secret=SESSION_SECRET)
     assert decoded is not None
     assert decoded["email"] == "vol@apap.local"
     assert decoded["rol"] == "reader"
     assert decoded["user_id"] == "u-vol-1"
     assert decoded["is_authorized"] is True
+    assert decoded["csrf_token"] == payload["csrf_token"]
 
 
 def test_login_does_not_seed_the_auth_cache(
