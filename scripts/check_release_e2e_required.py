@@ -123,6 +123,16 @@ def _pin_output_encoding() -> None:
         sys.stderr.reconfigure(encoding="utf-8")
 
 
+def _stdin_files() -> list[str]:
+    """Read the changed-file list from stdin; an unreadable stream must fail closed."""
+    try:
+        text = sys.stdin.read()
+    except (OSError, UnicodeDecodeError) as error:
+        reason = f"cannot read the changed-file list from stdin: {error}"
+        raise SelectorError(reason) from error
+    return [line.strip() for line in text.splitlines() if line.strip()]
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--base", help="base revision of the deployed range")
@@ -156,11 +166,7 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_USAGE_ERROR
     try:
         patterns = load_patterns(args.patterns)
-        files = (
-            [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]
-            if args.stdin
-            else changed_files_from_git(args.base, args.head)
-        )
+        files = _stdin_files() if args.stdin else changed_files_from_git(args.base, args.head)
     except SelectorError as error:
         print(f"::notice::e2e required: cannot decide, failing closed ({error})")
         return EXIT_REQUIRED

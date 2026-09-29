@@ -152,6 +152,35 @@ def test_unreadable_pattern_file_fails_closed(
     assert "required" in capsys.readouterr().out.lower()
 
 
+class _BrokenPipeStdin:
+    """A stdin whose producer died mid-stream, as when `git diff | selector` is killed."""
+
+    def read(self) -> str:
+        raise BrokenPipeError("upstream process closed the pipe")
+
+
+@pytest.mark.parametrize(
+    "stdin",
+    [
+        io.TextIOWrapper(io.BytesIO(b"docs/a.md\n\xff\xfe\n"), encoding="utf-8"),
+        _BrokenPipeStdin(),
+    ],
+    ids=["non-utf8-bytes", "broken-pipe"],
+)
+def test_unreadable_stdin_fails_closed_with_the_documented_exit_code(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    stdin: object,
+) -> None:
+    """A stdin read failure must exit 10, not crash with a traceback and exit 1."""
+    monkeypatch.setattr(sys, "stdin", stdin)
+    patterns = _write(tmp_path, "app/core/auth.py\n")
+
+    assert cer.main(["--stdin", "--patterns", str(patterns)]) == 10
+    assert "cannot read the changed-file list from stdin" in capsys.readouterr().out
+
+
 def test_git_failure_fails_closed_in_cli(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
