@@ -125,13 +125,31 @@ compartido vive en [`.github/actions/setup-python`](../../.github/actions/setup-
 El deploy construye una imagen ARM64 candidata. Publica el digest con `SBOM` y
 provenance, escanea ese digest y ejecuta el smoke sobre esos mismos bytes.
 `deploy.yml` separa la prueba `evidence` de la ejecución privilegiada `deploy`.
-El job `release-e2e-gate` ancla la validación e2e de producción al proceso de
-release: falla si la variable de repositorio `APAP_E2E_GATE_EVIDENCE` no
-registra la evidencia del runbook
-[e2e-production](../runbooks/e2e-production.md). El operador debe sustituir el
-valor de la variable en cada release (o registrar
-`APAP_E2E_GATE_EVIDENCE=skipped:<motivo>` como bypass auditable); el gate
-garantiza que la evidencia quedó registrada, no su frescura por release.
+El job `release-e2e-record` (issue #1082) ancla la validación e2e de
+producción a la revisión desplegada. La validación del runbook
+[e2e-production](../runbooks/e2e-production.md) se ejecuta *después* del
+deploy, de modo que el job depende de `deploy`, corre solo si este termina en
+`success` y marca el estado de commit `release/e2e-production` como `pending`
+sobre esa SHA. Solo tiene `statuses: write` y `contents: read`, no ejecuta
+ninguna suite e2e y no usa secretos más allá del token del job. A
+continuación el operador registra el veredicto sobre la misma SHA mediante la
+API de estados: `success` con la URL de la ejecución, `failure` (que conduce al
+rollback por digest de [deploy-rollback](../runbooks/deploy-rollback.md)) o un
+bypass auditable, que es un `success` con descripción `skipped:<motivo>`. La
+evidencia de una revisión nunca aprueba otra y el bypass vale para una sola
+SHA. `scripts/check_release_evidence.py` evalúa el estado y falla cerrado con
+un mensaje que nombra la SHA. La variable `APAP_E2E_GATE_EVIDENCE` ya no existe.
+
+El job `release-e2e-gate` bloquea el deploy siguiente según ese veredicto:
+localiza la revisión desplegada previamente (la SHA del último run exitoso de
+`deploy.yml` en `main`, excluyendo el run actual), consulta su estado
+combinado y lo evalúa con `scripts/check_release_evidence.py`. Un veredicto
+`pending`, `failure` o ausente, o cualquier error de API, falla cerrado y
+bloquea el deploy hasta que el operador haga rollback o registre `success` o
+un bypass sobre esa SHA. Sin deploy previo pasa con un aviso. Solo tiene
+permisos de lectura y no usa secretos. Como `460c56f1...` no tiene estado, el
+primer deploy tras el merge exige registrar `success` o
+`skipped:<motivo>` sobre esa SHA.
 
 El job `ui-e2e-gate` (issue #895) bloquea el despliegue de una revisión
 que declara cambio de UI sin evidencia e2e de esa misma revisión:
