@@ -5,10 +5,10 @@ the production code path keeps returning 503 from ``/login`` and
 ``/auth/google`` because the route is conditional. These tests
 exercise the conditional behaviour and the gated route itself.
 
-The in-process auth cache (``app.core.auth_cache.set_cached_auth``) is
-asserted to be pre-populated by the mock — that's what lets the very
-next request from the same browser context pass
-``require_authorized_user`` without a DB round-trip.
+The mock does NOT seed the in-process auth cache (issue #1073):
+``require_authorized_user`` is its single writer and revalidates
+against ``usuarios_autorizados`` on the first authorized request, so
+the tests below assert the cache stays empty right after the login.
 """
 from __future__ import annotations
 
