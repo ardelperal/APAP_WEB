@@ -22,6 +22,7 @@ focused write thread with issue #1004) so the router stays within its
 """
 from __future__ import annotations
 
+import hashlib
 import hmac
 
 from starlette.requests import Request
@@ -48,11 +49,19 @@ def state_cookie_matches(request: Request, url_state: str | None) -> bool:
     closed WITHOUT consuming the server-side binding, so a user whose
     browser legitimately dropped the cookie still gets the no-oracle
     redirect and nothing else is burned.
+
+    Both halves are compared as SHA-256 hex digests (the same pattern
+    as the token-hash comparison in ``magic_link``):
+    ``hmac.compare_digest`` raises ``TypeError`` on non-ASCII ``str``
+    inputs, and cookie values are attacker-controlled, so a non-ASCII
+    value must mismatch fail-closed — never raise.
     """
     cookie_state = request.cookies.get(MAGIC_STATE_COOKIE_NAME)
     if url_state is None or cookie_state is None:
         return False
-    return hmac.compare_digest(url_state, cookie_state)
+    url_digest = hashlib.sha256(url_state.encode()).hexdigest()
+    cookie_digest = hashlib.sha256(cookie_state.encode()).hexdigest()
+    return hmac.compare_digest(url_digest, cookie_digest)
 
 
 def set_state_cookie(response: Response, value: str, max_age: int) -> None:

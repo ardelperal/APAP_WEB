@@ -54,6 +54,20 @@ class TestStateCookieMatches:
         request = _request_with_cookie(f"{MAGIC_STATE_COOKIE_NAME}=s3cr3t")
         assert state_cookie_matches(request, "other") is False
 
+    def test_non_ascii_cookie_value_fails_closed_without_raising(self) -> None:
+        # Regression (Judgment Day round 1, issue #1081): cookie values
+        # are attacker-controlled, and hmac.compare_digest raises
+        # TypeError on non-ASCII str. The comparison must mismatch
+        # fail-closed, never raise.
+        request = _request_with_cookie(f"{MAGIC_STATE_COOKIE_NAME}=señal")
+        assert state_cookie_matches(request, "s3cr3t") is False
+
+    def test_non_ascii_url_state_fails_closed_without_raising(self) -> None:
+        # Regression (Judgment Day round 1, issue #1081): non-ASCII on
+        # the URL-state half must also mismatch fail-closed.
+        request = _request_with_cookie(f"{MAGIC_STATE_COOKIE_NAME}=s3cr3t")
+        assert state_cookie_matches(request, "señal") is False
+
 
 class TestSetAndExpireStateCookie:
     """Cookie flags set by /start and the expiry emitted on success."""
