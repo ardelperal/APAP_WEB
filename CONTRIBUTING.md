@@ -238,8 +238,11 @@ de ejecución.
 1. **Issue aprobada y con spec completa.** El gate `issue-spec` valida el cuerpo
    de la issue enlazada, no el de la PR: debe declarar las secciones «Problema y
    contexto», «Evidencia verificable», «Alcance y no objetivos», «Plan de
-   validación» y «Dependencias y riesgos», tener `status:approved` y la PR debe
-   referenciarla con `Closes #N` fuera de bloques de código. Una issue sin estas
+   validación» y «Dependencias y riesgos», tener `status:approved`, y el número
+   de la issue debe ir en la rama (`<tipo>/<nº>-<slug>`); el gate no lee el
+   texto de la PR. Una PR única o el tramo final cierra la issue con
+   `Closes #N`, y los tramos intermedios llevan la etiqueta `chain:partial`
+   sin ningún cierre de esa issue. Una issue sin estas
    secciones pone la CI en rojo aunque el código sea correcto.
 2. **Rama y worktree.** `<tipo>/<nº issue>-<kebab-slug>` desde `main`, en un
    worktree dedicado fuera del repositorio. El nombre lo valida el gate
