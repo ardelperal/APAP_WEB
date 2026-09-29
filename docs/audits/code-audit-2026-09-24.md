@@ -81,7 +81,7 @@ Lo verificado sano durante la auditoría, para que ninguna revisión futura lo t
 - **A-11 (#923)**: decidido (2026-09-26, opción "Compatibilidad explícita", D-44); seguimiento del gap `require_authorized_user`-only en #1019.
 - **A-06 (#918)**: asignado al epic de CI #935 por solaparse con su territorio (`pyproject.toml`, `.github/dependabot.yml`, compose); decisión del operador de 2026-09-26.
 - **Contrato huérfano del redirect de asignar**: `GET /acogidas/new` no consume los query params que le deja el redirect (detectado en el judgment-day de #919); issue de seguimiento #1008.
-- **Login CSRF en `/auth/magic/verify`** y **lookup de email case-sensitive**, hallados en el judgment-day de #917: #1004 y #1003; el flag `auth_enable_magic_link` aplazado quedó en #1005 y la propagación del redirect de usuario desactivado en #1002.
+- **Login CSRF en `/auth/magic/verify`** y **lookup de email case-sensitive**, hallados en el judgment-day de #917: la corrección de #1004 (binding estado↔cookie del navegador, con comparación en digests fail-closed) aterriza vía la serie enlazada de #1081; #1003 cerrada el 2026-09-27; el flag `auth_enable_magic_link` aplazado quedó en #1005 y la propagación del redirect de usuario desactivado en #1002.
 
 ## Maintenance rule
 

@@ -5,7 +5,9 @@ Asserts:
 2. POST /auth/magic/start returns 200 with status=queued.
 3. The configured email backend (MailDev locally, Resend in production)
    receives a message with a verify_url.
-4. GET /auth/magic/verify?<token> sets the apap_session cookie.
+4. GET /auth/magic/verify?<token>&<state> in the SAME browser context
+   (the one that POSTed /start, holding the ``apap_magic_state``
+   cookie — issue #1004 browser binding) sets the apap_session cookie.
 5. The browser is redirected to /.
 
 The form posts JSON via the onsubmit handler in /static/js/magic-link-form.js
@@ -43,7 +45,10 @@ import urllib.request
 
 import pytest
 
-from tests.e2e._maildev_helper import read_latest_verify_url  # noqa: F401
+from tests.e2e._maildev_helper import (  # noqa: F401
+    read_latest_verify_token_and_state,
+    read_latest_verify_url,
+)
 
 pytestmark = [
     pytest.mark.e2e,
@@ -146,14 +151,21 @@ def test_magic_link_round_trip_against_deployed_app(page, base_url: str) -> None
         f"status text did not mention enlace; got {status_text!r}"
     )
 
-    # 3. MailDev receives the message
+    # 3. MailDev receives the message (token AND state, issue #1004)
     verify_url = read_latest_verify_url(MAILDEV_URL, timeout_seconds=10.0)
+    token, state = read_latest_verify_token_and_state(
+        MAILDEV_URL, timeout_seconds=10.0
+    )
+    assert token and state, verify_url
     assert "/auth/magic/verify?token=" in verify_url, verify_url
+    assert "&state=" in verify_url, verify_url
 
-    # 4. Open the verify URL via a fresh context (the form-submission
-    #    page may have set session cookies already; we want the verify
-    #    to set apap_session itself).
-    page.context.clear_cookies()
+    # 4. Open the verify URL in the SAME browser context: the browser
+    #    binding of issue #1004 requires the ``apap_magic_state``
+    #    cookie that /auth/magic/start set in this context. Clearing
+    #    cookies here would model the cross-device forwarding case,
+    #    which fails closed BY DESIGN (re-request the link on the
+    #    target device).
     page.goto(verify_url, wait_until="domcontentloaded")
 
     # 5. Assert the apap_session cookie is set

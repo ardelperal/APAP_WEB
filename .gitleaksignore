@@ -18,7 +18,7 @@
 #   - tests/test_maildev_helper.py:77 and :83 — fake hex/urlsafe tokens
 #     used to test `VERIFY_URL_RE` regex matching, not real magic-link
 #     tokens issued by `secrets.token_hex`/`secrets.token_urlsafe`.
-tests/integration/test_magic_link_routes.py:generic-api-key:83
+tests/integration/test_magic_link_routes.py:generic-api-key:84
 
 # 2026-09-26 — issue #917 follow-up. The #917 real-app integration suite
 # (tests/integration/test_magic_link_real_app.py:115) sets the same
@@ -111,3 +111,5 @@ bacd2f4fb45ebbef4ae8c0b8ef753de62c06d573:tests/integration/test_magic_link_state
 # of the magic-link state binding; the file itself was deleted from the
 # tree in that commit (state now travels in a cookie). Historical-only.
 01de084620a68d38ee62f6b4d3adf9ff17a793e1:tests/integration/test_magic_link_state.py:generic-api-key:334
+tests/integration/test_magic_link_state.py:generic-api-key:74
+tests/integration/test_magic_link_state.py:generic-api-key:334
