@@ -93,11 +93,9 @@ def test_ci_workflow_defines_lint_test_and_build_jobs() -> None:
 
     assert doc.get("name") == "ci"
     triggers = _workflow_yaml.on_triggers(doc)
-    # Both main and staging must trigger CI. main is gated (only the
-    # user promotes there) but PRs landing on main still need to be
-    # validated; staging is where every change lands first under the
-    # project's stagingOnly policy.
-    assert triggers["pull_request"].get("branches") == ["main", "staging"]
+    # Issue #933: an unfiltered pull_request trigger covers PRs into main too.
+    assert "pull_request" in triggers
+    assert "branches" not in (triggers["pull_request"] or {})
     for job_id in ("lint", "test", "build"):
         _workflow_yaml.job(doc, job_id)
     lint_runs = _workflow_yaml.runs_text(_workflow_yaml.job(doc, "lint"))
@@ -598,8 +596,28 @@ def test_ci_workflow_no_longer_runs_on_main_push() -> None:
         "ci.yml must not re-run on push to main; deploy.yml consumes the "
         "pull_request run's evidence instead"
     )
-    assert "main" in (triggers["pull_request"].get("branches") or []), (
+    # Issue #933: with no base-branch filter the pull_request run still gates main.
+    assert "pull_request" in triggers, (
         "the pull_request run is now the only gate for main and must stay"
+    )
+    assert "branches" not in (triggers["pull_request"] or {})
+
+
+@pytest.mark.parametrize("workflow_name", ["ci.yml", "codeql.yml"])
+def test_pull_request_checks_run_whatever_the_base_branch(workflow_name: str) -> None:
+    """Stacked PRs must get CI before they are retargeted to main (issue #933).
+
+    The 400-line budget pushes large changes into chained PRs whose base is
+    another work branch. A ``branches: [main, staging]`` filter left those
+    PRs with no ``ci`` / CodeQL run at all until retargeted, so reviewers
+    saw no evidence. pr-size already measures against ``github.base_ref``.
+    """
+    doc = _doc(REPO_ROOT / ".github" / "workflows" / workflow_name)
+    triggers = _workflow_yaml.on_triggers(doc)
+
+    assert "pull_request" in triggers
+    assert "branches" not in (triggers["pull_request"] or {}), (
+        f"{workflow_name}: pull_request must not filter by base branch (issue #933)"
     )
 
 
