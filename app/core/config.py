@@ -53,6 +53,12 @@ class StartupConfigError(RuntimeError):
         )
 
 
+# Minimum accepted length for a bearer secret that gates sessions
+# (issue #1073 — shared floor by APAP_SESSION_SECRET and, when the mock
+# is enabled, APAP_E2E_AUTH_SECRET).
+_MIN_SESSION_SECRET_LENGTH = 32
+
+
 def _validate_secrets(settings: Settings) -> None:
     """Refuse to boot with placeholder / short critical secrets.
 
@@ -69,6 +75,16 @@ def _validate_secrets(settings: Settings) -> None:
     if len(settings.session_secret) < 32:
         log_safe("startup.config_invalid", env_var="APAP_SESSION_SECRET", reason="too_short")
         raise StartupConfigError("APAP_SESSION_SECRET", "too_short")
+    # Issue #1073: ``e2e_auth_secret`` is the bearer credential for a route
+    # that mints full sessions, so it gets the same 32-char floor as the
+    # session secret whenever the mock is enabled. The empty secret also
+    # fails here (0 < 32) — the runtime 503 in ``e2e_auth`` stays as
+    # defense-in-depth behind this startup gate. Mirrors the session check:
+    # reason="too_short", env_var="APAP_E2E_AUTH_SECRET"; ``debug=True``
+    # bypasses (early return above).
+    if settings.e2e_auth_enabled and len(settings.e2e_auth_secret) < _MIN_SESSION_SECRET_LENGTH:
+        log_safe("startup.config_invalid", env_var="APAP_E2E_AUTH_SECRET", reason="too_short")
+        raise StartupConfigError("APAP_E2E_AUTH_SECRET", "too_short")
 
 
 # One-shot guard for the XFF no-op advisory (JD-B-004): emitted at most
@@ -128,9 +144,11 @@ class Settings(BaseSettings):
     e2e_auth_enabled: bool = False
     e2e_auth_secret: str = ""
     # Email used by the Playwright conftest when authenticating
-    # against the mock route. Must exist as an ``usuarios_autorizados``
-    # row in production, but the mock pre-populates the in-process
-    # auth cache so the DB row is bypassed during E2E runs.
+    # against the mock route. It MUST exist as an active
+    # ``usuarios_autorizados`` row — the DB is the single allowlist
+    # (issue #1073); the in-process auth cache is written only by
+    # ``require_authorized_user`` (DB revalidation), never seeded by
+    # the mock.
     e2e_auth_default_email: str = "e2e@apap.local"
 
     # --- LocalBackend rawsql shared-secret auth (issue #680) ----------

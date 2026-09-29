@@ -95,6 +95,117 @@ class TestValidateSecretsPass:
         _validate_secrets(settings)
 
 
+class TestValidateSecretsE2eAuthSecret:
+    """Issue #1073: the E2E mock secret gets the same 32-char floor.
+
+    ``/e2e/login`` mints full sessions behind ``e2e_auth_secret``; a weak
+    value must fail startup exactly like a weak ``APAP_SESSION_SECRET``
+    (reason=too_short, env_var=APAP_E2E_AUTH_SECRET), whenever the mock
+    is enabled. ``debug=True`` bypasses, like every other check. The
+    empty secret also fails (0 < 32) — the runtime 503 stays as
+    defense-in-depth behind the startup gate.
+    """
+
+    def test_enabled_short_e2e_secret_raises(self) -> None:
+        """enabled=True + 31-char secret → StartupConfigError(APAP_E2E_AUTH_SECRET)."""
+        settings = config_module.Settings(
+            _env_file=None,
+            session_secret="x" * 32,
+            e2e_auth_enabled=True,
+            e2e_auth_secret="a" * 31,
+        )
+        with pytest.raises(StartupConfigError) as exc_info:
+            _validate_secrets(settings)
+        assert "APAP_E2E_AUTH_SECRET" in str(exc_info.value)
+        assert "too_short" in str(exc_info.value)
+        # REQ-8: message must NOT echo the secret value.
+        assert ("a" * 31) not in str(exc_info.value)
+
+    def test_enabled_empty_e2e_secret_raises(self) -> None:
+        """enabled=True + empty secret fails startup too (0 < 32)."""
+        settings = config_module.Settings(
+            _env_file=None,
+            session_secret="x" * 32,
+            e2e_auth_enabled=True,
+            e2e_auth_secret="",
+        )
+        with pytest.raises(StartupConfigError) as exc_info:
+            _validate_secrets(settings)
+        assert "APAP_E2E_AUTH_SECRET" in str(exc_info.value)
+        assert "too_short" in str(exc_info.value)
+
+    @pytest.mark.parametrize("length", [31, 32, 33])
+    def test_boundary_32_chars(self, length: int) -> None:
+        """The floor mirrors APAP_SESSION_SECRET: 32 passes, 31 fails."""
+        settings = config_module.Settings(
+            _env_file=None,
+            session_secret="x" * 32,
+            e2e_auth_enabled=True,
+            e2e_auth_secret="a" * length,
+        )
+        if length < 32:
+            with pytest.raises(StartupConfigError) as exc_info:
+                _validate_secrets(settings)
+            assert exc_info.value.env_var == "APAP_E2E_AUTH_SECRET"
+            assert exc_info.value.reason == "too_short"
+        else:
+            _validate_secrets(settings)
+
+    def test_disabled_short_e2e_secret_passes(self) -> None:
+        """The check only applies when the mock is enabled."""
+        settings = config_module.Settings(
+            _env_file=None,
+            session_secret="x" * 32,
+            e2e_auth_enabled=False,
+            e2e_auth_secret="a" * 3,
+        )
+        _validate_secrets(settings)
+
+    def test_debug_bypasses_short_e2e_secret(self) -> None:
+        """debug=True bypasses the e2e secret check (dev convenience)."""
+        settings = config_module.Settings(
+            _env_file=None,
+            debug=True,
+            session_secret="x",
+            e2e_auth_enabled=True,
+            e2e_auth_secret="a",
+        )
+        _validate_secrets(settings)
+
+    def test_log_safe_payload_omits_e2e_secret_value(self) -> None:
+        """The rejection logs env_var + reason, never the secret value."""
+        captured_records: list[tuple[str, dict[str, object]]] = []
+
+        def _capture_log(event: str, **kwargs: object) -> None:
+            captured_records.append((event, dict(kwargs)))
+
+        short_secret = "a" * 31
+        settings = config_module.Settings(
+            _env_file=None,
+            session_secret="x" * 32,
+            e2e_auth_enabled=True,
+            e2e_auth_secret=short_secret,
+        )
+        original = config_module.log_safe
+        config_module.log_safe = _capture_log
+        try:
+            with pytest.raises(StartupConfigError):
+                _validate_secrets(settings)
+        finally:
+            config_module.log_safe = original
+
+        event, kwargs = captured_records[-1]
+        assert event == "startup.config_invalid"
+        assert kwargs["env_var"] == "APAP_E2E_AUTH_SECRET"
+        assert kwargs["reason"] == "too_short"
+        for v in kwargs.values():
+            if isinstance(v, str):
+                assert short_secret not in v, (
+                    "secret value appeared in a log kwarg; log_safe must "
+                    "never receive the secret"
+                )
+
+
 class TestValidateSecretsDebugBypass:
     """REQ-5: debug=True bypasses all validation."""
 
