@@ -242,6 +242,7 @@ async def test_magic_start_accepts_padded_email_via_strip(
     assert response.status_code == 200, response.text
 
 
+@pytest.mark.integration
 def test_email_gate_matches_legacy_regex_accept_set() -> None:
     r"""``_looks_like_email`` accepts exactly what the retired
     ``^[^@\s]+@[^@\s]+\.[^@\s]+$`` pattern accepted (fail-closed on
@@ -276,6 +277,7 @@ def test_email_gate_matches_legacy_regex_accept_set() -> None:
         assert not magic_link._looks_like_email(value), value
 
 
+@pytest.mark.integration
 def test_email_gate_rejects_pathological_shapes() -> None:
     """Pathological lengths are rejected on form alone (functional
     assertion only — the gate is O(n), no polynomial backtracking)."""
