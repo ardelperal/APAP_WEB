@@ -47,16 +47,53 @@ def _ui_gate_section() -> str:
     return _job_sections(workflow)["ui-e2e-gate"]
 
 
-def test_pre_deploy_variable_gate_is_gone_and_deploy_no_longer_needs_it() -> None:
-    """Issue #1082: the variable-based gate blocked every deploy and, once
-    filled, approved every later release. It must not exist anymore.
+def _gate_section() -> str:
+    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+    return _job_sections(workflow)["release-e2e-gate"]
+
+
+def test_release_e2e_gate_blocks_deploy_and_no_longer_reads_the_variable() -> None:
+    """Issue #1082: the gate exists again, but on the previous revision's
+    per-SHA verdict; the retired global variable must not come back.
     """
     workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
     sections = _job_sections(workflow)
 
-    assert "release-e2e-gate" not in sections
+    assert "release-e2e-gate" in sections
     assert RETIRED_VARIABLE not in workflow
-    assert "needs: [evidence, ui-e2e-gate]" in sections["deploy"]
+    assert "needs: [evidence, release-e2e-gate, ui-e2e-gate]" in sections["deploy"]
+
+
+def test_release_e2e_gate_evaluates_the_previous_deployed_revision() -> None:
+    section = _gate_section()
+
+    assert "actions/workflows/deploy.yml/runs?branch=main&status=success" in section
+    assert "GITHUB_RUN_ID" in section, "the current run must be excluded"
+    assert "commits/${prev_sha}/status" in section
+    assert "python scripts/check_release_evidence.py --sha" in section
+    assert "first deploy" in section, "no previous deploy must pass explicitly"
+
+
+def test_release_e2e_gate_fails_closed_on_api_errors() -> None:
+    section = _gate_section()
+
+    assert section.count('!= "200"') >= 2
+    assert "exit 1" in section
+
+
+def test_release_e2e_gate_has_least_privilege_pinned_actions_and_no_gh() -> None:
+    section = _gate_section()
+
+    assert "statuses: read" in section
+    assert "actions: read" in section
+    assert "contents: read" in section
+    assert ": write" not in section
+    assert "secrets." not in section
+    assert "timeout-minutes:" in section
+    assert not re.search(r"^\s*gh\s", section, flags=re.MULTILINE)
+    assert "gh api" not in re.sub(r"#.*", "", section)
+    for match in re.finditer(r"^\s*(?:- )?uses:\s*(\S+)", section, flags=re.MULTILINE):
+        assert re.search(r"@[0-9a-f]{40}$", match.group(1)), match.group(1)
 
 
 def test_release_e2e_record_runs_after_a_successful_deploy_only() -> None:

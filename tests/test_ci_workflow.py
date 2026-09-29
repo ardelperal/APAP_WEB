@@ -535,11 +535,12 @@ def test_deploy_workflow_gates_on_evidence() -> None:
     deploy_job = _job(DEPLOY_WORKFLOW_PATH, "deploy")
 
     assert deploy_job.get("name") == "deploy"
-    # Issue #895: ui-e2e-gate joined the needs list. Issue #1082 removed the
-    # variable-based release-e2e-gate: production e2e evidence is now
-    # recorded per revision AFTER deploy (release-e2e-record).
+    # Issue #895: ui-e2e-gate joined the needs list. Issue #1082 replaced the
+    # variable-based release-e2e-gate with one that reads the previous
+    # revision's per-SHA verdict (recorded after deploy by release-e2e-record).
     assert _workflow_yaml.needs(deploy_job) == [
         "evidence",
+        "release-e2e-gate",
         "ui-e2e-gate",
     ]
     assert deploy_job.get("if") == "needs.evidence.outputs.verified == 'true'", (

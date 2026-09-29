@@ -289,7 +289,14 @@ transitions.
 ### Order of the release evidence (issue #1082)
 
 The validation runs **after** the deploy, against the deployed revision, so
-the evidence is bound to that revision and not to a global switch:
+the evidence is bound to that revision and not to a global switch. The next
+deploy is gated on it: the pre-deploy job `release-e2e-gate` reads the
+`release/e2e-production` status of the previously deployed revision (the
+latest successful `deploy.yml` run on `main`, excluding the current run) and
+evaluates it with `scripts/check_release_evidence.py`. A `pending`, `failure`
+or absent verdict blocks the next deploy until the operator rolls back or
+records `success` (or a bypass) on that SHA. With no previous deploy it passes
+with a notice.
 
 1. A push to `main` runs `deploy.yml`. When `deploy` succeeds, the
    `release-e2e-record` job sets the commit status `release/e2e-production` to
@@ -332,10 +339,15 @@ the evidence is bound to that revision and not to a global switch:
      | python scripts/check_release_evidence.py --sha "${SHA}"
    ```
 
+**Bootstrap.** The last revision deployed before this change (`460c56f1...`)
+has no `release/e2e-production` status, so the first deploy after the merge is
+blocked until an operator records `success` (or `success` with description
+`skipped:<reason>`) on that SHA with the same `gh api` statuses call above.
+
 The retired repository variable `APAP_E2E_GATE_EVIDENCE` and the
-`release-e2e-gate` job (issue #908) no longer exist: they blocked every deploy
-before the validation could run and, once filled, approved every later
-release. `rm` in Step 6 is confined to the gitignored `.auth/` scratch file;
+variable-based `release-e2e-gate` (issue #908) no longer exist: it blocked
+every deploy before the validation could run and, once filled, approved every
+later release. The current `release-e2e-gate` reads per-SHA evidence instead. `rm` in Step 6 is confined to the gitignored `.auth/` scratch file;
 it touches nothing else.
 
 ## Copyable checklist

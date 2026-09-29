@@ -138,8 +138,18 @@ rollback por digest de [deploy-rollback](../runbooks/deploy-rollback.md)) o un
 bypass auditable, que es un `success` con descripción `skipped:<motivo>`. La
 evidencia de una revisión nunca aprueba otra y el bypass vale para una sola
 SHA. `scripts/check_release_evidence.py` evalúa el estado y falla cerrado con
-un mensaje que nombra la SHA. La variable `APAP_E2E_GATE_EVIDENCE` y el job
-`release-e2e-gate` ya no existen.
+un mensaje que nombra la SHA. La variable `APAP_E2E_GATE_EVIDENCE` ya no existe.
+
+El job `release-e2e-gate` bloquea el deploy siguiente según ese veredicto:
+localiza la revisión desplegada previamente (la SHA del último run exitoso de
+`deploy.yml` en `main`, excluyendo el run actual), consulta su estado
+combinado y lo evalúa con `scripts/check_release_evidence.py`. Un veredicto
+`pending`, `failure` o ausente, o cualquier error de API, falla cerrado y
+bloquea el deploy hasta que el operador haga rollback o registre `success` o
+un bypass sobre esa SHA. Sin deploy previo pasa con un aviso. Solo tiene
+permisos de lectura y no usa secretos. Como `460c56f1...` no tiene estado, el
+primer deploy tras el merge exige registrar `success` o
+`skipped:<motivo>` sobre esa SHA.
 
 El job `ui-e2e-gate` (issue #895) bloquea el despliegue de una revisión
 que declara cambio de UI sin evidencia e2e de esa misma revisión:
