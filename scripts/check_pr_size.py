@@ -23,8 +23,8 @@ Tests: ``tests/test_pr_size.py``. CI wiring: ``.github/workflows/pr-size.yml``.
 
 from __future__ import annotations
 
+import re
 import sys
-from typing import TYPE_CHECKING, cast
 
 BUDGET = 400
 EXPECTED_ARG_COUNT = 2
@@ -32,36 +32,34 @@ EXIT_OK = 0
 EXIT_OVER_BUDGET = 1
 EXIT_USAGE_ERROR = 2
 
-EXCEPTION_REASON_PREFIX = "size-exception-reason:"
-
-
-if TYPE_CHECKING:  # pragma: no cover - typing aid only
-    from typing import Protocol
-
-    class _ReconfigurableTextIO(Protocol):
-        # ``typing.TextIO`` does not declare ``reconfigure`` even though it
-        # exists at runtime on Python 3.7+. The Protocol narrows the type
-        # for the cast in ``_pin_output_encoding``; the ``hasattr`` guard
-        # there is the actual runtime gate.
-        def reconfigure(self, *, encoding: str) -> object: ...
+# Two accepted spellings of the field name, both followed by the text on the
+# SAME line: the plain ``size-exception-reason: <motivo>`` and the shape the
+# PR template ships, with the name wrapped in backticks:
+# ``size-exception-reason:` <motivo>``.
+EXCEPTION_REASON_PREFIXES = ("`size-exception-reason:`", "size-exception-reason:")
+# The template placeholder (`<motivo en una sola línea>`) left untouched is not
+# a reason.
+_PLACEHOLDER_RE = re.compile(r"<[^<>]*>")
 
 
 def _pin_output_encoding() -> None:
     """Pin stdout/stderr to UTF-8: output must not depend on the locale (issue #488)."""
     if hasattr(sys.stdout, "reconfigure"):
-        cast("_ReconfigurableTextIO", sys.stdout).reconfigure(encoding="utf-8")
-        cast("_ReconfigurableTextIO", sys.stderr).reconfigure(encoding="utf-8")
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
 
 
 def _extract_exception_reason(body: str | None) -> str | None:
     """Return the override reason from the PR body, or ``None`` when absent.
 
-    A valid reason is a single line ``size-exception-reason: <text>``
-    where ``<text>`` is non-empty after stripping. Rules:
+    A valid reason is a single line ``size-exception-reason: <text>`` or
+    the template shape ```size-exception-reason:` <text>`` where ``<text>``
+    is non-empty after stripping. Rules:
 
-    1. Exactly one line starts with the prefix. Two or more occurrences
-       (even if one is empty) are ambiguous and rejected (multiline).
-    2. Empty / whitespace-only value → absent.
+    1. Exactly one line starts with either prefix. Two or more occurrences
+       (even if one is empty, or in mixed shapes) are ambiguous and rejected.
+    2. Empty / whitespace-only value, or an untouched ``<placeholder>`` →
+       absent.
     3. The line right after the reason must be blank (or end of body).
        Prose on the next line is a wrap attempt — rejected as multiline.
     """
@@ -75,13 +73,16 @@ def _extract_exception_reason(body: str | None) -> str | None:
     candidate: tuple[int, str] | None = None
     occurrence_count = 0
     for index, line in enumerate(lines):
-        if not line.startswith(EXCEPTION_REASON_PREFIX):
+        prefix = next(
+            (p for p in EXCEPTION_REASON_PREFIXES if line.startswith(p)), None
+        )
+        if prefix is None:
             continue
         occurrence_count += 1
         if occurrence_count > 1:
             return None
-        value = line[len(EXCEPTION_REASON_PREFIX) :].strip()
-        if value:
+        value = line[len(prefix) :].strip()
+        if value and not _PLACEHOLDER_RE.fullmatch(value):
             candidate = (index, value)
         # Empty-value occurrence still counts as the unique one — we
         # just don't update ``candidate`` because the parser treats it

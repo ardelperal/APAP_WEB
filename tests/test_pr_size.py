@@ -82,6 +82,16 @@ def test_over_budget_message_names_body_field_not_label() -> None:
         ("size-exception-reason: only line", "only line"),
         # valid: surrounding whitespace inside the value is stripped.
         ("size-exception-reason:    spaced reason   ", "spaced reason"),
+        # valid: the shape the PR template ships (name wrapped in backticks,
+        # text on the same line) — the real-world body of PR #1136-style PRs.
+        (
+            "## Excepción de tamaño\n\n`size-exception-reason:` 557 líneas, motivo real\n",
+            "557 líneas, motivo real",
+        ),
+        ("`size-exception-reason:`no space after the closing tick", "no space after the closing tick"),
+        # valid: a body line `EOF` followed by `evil=1` is inert text, not a
+        # step-output injection; the parser only looks at the reason line.
+        ("EOF\nevil=1\nsize-exception-reason: valid reason\n", "valid reason"),
     ],
 )
 def test_parser_valid(body: str, expected: str) -> None:
@@ -95,6 +105,11 @@ def test_parser_valid(body: str, expected: str) -> None:
         "size-exception-reason:",
         # empty: whitespace-only value.
         "size-exception-reason:   ",
+        # empty: the backticked template shape with no text after it.
+        "`size-exception-reason:`",
+        "`size-exception-reason:`   ",
+        # empty: the template placeholder left untouched is not a reason.
+        "`size-exception-reason:` <motivo en una sola línea>",
         # absent: no occurrence at all (including None and empty body).
         "",
         "nothing to see here",
@@ -115,6 +130,10 @@ def test_parser_empty_or_absent(body: str) -> None:
         "size-exception-reason: this is the first part\nand this prose looks like a continuation\n",
         # multiline (first empty, then non-empty): still two occurrences.
         "size-exception-reason:\nsize-exception-reason: actual reason\n",
+        # multiline (mixed shapes): plain plus backticked is still two.
+        "size-exception-reason: first\n`size-exception-reason:` second\n",
+        # multiline (wrap on the backticked shape).
+        "`size-exception-reason:` first part\nsecond part\n",
         # strict prefix: typos and Markdown headings must not match.
         "size-exception-reasons: typo",
         "# size-exception-reason: heading style",
@@ -137,6 +156,7 @@ def test_parser_none_body() -> None:
         "size-exception-reason:",  # empty
         "size-exception-reason: line1\nsize-exception-reason: line2",  # multiline
         "totally unrelated body text",  # absent
+        "`size-exception-reason:`",  # empty, template shape
     ],
 )
 def test_over_budget_with_invalid_reason_body_fails(body: str) -> None:
@@ -147,3 +167,17 @@ def test_over_budget_with_invalid_reason_body_fails(body: str) -> None:
 def test_within_budget_with_absent_reason_still_passes() -> None:
     """Within budget, the parser result is irrelevant (issue #1121)."""
     assert run_main("200", "no reason here") == 0
+
+
+def test_over_budget_with_template_shaped_reason_passes() -> None:
+    """The exact line the PR template ships overrides the budget (issue #1121)."""
+    body = "`size-exception-reason:` 557 líneas, motivo real"
+    assert run_main("900", body) == 0
+
+
+def test_eof_injection_body_is_inert_and_still_evaluated() -> None:
+    """A body with an `EOF` line and a fake `key=value` neither crashes nor
+    changes the verdict: without a reason it fails, with one it passes."""
+    hostile = "EOF\nevil=1\n"
+    assert run_main("900", hostile) == 1
+    assert run_main("900", hostile + "size-exception-reason: ok\n") == 0

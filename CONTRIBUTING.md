@@ -89,7 +89,7 @@ Use estas etiquetas en issues y PRs. La convención combina tipo (`type:*`), est
 | `audit-2026-07-30` | Hallazgo del audit de capas/tests/specs/observabilidad. |
 | `audit-2026-07-30-reverted` | Fix del audit 2026-07-30 revertido en `main` y nunca reaplicado. |
 | `scan-2026-08-01` | Hallazgo del sweep estático (pip-audit, ruff extendido, vulture, SonarQube). |
-| `size:exception` | Informativo: el override real vive en el cuerpo del PR como `size-exception-reason: <motivo>` (issue #1121). |
+| `size:exception` | Opcional e informativo: el override real vive en el cuerpo del PR como `size-exception-reason: <motivo>` (issue #1121). |
 
 ---
 
@@ -162,9 +162,16 @@ Cuando el cambio no cabe en el presupuesto de 400 líneas, divídalo en PR encad
 
 ## Excepción de tamaño
 
-Si el diff supera las 400 líneas y no cabe dividirlo más, incluya `size-exception-reason: <motivo>` en el cuerpo del PR (issue #1121). El gate lo parsea del cuerpo en cada run; ya no depende del label `size:exception`, que pasa a ser informativo.
+Si el diff supera las 400 líneas y no cabe dividirlo más, incluya `size-exception-reason: <motivo>` en el cuerpo del PR (issue #1121). El gate `pr-size` descarga el cuerpo vivo por la API de GitHub en cada run y lo parsea; el label `size:exception` es opcional e informativo, y el gate no lo consulta.
 
-El campo debe ocupar **una sola línea** con el prefijo exacto `size-exception-reason:`. Dos líneas con ese prefijo, o un valor seguido de prosa sin línea en blanco, se rechazan como multilínea — el PR seguirá fallando con un mensaje que nombra el campo que falta. El gate es ahora auto-contenido y re-leíble en cada run (#926, #941 cerrados).
+Formas aceptadas, siempre en **una sola línea** y con el motivo en esa misma línea:
+
+- `size-exception-reason: <motivo>`
+- `` `size-exception-reason:` <motivo> `` (la forma que trae la plantilla de PR, con el nombre entre acentos graves).
+
+Se rechazan, y el PR sigue fallando con un mensaje que nombra el campo: un motivo vacío, el marcador `<motivo en una sola línea>` de la plantilla sin sustituir, dos o más líneas con el prefijo (aunque una esté vacía o mezclen las dos formas) y un motivo seguido de prosa en la línea siguiente sin una línea en blanco de por medio.
+
+Editar el cuerpo de un PR abierto no recalcula el check requerido `pr-size / pr-size`: `ci.yml` se dispara solo en `opened`, `synchronize` y `reopened` (no se añade `edited` a propósito, porque relanzaría toda la CI por cada retoque del texto). Tras añadir o corregir el campo, relance el job fallido con `gh run rerun <run-id-del-run-de-ci> --failed`: el re-run vuelve a descargar el cuerpo vivo y evalúa el override. No use `gh workflow run ci.yml --ref <rama>` para esto: en un `workflow_dispatch` el paso de diff corta a `total=0` y no hay cuerpo que leer, de modo que el check queda verde **sin** evaluar nada.
 
 Cite la URL del run verde de `ci.yml` en el cuerpo del PR o en el merge commit (premisa de `AGENTS.md` §15.1).
 
@@ -264,7 +271,8 @@ de ejecución.
    pedir revisión.
 6. **Apertura de PR.** Presupuesto de 400 líneas; si lo supera, divida o
    incluya `size-exception-reason: <motivo>` en el cuerpo (el label
-   `size:exception` es informativo y el gate ya no lo lee). Ver
+   `size:exception` es opcional e informativo). Si edita el cuerpo con el PR
+   ya abierto, relance el job fallido de `ci`. Ver
    [Excepción de tamaño](#excepción-de-tamaño).
 7. **Ciclos de rebase.** Con merges concurrentes en `main`, espere de dos a
    tres ciclos de «rama por detrás, merge de `main`, CI fresca» por PR.
@@ -290,7 +298,7 @@ de ejecución.
 - [ ] El PR tiene una referencia de cierre y resultados reales.
 - [ ] El mantenedor confirmó manualmente un único `type:*` en el PR.
 - [ ] `make verify` y las pruebas específicas están en verde.
-- [ ] El diff no supera 400 líneas o justifica `size-exception-reason: <motivo>` en el cuerpo (el label `size:exception` es informativo; no necesita relanzar `ci` para refrescarlo).
+- [ ] El diff no supera 400 líneas o justifica `size-exception-reason: <motivo>` en el cuerpo (el label `size:exception` es informativo; tras editar el cuerpo de un PR abierto, relance el job fallido de `ci`).
 - [ ] Todos los checks y conversaciones están resueltos antes del merge.
 
 ## Navegación

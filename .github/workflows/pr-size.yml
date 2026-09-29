@@ -134,55 +134,50 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
 
-      - name: Fetch PR body via the GitHub API
-        id: body
+      - name: Enforce 400-line budget (AGENTS.md §15.1, issue #1121)
         # Issue #1121: the override that gates the 400-line budget lives
-        # in the PR body as `size-exception-reason: <motivo>`. The
-        # previous label-based check raced with `labeled`/`unlabeled`
-        # events (#926, #941, #896); reading the body in this step makes
-        # the gate self-contained — the parser re-reads it every run.
-        # Only pull_request-shaped events have a PR body to fetch; every
-        # other trigger (push, workflow_dispatch) has nothing to check
-        # and TOTAL=0 already passes regardless. PRs are issues in
-        # GitHub's data model, so the issues endpoint returns the body.
-        if: github.event_name == 'pull_request'
+        # in the PR body as `size-exception-reason: <motivo>` (epic #935:
+        # gates read structured data, not gestures). The previous
+        # label-based check raced with `labeled`/`unlabeled` events (#926,
+        # #941, #896); reading the live body on every run makes the gate
+        # self-contained.
+        #
+        # The body is author-controlled, so it is fetched and enforced in
+        # THIS step and reaches the script only through a shell variable.
+        # It is never written to $GITHUB_OUTPUT (a body line equal to the
+        # heredoc delimiter would inject step outputs) and never
+        # interpolated into the script text.
+        #
+        # Editing a body does not fire this check (ci.yml keeps the default
+        # pull_request types on purpose); re-running the failed job
+        # re-reads the live body (see CONTRIBUTING.md).
         env:
+          EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          TOTAL: ${{ steps.diff.outputs.total }}
         run: |
           set -euo pipefail
-          # Issue #1121: the override that gates the 400-line budget is
-          # `size-exception-reason: <motivo>` in the PR body (epic #935:
-          # gates read structured data, not gestures). scripts/check_pr_size.py
-          # parses it from this body.
-          #
-          # Issue #533: this runner has no `gh` CLI — curl + jq, both
-          # present, replace it (same pattern as deploy.yml's evidence
-          # step).
-          tmp=$(mktemp)
-          code=$(curl -sS -o "$tmp" -w '%{http_code}' --max-time 30 \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}")
-          # Fail CLOSED: a failed lookup must not be silently read as an
-          # empty body, which would let an oversized PR through the gate.
-          if [ "$code" != "200" ]; then
-            echo "::error::Failed to fetch body for PR #$PR_NUMBER (HTTP ${code}); failing closed (issue #1121)."
-            exit 1
+          PR_BODY=""
+          # Only pull_request-shaped events have a PR body; every other
+          # trigger (push, workflow_dispatch) reports TOTAL=0 and passes.
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            # Issue #533: this runner has no `gh` CLI; curl + jq, both
+            # present, replace it (same pattern as deploy.yml). PRs are
+            # issues in GitHub's data model, so the issues endpoint
+            # returns the body.
+            tmp=$(mktemp)
+            code=$(curl -sS -o "$tmp" -w '%{http_code}' --max-time 30 \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}")
+            # Fail CLOSED: a failed lookup must not be silently read as an
+            # empty body, which would let an oversized PR through the gate.
+            if [ "$code" != "200" ]; then
+              echo "::error::Failed to fetch body for PR #$PR_NUMBER (HTTP ${code}); failing closed (issue #1121)."
+              exit 1
+            fi
+            PR_BODY=$(jq -r '.body // ""' "$tmp")
           fi
-          BODY=$(jq -r '.body // ""' "$tmp")
-          # Multiline GitHub Actions output via heredoc delimiter
-          # (documented pattern); the parser reads it as one argv
-          # element with embedded newlines.
-          {
-            echo "body<<EOF"
-            printf '%s' "$BODY"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Enforce 400-line budget (AGENTS.md §15.1, issue #1121)
-        env:
-          TOTAL: ${{ steps.diff.outputs.total }}
-          BODY: ${{ steps.body.outputs.body }}
-        run: python scripts/check_pr_size.py "$TOTAL" "$BODY"
+          python scripts/check_pr_size.py "$TOTAL" "$PR_BODY"

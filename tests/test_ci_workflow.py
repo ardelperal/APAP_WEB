@@ -1328,9 +1328,10 @@ def test_ci_workflow_pr_size_job_is_wired() -> None:
         "AGENTS.md §15.1) — the script is the unit-tested gate; inlining "
         "the budget logic in the workflow would silently bypass tests/test_pr_size.py"
     )
-    assert "size-exception-reason" in pr_size_runs, (
-        "pr-size.yml must surface `size-exception-reason` to the gate "
-        "(issue #1121); removing the reference makes the override invisible"
+    assert 'check_pr_size.py "$TOTAL" "$PR_BODY"' in pr_size_runs, (
+        "pr-size.yml must hand the live PR body (which carries "
+        "`size-exception-reason`) to the gate (issue #1121); dropping it "
+        "makes the override invisible"
     )
 
 
@@ -2888,3 +2889,57 @@ def test_workflow_structure_is_independent_of_comments_and_indentation(
         str(step.get("name", "<unnamed>"))
         for step in _workflow_yaml.steps(doctored_e2e)
     ] == original["e2e_steps"]
+
+
+# --- issue #1121: the PR body is untrusted input ---------------------------
+
+
+def _pr_size_enforce_step() -> dict[str, object]:
+    """The single step of pr-size.yml that invokes the budget script."""
+    job = next(iter((_doc(PR_SIZE_WORKFLOW_PATH).get("jobs") or {}).values()))
+    steps = [
+        step
+        for step in _workflow_yaml.steps(job)
+        if "scripts/check_pr_size.py" in str(step.get("run", ""))
+    ]
+    assert len(steps) == 1, "exactly one step must invoke scripts/check_pr_size.py"
+    return steps[0]
+
+
+def test_pr_size_body_never_travels_through_github_output() -> None:
+    """The author-controlled PR body must not be written to ``$GITHUB_OUTPUT``
+    (a body line equal to the delimiter injects step outputs) nor read back
+    through a ``steps.*.outputs.body`` expression (issue #1121)."""
+    text = "\n".join(
+        _workflow_yaml.job_text(entry)
+        for entry in (_doc(PR_SIZE_WORKFLOW_PATH).get("jobs") or {}).values()
+    )
+
+    assert "steps.body.outputs" not in text
+    assert "body<<" not in text
+    assert "BODY" not in "".join(
+        line for line in text.splitlines() if "GITHUB_OUTPUT" in line
+    ), "no GITHUB_OUTPUT write may carry the PR body (issue #1121)"
+
+
+def test_pr_size_fetches_and_enforces_in_one_step() -> None:
+    """The body is fetched and enforced inside the same step, handed to the
+    script through the process environment (issue #1121)."""
+    step = _pr_size_enforce_step()
+    run = str(step.get("run", ""))
+
+    assert _PR_SIZE_BODY_URL_RE.search(run), "the enforcing step must fetch the body"
+    assert 'check_pr_size.py "$TOTAL" "$PR_BODY"' in run
+    assert "exit 1" in run, "a non-200 answer must fail closed in the same step"
+    assert '"$code" != "200"' in run
+
+
+def test_pr_size_ci_does_not_retrigger_on_edited() -> None:
+    """Editing a PR body does not refresh the check: ci.yml keeps the default
+    pull_request types on purpose (re-running would repeat the whole CI); the
+    docs tell authors to re-run the failed job, which re-reads the live body."""
+    triggers = _triggers(WORKFLOW_PATH)
+    pull_request = triggers.get("pull_request")
+    types = pull_request.get("types") if isinstance(pull_request, dict) else None
+
+    assert not types or "edited" not in types
