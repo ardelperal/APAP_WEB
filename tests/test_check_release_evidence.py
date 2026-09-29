@@ -161,3 +161,76 @@ def test_cli_exit_codes(
 
     monkeypatch.setattr(sys, "stdin", io.StringIO("not json"))
     assert cre.main(["--sha", SHA]) == 2
+
+
+SMOKE = "release/smoke-production"
+
+
+def test_custom_context_is_evaluated_and_named_in_messages() -> None:
+    payload = _payload(_status("success", "smoke ok", context=SMOKE))
+
+    ok = cre.evaluate(payload, SHA, context=SMOKE)
+    assert (ok.ok, ok.code) == (True, "success")
+
+    pending = cre.evaluate(_payload(_status("pending", context=SMOKE)), SHA, context=SMOKE)
+    assert pending.code == "pending"
+    assert SMOKE in pending.message
+    assert SHA in pending.message
+
+
+def test_status_of_another_context_is_ignored() -> None:
+    payload = _payload(_status("success"))  # only release/e2e-production
+
+    verdict = cre.evaluate(payload, SHA, context=SMOKE)
+
+    assert (verdict.ok, verdict.code) == (False, "absent")
+    assert SMOKE in verdict.message
+    assert CTX not in verdict.message
+
+
+def test_default_context_ignores_a_successful_custom_context() -> None:
+    verdict = cre.evaluate(_payload(_status("success", context=SMOKE)), SHA)
+
+    assert (verdict.ok, verdict.code) == (False, "absent")
+    assert CTX in verdict.message
+
+
+def test_newest_status_of_the_requested_context_wins() -> None:
+    old = _status("success", created_at="2026-09-29T09:00:00Z", context=SMOKE)
+    new = _status("failure", created_at="2026-09-29T11:00:00Z", context=SMOKE)
+    newer_other = _status("success", created_at="2026-09-29T12:00:00Z")
+
+    verdict = cre.evaluate(_payload(old, new, newer_other), SHA, context=SMOKE)
+
+    assert verdict.code == "failure"
+
+
+def test_cli_context_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    body = json.dumps(_payload(_status("success", context=SMOKE)))
+    monkeypatch.setattr(sys, "stdin", io.StringIO(body))
+    assert cre.main(["--sha", SHA, "--context", SMOKE]) == 0
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO(body))
+    assert cre.main(["--sha", SHA]) == 1
+
+
+def test_cli_accepts_only_the_two_known_contexts(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The CLI context is a closed allow-list: a typo must not read as 'absent'."""
+    payload = json.dumps(_payload(_status("success", context=SMOKE)))
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
+    assert cre.main(["--sha", SHA, "--context", SMOKE]) == 0
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(_payload(_status("success")))))
+    assert cre.main(["--sha", SHA, "--context", CTX]) == 0
+
+    for bad in ("release/smoke-prod", "ci / required", ""):
+        monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
+        assert cre.main(["--sha", SHA, "--context", bad]) == cre.EXIT_USAGE_ERROR
+    capsys.readouterr()
+
+
+def test_allowed_contexts_are_exactly_the_two_release_statuses() -> None:
+    assert frozenset({CTX, SMOKE}) == cre.ALLOWED_CONTEXTS
