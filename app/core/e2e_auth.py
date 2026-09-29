@@ -49,7 +49,7 @@ from fastapi.responses import JSONResponse
 from app.core.auth import get_user_by_email
 from app.core.config import Settings, get_settings
 from app.core.csrf import generate_csrf_token
-from app.core.data_access import BackendError, SqlExecutor
+from app.core.data_access import SqlExecutor
 from app.core.logging import log_safe
 from app.core.rate_limit import _extract_identity
 from app.core.session import (
@@ -267,7 +267,15 @@ def _resolve_allowlisted_user(
         _reject(request, settings, target_email, _DB_UNAVAILABLE)
     try:
         user = get_user_by_email(client, target_email)
-    except BackendError:
+    except Exception:
+        # Fail closed on ANY lookup failure (JD-A-001, issue #1073).
+        # The production executor (LocalPostgresExecutor) raises
+        # DatabaseError/QueryError from the RuntimeError hierarchy —
+        # NOT Protocol-level BackendError — so a narrow catch let a
+        # real DB outage escape to the generic 502 handler with zero
+        # e2e.login audit entries. This route is a fail-closed auth
+        # gate: no matter what the lookup raises, the only allowed
+        # outcome is the audited 503, never a minted session.
         _reject(request, settings, target_email, _DB_UNAVAILABLE)
     if user is None:
         _reject(request, settings, target_email, _EMAIL_NOT_ALLOWLISTED)
