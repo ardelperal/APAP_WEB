@@ -1,5 +1,11 @@
 ## Issue vinculada
 
+<!--
+La rama `<tipo>/<N>-<slug>` identifica la issue `#N`; el gate `issue-spec` no lee este texto.
+- PR único o tramo final: `Closes #N` (GitHub cierra la issue al fusionar).
+- Tramo intermedio de una cadena: etiqueta `chain:partial`, misma `N` en la rama y `Refs #N` en lugar de `Closes`.
+-->
+
 Closes #
 
 ## Tipo

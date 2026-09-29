@@ -154,7 +154,7 @@ La validación del enlace issue-PR corre dentro de `ci.yml` (job `issue-spec`) y
 
 Cuando el cambio no cabe en el presupuesto de 400 líneas, divídalo en PR encadenados ([D-35](docs/architecture/decisiones/d-35-presupuesto-400-lineas-pr.md)). Hoy `main` impone a cada tramo estas tres condiciones:
 
-- **Enlace a issue.** El gate `issue-spec` exige que todo PR declare `Closes #N` (o `Fixes`, `Resolves`) de al menos una issue con spec completa y `status:approved`; la referencia debe estar fuera de bloques de código. No existe todavía la figura del tramo intermedio sin cierre: la propuesta `Part of #N` está pendiente en #956. Mientras tanto, los tramos intermedios repiten `Closes #N` sobre la issue madre; la primera fusión la cierra, así que registre el estado de los tramos restantes en comentarios de la propia issue. No abra sub-issues solo para satisfacer el gate (#954, #955).
+- **Enlace a issue.** El gate `issue-spec` no lee el cuerpo del PR: toma el número `N` de la rama `<tipo>/<N>-<slug>` y exige que la issue `#N` exista, esté abierta, tenga `status:approved` y una spec completa. El cierre es el nativo de GitHub: el gate consulta `closingIssuesReferences` (lo que GitHub cerrará al fusionar) y las etiquetas del PR. Un PR único o el tramo final escribe `Closes #N` y no lleva etiqueta. Un tramo intermedio lleva la etiqueta `chain:partial`, no cierra la issue (use `Refs #N` en el cuerpo) y mantiene el mismo `N` en su rama; con `chain:partial`, un cierre de `#N` falla por cierre prematuro (#931), y sin ella, la ausencia de cierre de `#N` también falla. Cualquier otra issue que el PR cierre debe estar aprobada. No abra sub-issues solo para satisfacer el gate (#954, #955).
 - **Tamaño.** `pr-size` mide cada tramo contra su propia rama base (`github.base_ref`), no contra `main`; cada slice paga su propio diff.
 - **CI.** Los triggers de `pull_request` de `ci.yml` y de CodeQL filtran por rama base (`main`, `staging`): un tramo cuya base es otro PR encadenado no obtiene run de `ci` hasta que el tramo apunte a `main` **y reciba un push nuevo** (o se lance `ci` a mano): el cambio de rama base por sí solo no dispara el trigger. La eliminación de este filtro está propuesta en #962; planifique la validación final sobre el tramo que apunta a `main`.
 
@@ -238,8 +238,11 @@ de ejecución.
 1. **Issue aprobada y con spec completa.** El gate `issue-spec` valida el cuerpo
    de la issue enlazada, no el de la PR: debe declarar las secciones «Problema y
    contexto», «Evidencia verificable», «Alcance y no objetivos», «Plan de
-   validación» y «Dependencias y riesgos», tener `status:approved` y la PR debe
-   referenciarla con `Closes #N` fuera de bloques de código. Una issue sin estas
+   validación» y «Dependencias y riesgos», tener `status:approved`, y el número
+   de la issue debe ir en la rama (`<tipo>/<nº>-<slug>`); el gate no lee el
+   texto de la PR. Una PR única o el tramo final cierra la issue con
+   `Closes #N`, y los tramos intermedios llevan la etiqueta `chain:partial`
+   sin ningún cierre de esa issue. Una issue sin estas
    secciones pone la CI en rojo aunque el código sea correcto.
 2. **Rama y worktree.** `<tipo>/<nº issue>-<kebab-slug>` desde `main`, en un
    worktree dedicado fuera del repositorio. El nombre lo valida el gate
