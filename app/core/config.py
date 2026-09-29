@@ -144,9 +144,11 @@ class Settings(BaseSettings):
     e2e_auth_enabled: bool = False
     e2e_auth_secret: str = ""
     # Email used by the Playwright conftest when authenticating
-    # against the mock route. Must exist as an ``usuarios_autorizados``
-    # row in production, but the mock pre-populates the in-process
-    # auth cache so the DB row is bypassed during E2E runs.
+    # against the mock route. It MUST exist as an active
+    # ``usuarios_autorizados`` row — the DB is the single allowlist
+    # (issue #1073); the in-process auth cache is written only by
+    # ``require_authorized_user`` (DB revalidation), never seeded by
+    # the mock.
     e2e_auth_default_email: str = "e2e@apap.local"
 
     # --- LocalBackend rawsql shared-secret auth (issue #680) ----------
