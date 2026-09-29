@@ -355,6 +355,30 @@ def _set_apap_session_cookie(response: Response, payload: dict[str, object], sec
     )
 
 
+def _consume_bound_state(
+    request: Request, port: MagicLinkPort, state: str | None, token: str
+) -> str | None:
+    """Spend the browser binding, the single-use state and the token.
+
+    Guard order and one-shot semantics of the verify flow (issue
+    #1004): the URL state and the state cookie must both be present
+    and equal (a mismatch never burns the server-side binding), then
+    the single-use state (a state failure never burns the token), then
+    the token. Returns the token's email, or ``None`` on any failure —
+    the caller answers every failure with the same no-oracle redirect.
+    """
+    if not state_cookie_matches(request, state):
+        return None
+    if not _consume_state(request.app, state, token):
+        return None
+    return port.consume_token(token)
+
+
+def _magic_invalid_state_redirect() -> Response:
+    """No-oracle 302 shared by every fail-closed verify path (issue #1004)."""
+    return Response(status_code=302, headers={"location": "/login?reason=invalid_or_expired"})
+
+
 @router.post("/auth/magic/start")
 async def start_magic_link(
     request: Request, response: Response, payload: dict[str, object]
@@ -413,52 +437,26 @@ async def verify_magic_link(
 ) -> Response:
     """Consume the state, the token, set the session cookie, redirect home.
 
-    The handler reads the port + secret from ``app.state``. First it
-    validates the single-use ``state`` bound to this token at
-    ``/auth/magic/start`` (issue #1004): missing / wrong / expired /
-    replayed state returns the SAME no-oracle
-    ``/login?reason=invalid_or_expired`` redirect as a bad token and
-    does NOT consume the token — a user who clicks a truncated link can
-    retry with the full URL. On success the state is spent, then the
-    token: a valid state over an invalid token consumes only the state
-    (both are one-shot, so nothing is left half-usable).
+    First it validates the single-use ``state`` bound to this token
+    at ``/auth/magic/start`` (issue #1004): missing / wrong / expired /
+    replayed state returns the SAME no-oracle redirect as a bad token
+    and does NOT consume the token — a user who clicks a truncated
+    link can retry with the full URL. The state is spent first, then
+    the token: both are one-shot, so nothing is left half-usable.
 
-    On success it resolves the ACTIVE user for the token's email via
-    the :class:`AuthUsersPort` seam (issue #917) and returns a 302 to
-    ``/`` with the ``apap_session`` cookie attached. If the email is
-    not an active user (or the lookup fails) it redirects to
-    ``/unauthorized`` WITHOUT a cookie — fail closed. The route never
-    tells the caller WHY it failed (no oracle for token or state
-    validity).
+    It then resolves the ACTIVE user for the token's email via the
+    :class:`AuthUsersPort` seam (issue #917); 302 to ``/`` with the
+    ``apap_session`` cookie, or ``/unauthorized`` without one (fail
+    closed). The route never tells the caller WHY it failed.
     """
     port: MagicLinkPort = request.app.state.magic_link_port
     secret: str = request.app.state.session_secret
 
-    # Browser binding first (issue #1004): the URL state and the state
-    # cookie must both be present and equal. A mismatch never burns the
-    # server-side binding, so nothing is consumed on the fail path.
-    if not state_cookie_matches(request, state):
-        return Response(
-            status_code=302,
-            headers={"location": "/login?reason=invalid_or_expired"},
-        )
-
-    # State second (a state failure never burns the token).
-    if not _consume_state(request.app, state, token):
-        return Response(
-            status_code=302,
-            headers={"location": "/login?reason=invalid_or_expired"},
-        )
-
-    email = port.consume_token(token)
+    # Browser binding, single-use state, token — spent in that order
+    # (issue #1004); every failure gets the same no-oracle redirect.
+    email = _consume_bound_state(request, port, state, token)
     if email is None:
-        # 302 (not 400) so the user lands back on /login with a
-        # generic reason; the route does not echo whether the token
-        # was unknown vs expired vs already used.
-        return Response(
-            status_code=302,
-            headers={"location": "/login?reason=invalid_or_expired"},
-        )
+        return _magic_invalid_state_redirect()
 
     # Fail closed on unknown email / transport failure (issue #917):
     # no session cookie, generic /unauthorized redirect.
