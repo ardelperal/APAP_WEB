@@ -291,17 +291,26 @@ transitions.
 The validation runs **after** the deploy, against the deployed revision, so
 the evidence is bound to that revision and not to a global switch. The next
 deploy is gated on it: the pre-deploy job `release-e2e-gate` reads the
-`release/e2e-production` status of the previously deployed revision (the
-latest successful `deploy.yml` run on `main`, excluding the current run) and
-evaluates it with `scripts/check_release_evidence.py`. A `pending`, `failure`
-or absent verdict blocks the next deploy until the operator rolls back or
+`release/smoke-production` **and** `release/e2e-production` statuses of the
+previously deployed revision (the latest successful `deploy.yml` run on `main`,
+excluding the current run) and evaluates each with
+`scripts/check_release_evidence.py`. A `pending`, `failure` or absent verdict
+in either context blocks the next deploy until the operator rolls back or
 records `success` (or a bypass) on that SHA. With no previous deploy it passes
 with a notice.
 
-1. A push to `main` runs `deploy.yml`. When `deploy` succeeds, the
-   `release-e2e-record` job sets the commit status `release/e2e-production` to
-   `pending` ("awaiting runbook validation") on the deployed SHA. It runs no
-   e2e suite and holds no secret beyond the job token.
+1. A push to `main` runs `deploy.yml`. When `deploy` succeeds, two jobs run,
+   both without secrets beyond the job token:
+   `production-smoke` runs the automatic smoke and records
+   `release/smoke-production` (see the next subsection), and
+   `release-e2e-record` decides with `scripts/check_release_e2e_required.py`
+   whether the range since the previous deploy touches an e2e-sensitive path
+   (patterns in `.github/release-e2e-paths.txt`). If it does, or if the
+   selector cannot decide, the job sets `release/e2e-production` to `pending`
+   ("awaiting runbook validation: e2e-sensitive paths changed") and the steps
+   below apply. If it does not, the job records `success` with the description
+   `not-required: no e2e-sensitive path changed since <prev8>` and you have
+   nothing to do. Neither job runs an e2e suite.
 2. Validate production with Steps 1-5 and record the verdict on **that same
    SHA** with the GitHub statuses API (`SHA` is the deployed revision):
 
@@ -339,10 +348,53 @@ with a notice.
      | python scripts/check_release_evidence.py --sha "${SHA}"
    ```
 
-**Bootstrap.** The last revision deployed before this change (`460c56f1...`)
-has no `release/e2e-production` status, so the first deploy after the merge is
-blocked until an operator records `success` (or `success` with description
-`skipped:<reason>`) on that SHA with the same `gh api` statuses call above.
+### Quién escribe cada estado (issue #1131)
+
+| Estado | Lo escribe | Qué cubre |
+|---|---|---|
+| `release/smoke-production` | El job `production-smoke`, siempre, sobre la SHA desplegada (`success` o `failure`, con la URL del run) | Humo sin autenticación: la revisión está viva y la puerta de acceso responde |
+| `release/e2e-production` | El job `release-e2e-record` (`pending` o `success` con `not-required:`); si queda `pending`, el operador lo resuelve con los pasos de arriba | Batería e2e autenticada contra producción, exigida solo cuando el rango toca rutas sensibles |
+
+El humo (`scripts/production_smoke.py`) no usa secretos ni inicia sesión.
+Comprueba que `/healthz` publica la SHA desplegada (con reintentos acotados,
+porque el deploy termina justo antes), que `/login` responde `200` y que `/`
+sin sesión redirige a `/login` sin devolver un `5xx`. Deriva el origen de la
+variable `APAP_DEPLOY_HEALTH_URL`, no de un host escrito en el código.
+
+**Límites del humo.** No sustituye a la batería e2e autenticada: no prueba
+ningún flujo con sesión, ninguna escritura ni ninguna regla de negocio. Solo
+demuestra que la revisión responde y que el control de acceso está en pie. Por
+eso el gate exige ambos estados y el e2e sigue siendo obligatorio cuando el
+rango cambia autenticación, sesión, CSRF, configuración, migraciones o el
+despliegue.
+
+**Bootstrap (una sola vez).** La última revisión desplegada antes de este
+cambio no tiene `release/smoke-production`, así que el primer deploy posterior
+queda bloqueado por `release-e2e-gate`. Ejecute el humo usted mismo contra
+producción y registre el resultado **real** sobre esa SHA; no registre un
+`success` que el script no haya devuelto:
+
+```bash
+SHA=$(git rev-parse origin/main)   # la última revisión desplegada
+REPO=ardelperal/APAP_WEB
+DEPLOY_HEALTH_URL=<valor de la variable APAP_DEPLOY_HEALTH_URL>
+
+uv run python scripts/production_smoke.py \
+  --health-url "${DEPLOY_HEALTH_URL}" --revision "${SHA}"
+echo "exit=$?"
+
+# Solo con exit=0: registre el resultado real sobre la SHA desplegada.
+gh api --method POST "repos/${REPO}/statuses/${SHA}" \
+  -f state=success -f context=release/smoke-production \
+  -f description="bootstrap: smoke run by hand against production" \
+  -f target_url="<enlace a la evidencia>"
+
+# Con exit=1: registre state=failure con el mismo comando y corrija o haga
+# rollback según deploy-rollback.md.
+```
+
+Si esa SHA tampoco tiene `release/e2e-production`, resuélvala con los pasos de
+arriba (`success` real o `skipped:<motivo>`).
 
 The retired repository variable `APAP_E2E_GATE_EVIDENCE` and the
 variable-based `release-e2e-gate` (issue #908) no longer exist: it blocked
