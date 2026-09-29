@@ -1,0 +1,163 @@
+"""Behaviour tests for scripts/check_release_evidence.py (issue #1082).
+
+The evaluator decides whether the production e2e evidence recorded as the
+``release/e2e-production`` commit status belongs to the revision being
+released. It must never let evidence for one revision approve another one.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+
+import check_release_evidence as cre  # noqa: E402
+
+SHA = "a" * 40
+OTHER_SHA = "b" * 40
+CTX = "release/e2e-production"
+
+
+def _status(
+    state: str, description: str = "", created_at: str = "2026-09-29T10:00:00Z", context: str = CTX
+) -> dict[str, str]:
+    return {
+        "context": context,
+        "state": state,
+        "description": description,
+        "target_url": "https://github.com/ardelperal/APAP_WEB/actions/runs/1",
+        "created_at": created_at,
+    }
+
+
+def _payload(*statuses: dict[str, str], sha: str = SHA) -> dict[str, object]:
+    return {"sha": sha, "statuses": list(statuses)}
+
+
+def test_success_for_the_right_sha_passes() -> None:
+    verdict = cre.evaluate(_payload(_status("success", "e2e green")), SHA)
+
+    assert verdict.ok is True
+    assert verdict.code == "success"
+    assert SHA in verdict.message
+
+
+def test_evidence_for_another_sha_never_approves() -> None:
+    verdict = cre.evaluate(_payload(_status("success"), sha=OTHER_SHA), SHA)
+
+    assert verdict.ok is False
+    assert verdict.code == "wrong-sha"
+    assert SHA in verdict.message
+    assert OTHER_SHA in verdict.message
+
+
+def test_absent_evidence_fails_closed_naming_the_sha() -> None:
+    verdict = cre.evaluate(_payload(_status("success", context="ci/other")), SHA)
+
+    assert verdict.ok is False
+    assert verdict.code == "absent"
+    assert SHA in verdict.message
+    assert CTX in verdict.message
+
+
+def test_empty_statuses_fail_closed() -> None:
+    verdict = cre.evaluate(_payload(), SHA)
+
+    assert (verdict.ok, verdict.code) == (False, "absent")
+
+
+def test_pending_evidence_fails() -> None:
+    verdict = cre.evaluate(_payload(_status("pending", "awaiting runbook validation")), SHA)
+
+    assert verdict.ok is False
+    assert verdict.code == "pending"
+    assert SHA in verdict.message
+
+
+def test_failure_evidence_fails_and_points_to_rollback() -> None:
+    verdict = cre.evaluate(_payload(_status("failure", "suite red")), SHA)
+
+    assert verdict.ok is False
+    assert verdict.code == "failure"
+    assert "deploy-rollback" in verdict.message
+
+
+def test_error_state_is_treated_as_failure() -> None:
+    verdict = cre.evaluate(_payload(_status("error")), SHA)
+
+    assert (verdict.ok, verdict.code) == (False, "failure")
+
+
+def test_bypass_with_reason_passes_for_that_sha_only() -> None:
+    bypass = _status("success", "skipped:prod window closed")
+
+    ok = cre.evaluate(_payload(bypass), SHA)
+    other = cre.evaluate(_payload(bypass, sha=OTHER_SHA), SHA)
+
+    assert ok.ok is True
+    assert ok.code == "bypass"
+    assert "prod window closed" in ok.message
+    assert SHA in ok.message
+    assert other.ok is False
+
+
+def test_bypass_without_reason_is_not_accepted() -> None:
+    verdict = cre.evaluate(_payload(_status("success", "skipped:   ")), SHA)
+
+    assert verdict.ok is False
+    assert verdict.code == "bypass-without-reason"
+
+
+def test_pending_bypass_text_does_not_pass() -> None:
+    verdict = cre.evaluate(_payload(_status("pending", "skipped:reason")), SHA)
+
+    assert (verdict.ok, verdict.code) == (False, "pending")
+
+
+def test_latest_status_wins_over_older_ones() -> None:
+    older_success = _status("success", created_at="2026-09-29T09:00:00Z")
+    newer_failure = _status("failure", created_at="2026-09-29T11:00:00Z")
+
+    verdict = cre.evaluate(_payload(older_success, newer_failure), SHA)
+
+    assert (verdict.ok, verdict.code) == (False, "failure")
+
+
+def test_pending_after_success_reopens_the_gate() -> None:
+    old = _status("success", created_at="2026-09-29T09:00:00Z")
+    new = _status("pending", created_at="2026-09-29T11:00:00Z")
+
+    assert cre.evaluate(_payload(new, old), SHA).code == "pending"
+
+
+@pytest.mark.parametrize("payload", [None, [], "x", {"sha": SHA}, {"sha": SHA, "statuses": "x"}])
+def test_malformed_payload_fails_closed(payload: object) -> None:
+    verdict = cre.evaluate(payload, SHA)  # type: ignore[arg-type]
+
+    assert verdict.ok is False
+    assert verdict.code in {"malformed", "absent"}
+
+
+def test_unknown_state_fails_closed() -> None:
+    verdict = cre.evaluate(_payload(_status("weird")), SHA)
+
+    assert (verdict.ok, verdict.code) == (False, "malformed")
+
+
+def test_cli_exit_codes(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(_payload(_status("success")))))
+    assert cre.main(["--sha", SHA]) == 0
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(_payload(_status("pending")))))
+    assert cre.main(["--sha", SHA]) == 1
+    assert "::error::" in capsys.readouterr().out
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO("not json"))
+    assert cre.main(["--sha", SHA]) == 2

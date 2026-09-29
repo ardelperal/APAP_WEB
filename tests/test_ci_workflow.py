@@ -535,12 +535,11 @@ def test_deploy_workflow_gates_on_evidence() -> None:
     deploy_job = _job(DEPLOY_WORKFLOW_PATH, "deploy")
 
     assert deploy_job.get("name") == "deploy"
-    # Issue #908: release-e2e-gate joined the needs list. Issue #895:
-    # ui-e2e-gate joined it too — deploy still gates on the evidence job's
-    # verdict; each e2e gate is fail-closed on its own terms.
+    # Issue #895: ui-e2e-gate joined the needs list. Issue #1082 removed the
+    # variable-based release-e2e-gate: production e2e evidence is now
+    # recorded per revision AFTER deploy (release-e2e-record).
     assert _workflow_yaml.needs(deploy_job) == [
         "evidence",
-        "release-e2e-gate",
         "ui-e2e-gate",
     ]
     assert deploy_job.get("if") == "needs.evidence.outputs.verified == 'true'", (
@@ -2359,8 +2358,8 @@ def test_minio_replica_workflow_is_dispatch_only_and_pushes_pinned_replica() -> 
 
 def test_deploy_workflow_defines_fail_closed_ui_e2e_gate() -> None:
     """Issue #895 (design D3): deploy.yml must define a signal-only
-    ``ui-e2e-gate`` job (same pattern as release-e2e-gate from #908, which
-    stays untouched) that recomputes ui_changed for the merged revision and
+    ``ui-e2e-gate`` job (signal-only pattern introduced with the #908 gate, since
+    replaced by the post-deploy release-e2e-record of #1082) that recomputes ui_changed for the merged revision and
     fails closed when a UI-changing revision lacks green e2e evidence.
     """
     gate_job = _job(DEPLOY_WORKFLOW_PATH, "ui-e2e-gate")

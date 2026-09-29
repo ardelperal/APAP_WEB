@@ -1,13 +1,14 @@
-"""Pin tests for the release e2e gate in deploy.yml (issue #908).
+"""Pin tests for the release e2e evidence flow in deploy.yml (issues #908, #1082).
 
-Issue #908 anchors the production e2e validation (docs/runbooks/e2e-production.md)
-into the release path as a fail-closed checklist-contract gate: a signal-only
-job that refuses to let a release proceed unless the operator recorded the e2e
-gate evidence. It deliberately does NOT run Playwright, does NOT hold secrets,
-and does NOT validate production — execution stays on the operator's station
-per epic #909. These pins follow the string-based assertion style of
-tests/test_ci_workflow.py (pyyaml is scanned by the gates, not imported here
-beyond scripts/check_workflows.py's own use).
+Issue #908 anchored the production e2e validation
+(docs/runbooks/e2e-production.md) into the release path. Issue #1082 replaced
+the pre-deploy check of a global repository variable (which was circular: the
+runbook validates production AFTER deploy) with per-revision evidence: after a
+successful deploy the ``release-e2e-record`` job sets the commit status
+``release/e2e-production`` to ``pending`` on the deployed SHA, and the operator
+records the verdict on that same SHA. The workflow deliberately does NOT run
+Playwright and holds no secret beyond the job token. These pins follow the
+string-based assertion style of tests/test_ci_workflow.py.
 """
 
 import re
@@ -15,12 +16,10 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "deploy.yml"
-GATE_JOB_NAME = "release-e2e-gate"
-#: The evidence marker name is part of the operator contract: the runbook
-#: checklist and this workflow must agree byte-for-byte.
-EVIDENCE_MARKER = "APAP_E2E_GATE_EVIDENCE"
-#: Auditable bypass syntax: a skip must record a reason, never be silent.
-SKIP_PREFIX = "skipped:"
+RECORD_JOB_NAME = "release-e2e-record"
+STATUS_CONTEXT = "release/e2e-production"
+#: The retired variable-based contract must not come back.
+RETIRED_VARIABLE = "APAP_E2E_GATE_EVIDENCE"
 RUNBOOK_PATH = "docs/runbooks/e2e-production.md"
 
 
@@ -38,9 +37,9 @@ def _job_sections(workflow: str) -> dict[str, str]:
     return sections
 
 
-def _gate_section() -> str:
+def _record_section() -> str:
     workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
-    return _job_sections(workflow)[GATE_JOB_NAME]
+    return _job_sections(workflow)[RECORD_JOB_NAME]
 
 
 def _ui_gate_section() -> str:
@@ -48,85 +47,58 @@ def _ui_gate_section() -> str:
     return _job_sections(workflow)["ui-e2e-gate"]
 
 
-def test_release_e2e_gate_job_exists_and_blocks_deploy() -> None:
-    """The gate exists in the release path and deploy cannot silently skip it.
-
-    deploy.yml IS the release flow: it fires on every push to main and on
-    manual dispatch. Wiring the gate into deploy's `needs:` means a red gate
-    skips deploy — the release cannot proceed without the evidence check
-    having passed, mirroring the evidence-job gate.
+def test_pre_deploy_variable_gate_is_gone_and_deploy_no_longer_needs_it() -> None:
+    """Issue #1082: the variable-based gate blocked every deploy and, once
+    filled, approved every later release. It must not exist anymore.
     """
     workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
     sections = _job_sections(workflow)
 
-    assert GATE_JOB_NAME in sections, (
-        "deploy.yml must define the release-e2e-gate job in the release path"
-    )
-    deploy = sections["deploy"]
-    assert "needs: [evidence, release-e2e-gate, ui-e2e-gate]" in deploy, (
-        "deploy must need the e2e gates alongside evidence, so a failing or "
-        "skipped gate blocks the release instead of being skipped silently"
-    )
+    assert "release-e2e-gate" not in sections
+    assert RETIRED_VARIABLE not in workflow
+    assert "needs: [evidence, ui-e2e-gate]" in sections["deploy"]
 
 
-def test_release_e2e_gate_fails_closed_on_missing_evidence() -> None:
-    """Absent or empty evidence fails the job loudly; present evidence passes.
-
-    The gate reads the repository variable, and an empty value must produce a
-    ::error:: annotation and a nonzero exit. There is no path where missing
-    evidence stays green.
+def test_release_e2e_record_runs_after_a_successful_deploy_only() -> None:
+    """The record job needs deploy and runs only when deploy succeeded, so a
+    failed or skipped deploy never opens an e2e validation window.
     """
-    section = _gate_section()
+    section = _record_section()
 
-    assert f"vars.{EVIDENCE_MARKER}" in section, (
-        f"the gate must read the repository variable {EVIDENCE_MARKER}"
-    )
-    assert "::error::" in section
-    assert "exit 1" in section
-    # Fail-closed on emptiness, not on a keyword the value may not contain:
-    # the check tests for an empty/unset marker and passes otherwise.
-    assert '${APAP_E2E_GATE_EVIDENCE:-}' in section
+    assert "needs: [deploy]" in section
+    assert "needs.deploy.result == 'success'" in section
 
 
-def test_release_e2e_gate_opt_out_records_a_reason() -> None:
-    """The only sanctioned bypass is `skipped:<reason>`, recorded in the workflow.
+def test_release_e2e_record_sets_pending_status_on_the_deployed_sha() -> None:
+    section = _record_section()
 
-    Consistent with how the repo treats known exceptions: fail-closed with an
-    auditable escape. The syntax is documented in the workflow itself so the
-    operator contract lives next to the enforcement.
-    """
-    section = _gate_section()
-
-    assert SKIP_PREFIX in section, (
-        "the workflow must document the skipped:<reason> opt-out syntax"
-    )
-
-
-def test_release_e2e_gate_failure_message_references_runbook() -> None:
-    """A red gate must point the operator at the procedure that produces evidence."""
-    section = _gate_section()
-
+    assert STATUS_CONTEXT in section
+    assert 'state: "pending"' in section
+    assert "statuses/${GITHUB_SHA}" in section
     assert RUNBOOK_PATH in section
 
 
-def test_release_e2e_gate_holds_no_secrets_and_runs_no_playwright() -> None:
-    """Epic #909: the gate is signal-only — no secrets, no Playwright, no runner.
-
-    If this job ever grows a secret reference or an e2e execution step, the
-    design decision behind issue #908 has been violated.
+def test_release_e2e_record_has_least_privilege_and_no_secrets() -> None:
+    """Epic #909: no secret, no Playwright, no deploy-host access; the job
+    writes a commit status and reads contents, nothing else.
     """
-    section = _gate_section()
+    section = _record_section()
 
-    assert "secrets." not in section, (
-        "the gate must not reference any GitHub Actions secret"
-    )
-    assert "playwright" not in section.lower(), (
-        "the gate must not run Playwright; execution stays on the operator's "
-        "station per epic #909"
-    )
-    assert "docker" not in section.lower(), (
-        "the gate must not run anything against the deploy host"
-    )
+    assert "statuses: write" in section
+    assert "contents: read" in section
+    assert "packages:" not in section
+    assert "id-token:" not in section
+    assert "secrets." not in section
+    assert "github.token" in section
+    assert "playwright" not in section.lower()
+    assert "docker" not in section.lower()
+
+
+def test_release_e2e_record_pins_any_action_by_sha() -> None:
+    section = _record_section()
+
+    for match in re.finditer(r"^\s*(?:- )?uses:\s*(\S+)", section, flags=re.MULTILINE):
+        assert re.search(r"@[0-9a-f]{40}$", match.group(1)), match.group(1)
 
 
 # --- issue #895 fix round 1: UI e2e gate -------------------------------------
@@ -143,9 +115,7 @@ def test_ui_e2e_gate_classifies_through_the_fail_closed_checker() -> None:
 
     assert "scripts/check_required_jobs.py --print-ui-paths" in section
     assert "scripts/check_required_jobs.py --ui-changed" in section
-    assert "ui_changed=true" in section, (
-        "the gate must default to ui_changed=true (fail-closed)"
-    )
+    assert "ui_changed=true" in section, "the gate must default to ui_changed=true (fail-closed)"
     assert "assuming UI changed (fail-closed)" in section
 
 
@@ -169,8 +139,7 @@ def test_ui_e2e_gate_pays_the_gate_file_toll() -> None:
     section = _ui_gate_section()
 
     toll_pattern = (
-        "scripts/check_required_jobs.py|.github/workflows/ci.yml"
-        "|.github/workflows/deploy.yml"
+        "scripts/check_required_jobs.py|.github/workflows/ci.yml|.github/workflows/deploy.yml"
     )
     assert toll_pattern in section, (
         "the ui-e2e-gate step must force ui_changed=true when any gate "

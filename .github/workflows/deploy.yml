@@ -81,35 +81,6 @@ jobs:
           echo "::error::Refusing to deploy: ${{ steps.check.outputs.source }}."
           exit 1
 
-  release-e2e-gate:
-    name: release-e2e-gate
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    # Issue #908: signal-only checklist-contract gate for the production e2e
-    # validation (docs/runbooks/e2e-production.md). It runs NO e2e suite and
-    # holds NO secret, and does NOT validate production: it only enforces that
-    # the operator recorded the e2e gate evidence (a run URL or artifact
-    # reference produced by the runbook checklist) in the repository variable
-    # APAP_E2E_GATE_EVIDENCE before the release can proceed. Fail-closed: an
-    # absent or empty variable fails this job and, via deploy's `needs:`,
-    # blocks the release (same signal-job precedent as ci.yml's `required`).
-    # Auditable bypass: set APAP_E2E_GATE_EVIDENCE=skipped:<reason> to record
-    # a skip with a reason instead of failing.
-    permissions:
-      contents: read
-    steps:
-      - name: Require recorded production e2e gate evidence
-        env:
-          APAP_E2E_GATE_EVIDENCE: ${{ vars.APAP_E2E_GATE_EVIDENCE }}
-        run: |
-          set -euo pipefail
-          evidence="${APAP_E2E_GATE_EVIDENCE:-}"
-          if [ -z "$evidence" ]; then
-            echo "::error::APAP_E2E_GATE_EVIDENCE is empty or unset. Record the production e2e validation evidence (run URL or artifact reference) per docs/runbooks/e2e-production.md before releasing, or record an auditable skip with APAP_E2E_GATE_EVIDENCE=skipped:<reason>."
-            exit 1
-          fi
-          echo "::notice::release e2e gate evidence recorded: ${evidence}"
-
   ui-e2e-gate:
     name: ui-e2e-gate
     runs-on: ubuntu-24.04
@@ -249,7 +220,7 @@ jobs:
     name: deploy
     runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble, deploy]
     timeout-minutes: 30
-    needs: [evidence, release-e2e-gate, ui-e2e-gate]
+    needs: [evidence, ui-e2e-gate]
     if: needs.evidence.outputs.verified == 'true'
     # id-token: write lets Cosign exchange this job's short-lived GitHub OIDC
     # token for an ephemeral Fulcio certificate (keyless signing, no stored
@@ -442,3 +413,43 @@ jobs:
           python scripts/verify_deployment.py \
             --url "$DEPLOY_HEALTH_URL" --revision "$PREVIOUS_REVISION"
           echo "::error::Deployment failed and was rolled back to ${PREVIOUS_DIGEST}."
+
+  release-e2e-record:
+    name: release-e2e-record
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    needs: [deploy]
+    if: needs.deploy.result == 'success'
+    # Issue #1082: production e2e validation happens AFTER deploy (see
+    # docs/runbooks/e2e-production.md), so the evidence is bound to the
+    # deployed revision instead of a global repository variable. This job
+    # opens the validation window: it sets the commit status
+    # release/e2e-production=pending on the deployed SHA. The operator then
+    # records success (run URL), failure (=> digest rollback) or a bypass
+    # (success with description skipped:<reason>) on that same SHA, and
+    # scripts/check_release_evidence.py evaluates it. It runs NO e2e suite,
+    # holds NO secret beyond the job token and writes nothing but a status.
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - name: Mark the deployed revision as awaiting e2e validation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          body=$(mktemp)
+          payload=$(jq -n \
+            --arg url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/main/docs/runbooks/e2e-production.md" \
+            '{state: "pending", context: "release/e2e-production", description: "awaiting runbook validation", target_url: $url}')
+          code=$(curl -sS -o "$body" -w '%{http_code}' --max-time 30 -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -d "$payload" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}")
+          if [ "$code" != "201" ]; then
+            echo "::error::could not record the pending release/e2e-production status on ${GITHUB_SHA} (HTTP ${code})."
+            exit 1
+          fi
+          echo "::notice::release/e2e-production is pending on ${GITHUB_SHA}. Validate production and record the verdict on that SHA per docs/runbooks/e2e-production.md."
