@@ -72,12 +72,12 @@ El TTL cero invalida cada consulta a la caché, de modo que cada petición auten
 
 ### Restricción del almacén de estado del magic-link (issue #1004)
 
-El binding estado↔token del magic-link (issue #1004) vive en un almacén **en proceso, por worker** (`app.state._magic_link_states`, TTL derivado del TTL del token, 30 minutos por defecto). Esta restricción es independiente de la caché de autorización anterior y `APAP_AUTH_CACHE_TTL_SECONDS=0` **NO la cubre**: ese ajuste solo desactiva la caché de veredictos de autorización, no mueve el almacén de estados a un backend compartido.
+El binding estado↔token del magic-link (issue #1004) vive en un almacén **en proceso, por worker** (`app.state._magic_link_states`, TTL derivado del TTL del token, 30 minutos por defecto). Esta restricción es independiente de la caché de autorización anterior y `APAP_AUTH_CACHE_TTL_SECONDS=0` **no** la cubre: ese ajuste solo desactiva la caché de veredictos de autorización, no mueve el almacén de estados a un backend compartido.
 
 Con `N > 1` workers o réplicas, sin backend compartido:
 
 - El `POST /auth/magic/start` que emite el estado y el `GET /auth/magic/verify` que lo consume pueden aterrizar en workers distintos. El worker que recibe el verify no encuentra el binding → redirección fail-closed a `/login?reason=invalid_or_expired` → el login legítimo de un solo clic se rompe de forma intermitente (probabilidad 1/N por petición según el balanceo).
-- El single-use del estado deja de ser global: el mismo `(token, state)` podría consumirse una vez por worker mientras el binding siga vivo en otro.
+- El single-use del estado deja de ser global: el mismo `(token, state)` se puede consumir una vez por worker mientras el binding siga vivo en otro.
 
 Regla operativa: **no escale a varios workers sin migrar antes el almacén de estados a un backend compartido** (p. ej. la misma Postgres que ya usa el `MagicLinkPortImpl`, con TTL y borrado atómico). El escalado de la caché de auth con TTL cero no autoriza por sí solo el escalado del flujo magic-link.
 
