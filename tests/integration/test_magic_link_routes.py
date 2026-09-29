@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
+from app.core.local_backend import magic_link
 from app.core.local_backend.app import create_app
 from app.core.session import read_session
 
@@ -222,6 +223,80 @@ async def test_magic_start_normalises_email_to_lowercase(
     # verify envelope, so the SMTP transport receives the lowercase
     # form even though the request body was uppercase.
     assert fake_smtp.sent[0]["to"] == "ana@test.com"
+
+
+# --- ReDoS-safe email gate (CodeQL py/polynomial-redos, alert #115) ---------
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_magic_start_accepts_padded_email_via_strip(
+    magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
+) -> None:
+    """The caller strips the raw email, so surrounding whitespace is
+    still accepted (``.strip()`` behaviour preserved by the gate)."""
+    client, fake_smtp, _ = magic_link_client
+    response = await client.post(
+        "/auth/magic/start", json={"email": "  ana@test.com\t"}
+    )
+    assert response.status_code == 200, response.text
+
+
+def test_email_gate_matches_legacy_regex_accept_set() -> None:
+    r"""``_looks_like_email`` accepts exactly what the retired
+    ``^[^@\s]+@[^@\s]+\.[^@\s]+$`` pattern accepted (fail-closed on
+    the unreachable trailing-newline artifact of ``$``)."""
+    accepted = [
+        "ana@test.com",
+        "ñ@galicia.es",  # unicode local part
+        "a@b.c.d",  # multi-dot domain
+        ".dot@start.local",  # local part may contain dots
+        "a@..b",  # [^@\s] admits dots in the domain halves
+        "a@b..c",
+    ]
+    for value in accepted:
+        assert magic_link._looks_like_email(value), value
+
+    rejected = [
+        "",
+        "no-at-sign",
+        "a@@b.com",  # multiple @
+        "a@b@c.com",  # multiple @
+        "a b@c.com",  # whitespace in the local half
+        "a@b .com",  # whitespace in the domain half
+        "a@bcom",  # missing dot in the domain
+        "@b.com",  # empty local part
+        "a@",  # empty domain
+        "a@.com",  # dot at the domain start
+        "a@b.",  # dot at the domain end
+        "a@.",  # single-dot domain
+        "ana@test.com\n",  # ``$`` artifact: helper is strictly fail-closed
+    ]
+    for value in rejected:
+        assert not magic_link._looks_like_email(value), value
+
+
+def test_email_gate_rejects_pathological_shapes() -> None:
+    """Pathological lengths are rejected on form alone (functional
+    assertion only — the gate is O(n), no polynomial backtracking)."""
+    assert not magic_link._looks_like_email("a" * 5000 + "@" + "b" * 5000)
+    assert not magic_link._looks_like_email("a" * 5000 + "@" + "b" * 5000 + ".")
+    assert magic_link._looks_like_email("a" * 5000 + "@" + "b" * 5000 + ".com")
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_magic_start_rejects_pathological_email(
+    magic_link_client: tuple[httpx.AsyncClient, _FakeSMTPTransport, str],
+) -> None:
+    """A 5000-char dotless address must still be rejected on shape."""
+    client, fake_smtp, _ = magic_link_client
+    response = await client.post(
+        "/auth/magic/start",
+        json={"email": "a" * 5000 + "@" + "b" * 5000},
+    )
+    assert response.status_code == 400
+    assert fake_smtp.sent == []
 
 
 # --- GET /auth/magic/verify ------------------------------------------------

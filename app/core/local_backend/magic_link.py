@@ -79,7 +79,6 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import re
 import secrets
 import time
 from typing import TYPE_CHECKING, Annotated, NamedTuple
@@ -109,11 +108,26 @@ if TYPE_CHECKING:
 
 router = APIRouter()
 
-# RFC-5321 "atext" minimal: any non-empty local part + "@" + at least
-# one dot in the domain. Sufficient for a single-user-system where
-# the canonical email is the only identifier; a future slice can
-# swap this for :mod:`email_validator` if the address space grows.
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+def _looks_like_email(value: str) -> bool:
+    r"""ReDoS-safe gate equivalent to the retired ``_EMAIL_RE``.
+
+    Replaces the polynomial regex ``^[^@\s]+@[^@\s]+\.[^@\s]+$``
+    (CodeQL py/polynomial-redos, alert #115) with a linear scan:
+    exactly one ``@``; non-empty local part; a domain dot with at
+    least one character on each side (``[^@\s]`` admits ``.`` itself,
+    so ``a@..b`` is accepted and ``a@.com``/``a@b.`` rejected); and no
+    whitespace anywhere. The only divergence from the regex is the
+    ``$``-anchor artifact (one trailing ``\n``), unreachable because
+    the only caller strips the raw email first; the helper is
+    strictly fail-closed there.
+    """
+    if any(ch.isspace() for ch in value):
+        return False
+    local, sep, domain = value.partition("@")
+    if not sep or not local or "@" in domain:
+        return False
+    return any(domain[i] == "." and 0 < i < len(domain) - 1 for i in range(1, len(domain) - 1))
 
 _STATE_TTL_SECONDS = 1800
 """Fallback TTL of the verify-state binding.
@@ -395,7 +409,7 @@ async def start_magic_link(
     distinguish "authorized" from "unknown" emails.
     """
     raw_email = payload.get("email")
-    if not isinstance(raw_email, str) or not _EMAIL_RE.match(raw_email.strip()):
+    if not isinstance(raw_email, str) or not _looks_like_email(raw_email.strip()):
         raise HTTPException(status_code=400, detail={"error": "invalid_email"})
     email = raw_email.strip().lower()
 
