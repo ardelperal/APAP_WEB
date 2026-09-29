@@ -375,9 +375,9 @@ producción y registre el resultado **real** sobre esa SHA; no registre un
 `success` que el script no haya devuelto:
 
 ```bash
-SHA=$(git rev-parse origin/main)   # la última revisión desplegada
 REPO=ardelperal/APAP_WEB
 DEPLOY_HEALTH_URL=<valor de la variable APAP_DEPLOY_HEALTH_URL>
+SHA=$(curl -s "${DEPLOY_HEALTH_URL}" | jq -r .revision)   # la revisión desplegada
 
 uv run python scripts/production_smoke.py \
   --health-url "${DEPLOY_HEALTH_URL}" --revision "${SHA}"
@@ -392,6 +392,10 @@ gh api --method POST "repos/${REPO}/statuses/${SHA}" \
 # Con exit=1: registre state=failure con el mismo comando y corrija o haga
 # rollback según deploy-rollback.md.
 ```
+
+Lea la SHA del campo `revision` de `/healthz`, no de `origin/main`: `main` puede
+haber avanzado por encima de lo desplegado (o el despliegue puede haber sido un
+rollback), y el estado debe quedar sobre la revisión que sirve producción.
 
 Si esa SHA tampoco tiene `release/e2e-production`, resuélvala con los pasos de
 arriba (`success` real o `skipped:<motivo>`).

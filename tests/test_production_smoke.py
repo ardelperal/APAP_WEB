@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 from collections.abc import Callable
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
@@ -65,6 +67,7 @@ def _retry(
 
 
 FOUR_ATTEMPTS = 4
+THREE_ATTEMPTS = 3
 USAGE_ERROR = 2
 
 
@@ -144,14 +147,14 @@ def test_revision_check_rejects_a_non_json_or_unhealthy_body() -> None:
 def test_public_route_must_answer_200() -> None:
     fetch = _site(login=ps.Response(status=500, location=None, body=b""))
 
-    result = ps.check_public(fetch, BASE, "/login")
+    result = ps.check_public(fetch, BASE, "/login", _retry())
 
     assert not result.ok
     assert "500" in result.detail
 
 
 def test_public_route_transport_error_fails_the_check() -> None:
-    result = ps.check_public(_site(login=ps.FetchError("timed out")), BASE, "/login")
+    result = ps.check_public(_site(login=ps.FetchError("timed out")), BASE, "/login", _retry())
 
     assert not result.ok
     assert "timed out" in result.detail
@@ -159,41 +162,109 @@ def test_public_route_transport_error_fails_the_check() -> None:
 
 @pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
 def test_protected_route_accepts_any_redirect_to_login(status: int) -> None:
-    result = ps.check_protected(_site(_=_redirect("/login", status)), BASE, "/")
+    result = ps.check_protected(_site(_=_redirect("/login", status)), BASE, "/", _retry())
 
     assert result.ok
 
 
 def test_protected_route_accepts_an_absolute_login_location() -> None:
-    result = ps.check_protected(_site(_=_redirect(f"{BASE}/login?next=/")), BASE, "/")
+    result = ps.check_protected(_site(_=_redirect(f"{BASE}/login?next=/")), BASE, "/", _retry())
 
     assert result.ok
 
 
+@pytest.mark.parametrize(
+    "location",
+    [
+        "https://evil.example.test/login",
+        "//evil.example.test/login",
+        "http://apap.example.test/login",
+    ],
+)
+def test_protected_route_rejects_a_login_redirect_to_another_origin(location: str) -> None:
+    result = ps.check_protected(_site(_=_redirect(location)), BASE, "/", _retry())
+
+    assert not result.ok
+    assert location in result.detail
+
+
+def test_public_route_retries_a_transient_failure_then_passes() -> None:
+    answers = [ps.Response(403, None, b""), _login_page()]
+    sleeps: list[float] = []
+
+    def fetch(_url: str) -> ps.Response:
+        return answers.pop(0)
+
+    result = ps.check_public(fetch, BASE, "/login", _retry(3, 5, sleeps.append))
+
+    assert result.ok
+    assert sleeps == [5]
+
+
+def test_public_route_fails_after_the_retry_budget() -> None:
+    calls: list[str] = []
+
+    def fetch(url: str) -> ps.Response:
+        calls.append(url)
+        return ps.Response(503, None, b"")
+
+    result = ps.check_public(fetch, BASE, "/login", _retry(3, 0))
+
+    assert not result.ok
+    assert len(calls) == THREE_ATTEMPTS
+    assert "503" in result.detail
+
+
+def test_protected_route_retries_a_transient_failure_then_passes() -> None:
+    answers: list[ps.Response | Exception] = [ps.FetchError("reset"), _redirect()]
+
+    def fetch(_url: str) -> ps.Response:
+        outcome = answers.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    assert ps.check_protected(fetch, BASE, "/", _retry(2, 0)).ok
+
+
+def test_protected_route_fails_after_the_retry_budget() -> None:
+    calls: list[str] = []
+
+    def fetch(url: str) -> ps.Response:
+        calls.append(url)
+        return ps.Response(502, None, b"")
+
+    result = ps.check_protected(fetch, BASE, "/", _retry(3, 0))
+
+    assert not result.ok
+    assert len(calls) == THREE_ATTEMPTS
+    assert "502" in result.detail
+
+
 @pytest.mark.parametrize("status", [500, 502, 503])
 def test_protected_route_5xx_fails(status: int) -> None:
-    result = ps.check_protected(_site(_=ps.Response(status, None, b"")), BASE, "/")
+    result = ps.check_protected(_site(_=ps.Response(status, None, b"")), BASE, "/", _retry())
 
     assert not result.ok
     assert str(status) in result.detail
 
 
 def test_protected_route_without_a_redirect_fails() -> None:
-    result = ps.check_protected(_site(_=_login_page()), BASE, "/")
+    result = ps.check_protected(_site(_=_login_page()), BASE, "/", _retry())
 
     assert not result.ok
     assert "200" in result.detail
 
 
 def test_protected_route_redirecting_elsewhere_fails() -> None:
-    result = ps.check_protected(_site(_=_redirect("/unauthorized")), BASE, "/")
+    result = ps.check_protected(_site(_=_redirect("/unauthorized")), BASE, "/", _retry())
 
     assert not result.ok
     assert "/unauthorized" in result.detail
 
 
 def test_protected_route_redirect_without_location_fails() -> None:
-    result = ps.check_protected(_site(_=ps.Response(302, None, b"")), BASE, "/")
+    result = ps.check_protected(_site(_=ps.Response(302, None, b"")), BASE, "/", _retry())
 
     assert not result.ok
 
@@ -242,3 +313,31 @@ def test_main_usage_errors_exit_two(argv: list[str]) -> None:
 def test_fetch_url_refuses_non_http_schemes() -> None:
     with pytest.raises(ps.FetchError, match="scheme"):
         ps.fetch_url("file:///etc/passwd")
+
+
+def test_fetch_url_sends_the_smoke_user_agent_on_every_request() -> None:
+    seen: list[str | None] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802 - http.server API
+            seen.append(self.headers.get("User-Agent"))
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *_args: object) -> None:
+            return None
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        ps.fetch_url(f"{base}/healthz")
+        ps.fetch_url(f"{base}/login")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert seen == [ps.USER_AGENT, ps.USER_AGENT]
+    assert ps.USER_AGENT.startswith("apap-production-smoke/")
+    assert not any(agent and agent.startswith("Python-urllib") for agent in seen)

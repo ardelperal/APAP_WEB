@@ -8,9 +8,12 @@ Checks, all over plain HTTP (stdlib only, redirects are never followed):
 
     revision            ``/healthz`` reports ``status: ok`` and the expected SHA
                         (bounded retries: the deploy finishes just before)
-    public /login       the login page answers 200
-    protected / redirect  an unauthenticated ``/`` redirects to ``/login`` and
-                        never answers 5xx
+    public /login       the login page answers 200 (same bounded retries)
+    protected / redirect  an unauthenticated ``/`` redirects to ``/login`` on
+                        the same origin and never answers 5xx (same retries)
+
+Every request carries ``USER_AGENT``: the edge in front of production rejects
+the default ``Python-urllib`` agent with HTTP 403 (issue #1134).
 
 This is NOT the authenticated e2e battery: it proves the revision is live and
 the auth gate is up, nothing about authenticated behaviour (see
@@ -52,6 +55,7 @@ PROTECTED_PATH = "/"
 REQUEST_TIMEOUT_SECONDS = 15.0
 REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 SERVER_ERROR_FLOOR = 500
+USER_AGENT = "apap-production-smoke/1 (+https://github.com/ardelperal/APAP_WEB)"
 
 
 class FetchError(Exception):
@@ -78,7 +82,13 @@ class CheckResult:
 
 @dataclass(frozen=True)
 class Retry:
-    """Bounded retry policy for the revision check."""
+    """Bounded retry policy shared by every check.
+
+    Worst case with the CLI defaults (6 attempts, 10 s interval, 15 s request
+    timeout) is 3 checks x (6 x 15 s + 5 x 10 s) = 420 s (7 min), inside the
+    ``timeout-minutes: 10`` of the ``production-smoke`` job in ``deploy.yml``.
+    Raising ``--attempts`` or ``--interval`` there must keep that bound.
+    """
 
     attempts: int
     interval: float
@@ -101,7 +111,9 @@ def fetch_url(url: str) -> Response:
         message = f"unsupported URL scheme in {url!r}"
         raise FetchError(message)
     opener = urllib.request.build_opener(_NoRedirect)
-    request = urllib.request.Request(url, method="GET")  # noqa: S310 - scheme checked above
+    request = urllib.request.Request(  # noqa: S310 - scheme checked above
+        url, headers={"User-Agent": USER_AGENT}, method="GET"
+    )
     try:
         with opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as reply:  # noqa: S310
             return Response(reply.status, reply.headers.get("Location"), reply.read())
@@ -139,63 +151,89 @@ def _revision_attempt(fetch: Fetch, base: str, expected: str) -> str | None:
     return None
 
 
+def _with_retry(attempt: Callable[[], str | None], retry: Retry) -> str | None:
+    """Return None on the first successful attempt, else the last failure reason."""
+    reason: str | None = "no attempt made"
+    for number in range(1, retry.attempts + 1):
+        reason = attempt()
+        if reason is None:
+            return None
+        if number < retry.attempts:
+            retry.sleep(retry.interval)
+    return reason
+
+
 def check_revision(fetch: Fetch, base: str, expected: str, retry: Retry) -> CheckResult:
     """``/healthz`` must expose ``expected`` within ``retry.attempts`` tries."""
-    reason = "no attempt made"
-    for attempt in range(1, retry.attempts + 1):
-        outcome = _revision_attempt(fetch, base, expected)
-        if outcome is None:
-            return CheckResult("revision", True, f"{expected} is live")
-        reason = outcome
-        if attempt < retry.attempts:
-            retry.sleep(retry.interval)
+    reason = _with_retry(lambda: _revision_attempt(fetch, base, expected), retry)
+    if reason is None:
+        return CheckResult("revision", True, f"{expected} is live")
     return CheckResult(
         "revision", False, f"{expected} not live after {retry.attempts} attempt(s): {reason}"
     )
 
 
-def check_public(fetch: Fetch, base: str, path: str) -> CheckResult:
-    """A public route must answer 200."""
-    name = f"public {path}"
+def _public_attempt(fetch: Fetch, base: str, path: str) -> str | None:
     try:
         reply = fetch(f"{base}{path}")
     except FetchError as error:
-        return CheckResult(name, False, f"transport error: {error}")
+        return f"transport error: {error}"
     if reply.status != HTTP_OK:
-        return CheckResult(name, False, f"{path} answered HTTP {reply.status}, expected 200")
-    return CheckResult(name, True, f"{path} answered 200")
+        return f"{path} answered HTTP {reply.status}, expected 200"
+    return None
 
 
-def _points_to_login(location: str) -> bool:
-    return urlsplit(location).path == LOGIN_PATH
+def check_public(fetch: Fetch, base: str, path: str, retry: Retry) -> CheckResult:
+    """A public route must answer 200 within ``retry.attempts`` tries."""
+    name = f"public {path}"
+    reason = _with_retry(lambda: _public_attempt(fetch, base, path), retry)
+    if reason is None:
+        return CheckResult(name, True, f"{path} answered 200")
+    return CheckResult(name, False, reason)
 
 
-def check_protected(fetch: Fetch, base: str, path: str) -> CheckResult:
-    """A protected route must redirect an anonymous caller to ``/login``, never 5xx."""
-    name = f"protected {path} redirect"
+def _points_to_login(location: str, base: str) -> bool:
+    """True for ``/login`` reached by a relative Location or on the base origin."""
+    target, home = urlsplit(location), urlsplit(base)
+    if target.scheme or target.netloc:
+        same_origin = (target.scheme.lower(), target.netloc.lower()) == (
+            home.scheme.lower(),
+            home.netloc.lower(),
+        )
+        if not same_origin:
+            return False
+    return target.path == LOGIN_PATH
+
+
+def _protected_attempt(fetch: Fetch, base: str, path: str) -> str | None:
     try:
         reply = fetch(f"{base}{path}")
     except FetchError as error:
-        return CheckResult(name, False, f"transport error: {error}")
+        return f"transport error: {error}"
     if reply.status >= SERVER_ERROR_FLOOR:
-        return CheckResult(name, False, f"{path} answered HTTP {reply.status} (server error)")
+        return f"{path} answered HTTP {reply.status} (server error)"
     if reply.status not in REDIRECT_STATUSES:
-        return CheckResult(
-            name, False, f"{path} answered HTTP {reply.status}, expected a redirect to {LOGIN_PATH}"
-        )
-    if not reply.location or not _points_to_login(reply.location):
-        return CheckResult(
-            name, False, f"{path} redirects to {reply.location!r}, expected {LOGIN_PATH}"
-        )
-    return CheckResult(name, True, f"{path} redirects to {LOGIN_PATH}")
+        return f"{path} answered HTTP {reply.status}, expected a redirect to {LOGIN_PATH}"
+    if not reply.location or not _points_to_login(reply.location, base):
+        return f"{path} redirects to {reply.location!r}, expected {LOGIN_PATH} on {base}"
+    return None
+
+
+def check_protected(fetch: Fetch, base: str, path: str, retry: Retry) -> CheckResult:
+    """A protected route must redirect an anonymous caller to ``/login`` on this origin."""
+    name = f"protected {path} redirect"
+    reason = _with_retry(lambda: _protected_attempt(fetch, base, path), retry)
+    if reason is None:
+        return CheckResult(name, True, f"{path} redirects to {LOGIN_PATH}")
+    return CheckResult(name, False, reason)
 
 
 def run_smoke(fetch: Fetch, base: str, revision: str, retry: Retry) -> list[CheckResult]:
     """Run every check (no short-circuit, so one run reports every failure)."""
     return [
         check_revision(fetch, base, revision, retry),
-        check_public(fetch, base, LOGIN_PATH),
-        check_protected(fetch, base, PROTECTED_PATH),
+        check_public(fetch, base, LOGIN_PATH, retry),
+        check_protected(fetch, base, PROTECTED_PATH, retry),
     ]
 
 
@@ -210,7 +248,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--health-url", required=True, help="public /healthz URL")
     parser.add_argument("--revision", required=True, help="expected deployed SHA")
-    parser.add_argument("--attempts", type=int, default=6, help="revision check tries (>= 1)")
+    parser.add_argument("--attempts", type=int, default=6, help="tries per check (>= 1)")
     parser.add_argument("--interval", type=float, default=10.0, help="seconds between tries (>= 0)")
     return parser
 
