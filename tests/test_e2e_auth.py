@@ -60,15 +60,6 @@ def _executor_with_user(user: dict[str, object] | None) -> HandlerSqlExecutor:
     return HandlerSqlExecutor(handler)
 
 
-def _executor_failing() -> HandlerSqlExecutor:
-    """Return an executor whose every query fails (DB unreachable)."""
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(500, json={"error": "db down"})
-
-    return HandlerSqlExecutor(handler)
-
-
 def _e2e_settings(**overrides: object) -> Settings:
     """Build an enabled Settings for the mock route with a usable session secret."""
     base: dict[str, object] = {
@@ -426,12 +417,21 @@ def test_db_failure_returns_503_audited(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A DB failure during the allowlist lookup is a 503, audited.
+    """A DB failure during the allowlist lookup is a 503, audited (JD-A-001).
 
-    The endpoint must never mint a session when it cannot verify the
-    email against ``usuarios_autorizados`` (fail closed).
+    Regression guard against the fake-masked bug (issue #1073 fix round
+    2): the production executor (``LocalPostgresExecutor``) raises
+    ``DatabaseError``/``QueryError`` from the RuntimeError hierarchy —
+    NOT Protocol-level ``BackendError`` — so a fake raising only the
+    legacy error type can mask a broken fail-closed guard. This test
+    uses the REAL executor pointed at an unreachable port (connection
+    refused, no mocks): the endpoint must answer the audited 503
+    ``server_misconfigured`` and never mint a session.
     """
-    app = _build_app(_e2e_settings(), _executor_failing())
+    from app.core.local_backend.db import LocalPostgresExecutor
+
+    real_executor = LocalPostgresExecutor("postgresql://nobody@127.0.0.1:1/apap")
+    app = _build_app(_e2e_settings(), real_executor)
     client = TestClient(app)
 
     with caplog.at_level(logging.INFO, logger="app"):
