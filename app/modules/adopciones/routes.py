@@ -26,13 +26,16 @@ Endpoints (mounted at ``/adopciones`` by ``app/main.py``):
                                                   **Requires writer
                                                   rol** (issue #144).
 
-Auth model (issue #144): GET endpoints use ``require_authorized_user``
-(read access stays open to any authorized operator). Write endpoints
-(POST create / POST update / POST delete) use
-``require_writer_user`` which composes on ``require_authorized_user``
-and rejects the ``reader`` rol with 403 BEFORE the handler runs. This
+Auth model (issue #144, extended by issue #1019): GET endpoints use
+``require_permission(READ_ADOPCIONES)`` (fail-closed via the RBAC
+matrix; D-44 keeps the legacy read roles working). Write endpoints
+(POST create / POST update / POST delete / PATCH seguimiento) use
+``require_permission(WRITE_ADOPCIONES)`` which composes on
+``require_authorized_user`` and rejects the ``reader`` rol with 403
+BEFORE the handler runs. This
 closes the P1-3 (risk review 2026-07-04) authz gap where a reader
-could previously POST / DELETE adopciones.
+could previously POST / DELETE adopciones, and the #1019 gap where a
+ghost or reader rol could execute the seguimiento transition.
 """
 
 from __future__ import annotations
@@ -51,13 +54,10 @@ from app.core._module_helpers._form_render import make_render_form
 from app.core.auth_dependencies import (
     AuthenticatedUser,
     get_local_postgres_executor_dep,
-    require_authorized_user,
     return_early_if_response,
 )
 
 # Alias for backward compat with test fixtures.
-get_insforge_client_dep = get_local_postgres_executor_dep
-
 from app.core.csrf import csrf_token_context_processor  # noqa: E402
 from app.core.data_access import (  # noqa: E402
     BackendError,
@@ -391,7 +391,7 @@ def delete_adopcion_view(
 def seguimiento_transition_view(  # noqa: PLR0913  # PATCH with 2 Form fields + 4 fixed deps; not worth a separate form model
     adopcion_id: str,
     request: Request,
-    user: Annotated[AuthenticatedUser, Depends(require_authorized_user)],
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ADOPCIONES))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
     action: Annotated[str, Form()],
     documento_url: Annotated[str | None, Form()] = None,

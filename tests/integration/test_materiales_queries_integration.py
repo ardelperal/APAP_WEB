@@ -305,8 +305,8 @@ def test_build_junction_deactivate(ephemeral_postgres: _EphemeralPostgres) -> No
     inserted = ephemeral_postgres.execute(junction_sql, junction_params)
     junction_id = inserted[0]["id"]
 
-    # Deactivate
-    sql, params = q.build_junction_deactivate(str(junction_id))
+    # Deactivate (scoped to the owning estancia)
+    sql, params = q.build_junction_deactivate(related["estancia_id"], str(junction_id))
     rows = ephemeral_postgres.execute(sql, params)
     assert len(rows) == 1
     assert rows[0]["id"] == junction_id
@@ -318,3 +318,43 @@ def test_build_junction_deactivate(ephemeral_postgres: _EphemeralPostgres) -> No
     list_rows = ephemeral_postgres.execute(list_sql, list_params)
     junction_ids = [r["id"] for r in list_rows]
     assert junction_id not in junction_ids
+
+
+@pytest.mark.integration
+def test_build_junction_deactivate_rejects_foreign_estancia(
+    ephemeral_postgres: _EphemeralPostgres,
+) -> None:
+    """build_junction_deactivate is a no-op for another estancia's junction.
+
+    Issue #919 (audit finding A-07): the UPDATE is ownership-scoped —
+    passing an estancia_id that does not own the junction deactivates
+    nothing (fail closed, zero rows returned).
+    """
+    related = _seed_related_records(ephemeral_postgres)
+
+    material_id = str(uuid4())
+    ephemeral_postgres.execute(
+        f"INSERT INTO materiales (id, material, tamano, color, activo, fecha_alta) "
+        f"VALUES ('{material_id}', 'Comedero', 'Chico', 'Azul', true, now()) "
+        f"RETURNING id"
+    )
+    junction_sql, junction_params = q.build_junction_insert(
+        estancia_id=related["estancia_id"],
+        material_id=material_id,
+        cantidad=1,
+        notas=None,
+    )
+    inserted = ephemeral_postgres.execute(junction_sql, junction_params)
+    junction_id = inserted[0]["id"]
+
+    foreign_estancia_id = str(uuid4())
+    sql, params = q.build_junction_deactivate(foreign_estancia_id, str(junction_id))
+    rows = ephemeral_postgres.execute(sql, params)
+    assert rows == []
+
+    # The row stays active for its real owner.
+    list_sql, list_params = q.build_junction_list_for_estancia(
+        estancia_id=related["estancia_id"], activos_solo=True
+    )
+    list_rows = ephemeral_postgres.execute(list_sql, list_params)
+    assert junction_id in [r["id"] for r in list_rows]

@@ -140,7 +140,10 @@ class _StubPort:
         self.last_list_for_estancia_activos = activos_solo
         return list(self.next_junctions or [])
 
-    def remove_material_from_estancia(self, junction_id: str) -> bool:
+    def remove_material_from_estancia(
+        self, estancia_id: str, junction_id: str
+    ) -> bool:
+        self.last_remove_estancia_id = estancia_id
         self.last_remove_junction_id = junction_id
         return self.next_remove_flag
 
@@ -476,8 +479,14 @@ def test_remove_returns_port_flag() -> None:
     port.next_remove_flag = True
 
     assert remove_material_from_estancia(
-        port, "00000000-0000-0000-0000-000000000010"
+        port,
+        "00000000-0000-0000-0000-000000000001",
+        "00000000-0000-0000-0000-000000000010",
     ) is True
+    assert (
+        port.last_remove_estancia_id
+        == "00000000-0000-0000-0000-000000000001"
+    )
     assert (
         port.last_remove_junction_id
         == "00000000-0000-0000-0000-000000000010"

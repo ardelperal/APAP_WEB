@@ -25,6 +25,7 @@ import pytest
 from app.core.auth_dependencies import get_local_postgres_executor_dep
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
+from app.core.tasks.rules import TareaDraft
 from app.main import app, get_local_backend_client
 from tests.conftest import make_csrf_request
 
@@ -49,6 +50,22 @@ class _FakeTasksLocalBackend(LocalPostgresExecutor):
     def execute_sql(self, query: str, params=None):
         """Route SQL to the appropriate handler."""
         normalised = re.sub(r"\s+", " ", query.strip())
+        # Auth revalidation (require_authorized_user, issue #1002): the
+        # fake must answer GET_USER_BY_EMAIL_SQL with an ACTIVE user row.
+        # Pre-fix this fake returned [] and the denial RedirectResponse
+        # was silently swallowed by the route handlers (JD-B-001); now
+        # the handler propagates it, so authenticated-flow tests need the
+        # revalidation to succeed (same pattern as test_acogidas_routes).
+        if "FROM usuarios_autorizados" in normalised:
+            email = params[0] if params else "test@example.com"
+            return [
+                {
+                    "id": "u-test",
+                    "email": email,
+                    "rol": "developer",
+                    "activo": True,
+                }
+            ]
         # INSERT INTO tarea
         if "INSERT INTO tarea" in normalised and "VALUES" in normalised:
             return self._insert_tarea(params)
@@ -162,6 +179,7 @@ class _FakeTasksLocalBackend(LocalPostgresExecutor):
         """Insert a tarea directly into the fake store (for rule engine tests)."""
         tarea_id = str(uuid.uuid4())
         defaults = {
+            "id": tarea_id,
             "tipo": "manual",
             "origen": "dashboard_manual",
             "prioridad": "normal",
@@ -1100,3 +1118,174 @@ class TestDashboardIntegration:
 
         labels = [card.get("label", "") for card in DASHBOARD_PENDING_CARDS]
         assert "Tareas pendientes" in labels
+
+# ---------------------------------------------------------------------------
+# Phase 6: Scheduler dedupe contract (issue #922 re-scope of audit point 8)
+# ---------------------------------------------------------------------------
+
+
+class TestSchedulerDedupe:
+    """``run_scheduler`` dedupe contract (issue #922, finding A-10 re-scope).
+
+    The original audit point referenced "retry semantics" in
+    ``app/core/tasks.py`` — a stale reference: the package is a rule
+    engine + scheduler with no retry paths (verified 2026-09-24+). The
+    closest critical-path behavior is the scheduler's dedupe: a draft
+    whose ``vinculo_tipo``+``vinculo_id`` already has an OPEN tarea
+    (``pendiente`` or ``en_progreso``) must be skipped; a draft whose
+    only prior tarea is closed (``completada``/``cancelada``/
+    ``vencida``) must be persisted as a new tarea.
+
+    The tests drive the REAL ``run_scheduler`` branch through its
+    lazy-import seams (settings, executor, rules registry, logging),
+    with the ``_FakeTasksLocalBackend`` standing in for Postgres.
+    """
+
+    @staticmethod
+    def _draft() -> TareaDraft:
+        """A single deterministic draft bound to a fixed vinculo."""
+        return TareaDraft(
+            tipo="automatica_vacuna",
+            origen="regla_salud",
+            prioridad="normal",
+            vinculo_tipo="animal",
+            vinculo_id="animal-1",
+        )
+
+    @staticmethod
+    def _run_scheduler_with_drafts(
+        fake: _FakeTasksLocalBackend,
+        monkeypatch: pytest.MonkeyPatch,
+        drafts: list[TareaDraft],
+    ) -> None:
+        """Run the real scheduler against a fake backend via its seams.
+
+        ``run_scheduler`` lazy-imports its collaborators at call time,
+        so patching the source module attributes intercepts every
+        dependency: settings (no real DSN), executor construction
+        (returns the fake), the rules registry (returns our drafts),
+        and logging (no config needed).
+        """
+        from types import SimpleNamespace
+
+        monkeypatch.setattr(
+            "app.core.config.get_settings",
+            lambda: SimpleNamespace(local_db_url="fake://unused"),
+        )
+        monkeypatch.setattr(
+            "app.core.local_backend.db.LocalPostgresExecutor",
+            lambda _url: fake,
+        )
+        monkeypatch.setattr(
+            "app.core.tasks.rules.TASK_RULES",
+            {"test_rule": lambda _ctx: drafts},
+        )
+        monkeypatch.setattr(
+            "app.core.logging.log_safe",
+            lambda *_args, **_kwargs: None,
+        )
+
+        from app.core.tasks.scheduler import run_scheduler
+
+        run_scheduler()
+
+    def test_skips_draft_when_open_pendiente_tarea_exists_for_same_vinculo(
+        self,
+        fake_tasks_local_backend: _FakeTasksLocalBackend,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A draft for a vinculo with an open pendiente tarea is skipped."""
+        fake_tasks_local_backend.seed_tarea(
+            tipo="automatica_vacuna",
+            estado="pendiente",
+            vinculo_tipo="animal",
+            vinculo_id="animal-1",
+        )
+
+        self._run_scheduler_with_drafts(
+            fake_tasks_local_backend, monkeypatch, [self._draft()]
+        )
+
+        from app.modules.tasks import service as tareas_service
+
+        all_tareas = tareas_service.listar_tareas(client=fake_tasks_local_backend)
+        assert len(all_tareas) == 1, (
+            "scheduler must not create a duplicate for an open pendiente tarea"
+        )
+        assert all_tareas[0].estado == "pendiente"
+
+    def test_skips_draft_when_open_en_progreso_tarea_exists_for_same_vinculo(
+        self,
+        fake_tasks_local_backend: _FakeTasksLocalBackend,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A draft for a vinculo with an open en_progreso tarea is skipped."""
+        fake_tasks_local_backend.seed_tarea(
+            tipo="automatica_vacuna",
+            estado="en_progreso",
+            vinculo_tipo="animal",
+            vinculo_id="animal-1",
+        )
+
+        self._run_scheduler_with_drafts(
+            fake_tasks_local_backend, monkeypatch, [self._draft()]
+        )
+
+        from app.modules.tasks import service as tareas_service
+
+        all_tareas = tareas_service.listar_tareas(client=fake_tasks_local_backend)
+        assert len(all_tareas) == 1, (
+            "scheduler must not create a duplicate for an open en_progreso tarea"
+        )
+        assert all_tareas[0].estado == "en_progreso"
+
+    @pytest.mark.parametrize("closed_estado", ["completada", "cancelada", "vencida"])
+    def test_creates_draft_when_prior_tarea_closed(
+        self,
+        fake_tasks_local_backend: _FakeTasksLocalBackend,
+        monkeypatch: pytest.MonkeyPatch,
+        closed_estado: str,
+    ) -> None:
+        """A draft whose only prior tarea is closed IS persisted as new.
+
+        Parametrized over every non-open estado: the dedupe must match
+        on open tareas only, so closed/expired history does not suppress
+        a new draft for the same vinculo.
+        """
+        prior_id = fake_tasks_local_backend.seed_tarea(
+            tipo="automatica_vacuna",
+            estado=closed_estado,
+            vinculo_tipo="animal",
+            vinculo_id="animal-1",
+        )
+
+        self._run_scheduler_with_drafts(
+            fake_tasks_local_backend, monkeypatch, [self._draft()]
+        )
+
+        from app.modules.tasks import service as tareas_service
+
+        all_tareas = tareas_service.listar_tareas(client=fake_tasks_local_backend)
+        assert len(all_tareas) == 2, (
+            f"scheduler must create a new draft when the prior tarea is "
+            f"{closed_estado} (dedupe matches open tareas only)"
+        )
+        new_ids = {t.id for t in all_tareas} - {prior_id}
+        assert len(new_ids) == 1, "exactly one new tarea must be created"
+
+    def test_creates_draft_when_no_prior_tarea_exists(
+        self,
+        fake_tasks_local_backend: _FakeTasksLocalBackend,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Baseline: with no prior tarea for the vinculo, the draft is persisted."""
+        self._run_scheduler_with_drafts(
+            fake_tasks_local_backend, monkeypatch, [self._draft()]
+        )
+
+        from app.modules.tasks import service as tareas_service
+
+        all_tareas = tareas_service.listar_tareas(client=fake_tasks_local_backend)
+        assert len(all_tareas) == 1
+        assert all_tareas[0].tipo == "automatica_vacuna"
+        assert all_tareas[0].vinculo_id == "animal-1"

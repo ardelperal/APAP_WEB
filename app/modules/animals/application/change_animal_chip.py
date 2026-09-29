@@ -21,8 +21,8 @@ adapter-side uniqueness check:
   meaningless CHIP_CHANGED event in the timeline).
 
 The remaining checks (uniqueness of ``new_chip``; current chip
-matches ``old_chip``; per-table UPDATE success) live in the
-adapter because they need the transport / DB. The use case only
+matches ``old_chip``; success of the guarded ``animales.nchip``
+UPDATE) live in the adapter because they need the transport / DB. The use case only
 validates inputs that are independent of the backend.
 """
 from __future__ import annotations
@@ -61,7 +61,8 @@ def change_animal_chip(
     reason: str,
     operador_user_id: str,
 ) -> ChangeChipResult:
-    """Change the animal's chip and propagate across the 6 dependent tables.
+    """Change the animal's chip: guarded ``animales.nchip`` update plus
+    the ``CHIP_CHANGED`` event in one transaction (D-43, issue #916).
 
     Returns the saga result. ``success=False`` indicates the adapter
     rolled back; ``error`` carries the cause for the route handler

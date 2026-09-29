@@ -5,6 +5,10 @@ Spec coverage: REQ-1 through REQ-7.
 
 from __future__ import annotations
 
+import logging
+import sys
+import threading
+import time
 from collections.abc import Iterator
 from typing import Any
 from unittest.mock import MagicMock
@@ -12,8 +16,9 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 from fastapi import FastAPI  # noqa: F401 — type annotation only, evaluated lazily
+from fastapi.testclient import TestClient
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.session import session_cookie_name, write_session
 
 # ---------------------------------------------------------------------------
@@ -205,7 +210,7 @@ class TestExtractIdentity:
         request = MagicMock()
         request.cookies.get.return_value = None
         request.client.host = "10.0.0.1"
-        request.headers.get.return_value = None
+        request.headers.getlist.return_value = []
         settings = get_settings()
 
         identity = _extract_identity(request, settings)
@@ -214,19 +219,38 @@ class TestExtractIdentity:
         assert identity.user_id is None
 
     def test_extract_identity_with_xff_trusted(self) -> None:
-        """XFF present + trust_xff=True → first XFF entry is IP."""
+        """XFF present + trust_xff=True + trusted proxy configured → the first
+        value outside the trusted networks is the IP (issue #920)."""
         from app.core.rate_limit import _extract_identity
 
         request = MagicMock()
         request.cookies.get.return_value = None
-        request.headers.get.return_value = "203.0.113.50, 10.0.0.1"
+        request.client.host = "10.0.0.1"
+        request.headers.getlist.return_value = ["203.0.113.50, 10.0.0.1"]
         settings = get_settings()
-        # Monkeypatch trust_xff via a settings mock
         settings.trust_xff = True
+        settings.trusted_proxies = ["10.0.0.0/8"]
 
         identity = _extract_identity(request, settings)
 
         assert identity.ip == "203.0.113.50"
+
+    def test_extract_identity_with_xff_trusted_but_no_proxies(self) -> None:
+        """trust_xff=True with EMPTY trusted_proxies → header never trusted
+        (no client IP override); direct peer wins (issue #920)."""
+        from app.core.rate_limit import _extract_identity
+
+        request = MagicMock()
+        request.cookies.get.return_value = None
+        request.client.host = "10.0.0.1"
+        request.headers.getlist.return_value = ["203.0.113.50, 10.0.0.1"]
+        settings = get_settings()
+        settings.trust_xff = True
+        settings.trusted_proxies = []
+
+        identity = _extract_identity(request, settings)
+
+        assert identity.ip == "10.0.0.1"
 
     def test_extract_identity_with_xff_untrusted(self) -> None:
         """XFF present but trust_xff=False → request.client.host wins."""
@@ -235,7 +259,7 @@ class TestExtractIdentity:
         request = MagicMock()
         request.cookies.get.return_value = None
         request.client.host = "10.0.0.1"
-        request.headers.get.return_value = "203.0.113.50, 10.0.0.1"
+        request.headers.getlist.return_value = ["203.0.113.50, 10.0.0.1"]
         settings = get_settings()
         settings.trust_xff = False
 
@@ -255,7 +279,7 @@ class TestExtractIdentity:
         request = MagicMock()
         request.cookies.get.return_value = session_token
         request.client.host = "10.0.0.1"
-        request.headers.get.return_value = None
+        request.headers.getlist.return_value = []
 
         identity = _extract_identity(request, settings)
 
@@ -477,17 +501,23 @@ class TestRateLimitMiddlewareIntegration:
     ) -> None:
         """Under-limit write request → 200/302 AND all X-RateLimit-* headers.
 
-        Uses trust_xff=True + unique XFF IP so this test's IP bucket is
-        isolated from write-bucket exhaustion in previous tests.
+        Uses trust_xff=True + configured trusted proxy + unique XFF IP so
+        this test's IP bucket is isolated from write-bucket exhaustion in
+        previous tests.
         """
-        # Enable XFF trust for this test's IP isolation
+        # Enable XFF trust for this test's IP isolation. The proxy CIDR
+        # must cover the ASGI transport's peer (127.0.0.1) so the walk
+        # honours the XFF value (issue #920).
         from app.core import config as config_module
 
         base_settings = config_module.get_settings()
         monkeypatch.setattr(
             config_module,
             "get_settings",
-            lambda: base_settings.__class__.model_copy(base_settings, update={"trust_xff": True}),
+            lambda: base_settings.__class__.model_copy(
+                base_settings,
+                update={"trust_xff": True, "trusted_proxies": ["127.0.0.1/32"]},
+            ),
         )
 
         _login(client, user_id="u-headers-fresh")
@@ -546,3 +576,522 @@ class TestRateLimitMiddlewareOrdering:
             f"app.user_middleware = outer) so 403 rejections don't consume rate "
             f"budget. user_middleware order: {names}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Issue #904 — route-specific /e2e/login rate limit (5/min/IP)
+# ---------------------------------------------------------------------------
+
+
+class TestE2ELoginRateLimit:
+    """RED: GET /e2e/login is IP-rate-limited to 5/min; 6th hit gets 429."""
+
+    @pytest.fixture(autouse=True)
+    def _web_mode(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+        """Activate the middleware: APAP_MODE must not be the test bypass."""
+        monkeypatch.setenv("APAP_MODE", "web")
+        get_settings.cache_clear()
+        yield
+        get_settings.cache_clear()
+
+    @staticmethod
+    def _make_e2e_app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
+        """Minimal app: the mock route registered + a fresh rate-limit backend.
+
+        Mirrors the production composition (route + RateLimitMiddleware with
+        an ``InProcessRateLimitBackend``) without the full ``create_app``
+        stack, so the bucket state is isolated per test. The e2e flag is
+        forced ON via env-var because the middleware reads
+        ``Settings.e2e_auth_enabled`` at request time through the real
+        ``app.core.config.get_settings`` to decide whether the bucket
+        applies (issue #904 fix round 1: flag off → bare 404, no bucket).
+        """
+        import app.core.e2e_auth as e2e_module
+        from app.core.e2e_auth import register_e2e_auth_routes
+        from app.core.rate_limit import InProcessRateLimitBackend
+        from app.core.rate_limit_middleware import RateLimitMiddleware
+
+        monkeypatch.setenv("APAP_E2E_AUTH_ENABLED", "true")
+        get_settings.cache_clear()
+        original = e2e_module.get_settings
+        e2e_module.get_settings = lambda: Settings(  # type: ignore[assignment]
+            e2e_auth_enabled=True,
+            e2e_auth_secret="test-secret",
+            session_secret="test-session-secret",
+        )
+        try:
+            app = FastAPI()
+            register_e2e_auth_routes(app)
+        finally:
+            e2e_module.get_settings = original
+        app.add_middleware(RateLimitMiddleware, backend=InProcessRateLimitBackend())
+        return app
+
+    @staticmethod
+    def _make_flag_off_app() -> FastAPI:
+        """Minimal app mirroring production with the e2e flag OFF.
+
+        ``register_e2e_auth_routes`` no-ops (route NOT registered) but the
+        ``RateLimitMiddleware`` is still installed — exactly the
+        production composition when ``APAP_E2E_AUTH_ENABLED`` is unset.
+        """
+        import app.core.e2e_auth as e2e_module
+        from app.core.e2e_auth import register_e2e_auth_routes
+        from app.core.rate_limit import InProcessRateLimitBackend
+        from app.core.rate_limit_middleware import RateLimitMiddleware
+
+        original = e2e_module.get_settings
+        e2e_module.get_settings = lambda: Settings(  # type: ignore[assignment]
+            e2e_auth_enabled=False,
+        )
+        try:
+            app = FastAPI()
+            register_e2e_auth_routes(app)
+        finally:
+            e2e_module.get_settings = original
+        app.add_middleware(RateLimitMiddleware, backend=InProcessRateLimitBackend())
+        return app
+
+    def test_sixth_request_within_minute_returns_429(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """5 attempts pass through (401, no secret); the 6th gets 429 + Retry-After."""
+        client = TestClient(self._make_e2e_app(monkeypatch))
+
+        for _ in range(5):
+            response = client.get("/e2e/login", headers={"X-E2E-Secret": "wrong"})
+            assert response.status_code == 401, "first 5 attempts must reach the route"
+
+        response = client.get("/e2e/login", headers={"X-E2E-Secret": "wrong"})
+        assert response.status_code == 429
+        assert "Retry-After" in response.headers
+        assert response.headers["X-RateLimit-Limit"] == "5"
+        assert response.headers["X-RateLimit-Remaining"] == "0"
+        assert "error" in response.json()
+
+    def test_burst_429_emits_one_ip_bearing_forensic_record(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Issue #904 fix round 1 (JD-B-003): the e2e 429 leaves an IP trail.
+
+        ``ratelimit.rejected`` carries no IP by design (REQ-5/D6), so a
+        brute-force burst against the gate would lose source IP and
+        attempted email. For scope ``e2e_login`` ONLY, the 429 additionally
+        emits one forensic ``e2e.login`` record with ``outcome=rate_limited``
+        and ``client_ip``; ``ratelimit.rejected`` stays unchanged.
+        """
+        client = TestClient(self._make_e2e_app(monkeypatch))
+
+        # The whole burst runs inside the capture context: the ambient
+        # "app" logger level depends on which tests ran before (some
+        # call configure_logging), so records must be counted by outcome,
+        # not by capture-window position.
+        with caplog.at_level(logging.INFO, logger="app"):
+            for _ in range(5):
+                allowed = client.get(
+                    "/e2e/login?email=burst@probe.example",
+                    headers={"X-E2E-Secret": "wrong"},
+                )
+                assert allowed.status_code == 401
+            response = client.get(
+                "/e2e/login?email=burst@probe.example",
+                headers={"X-E2E-Secret": "wrong"},
+            )
+
+        assert response.status_code == 429
+        records = [r for r in caplog.records if r.name == "app"]
+        forensic = [
+            r
+            for r in records
+            if getattr(r, "_caller_fields", {}).get("event") == "e2e.login"
+            and getattr(r, "_caller_fields", {}).get("outcome") == "rate_limited"
+        ]
+        assert len(forensic) == 1, "exactly one forensic record on the 429"
+        fields = forensic[0]._caller_fields
+        assert fields["outcome"] == "rate_limited"
+        assert fields["client_ip"]
+        assert fields["target_email"] == "burst@probe.example"
+        # ratelimit.rejected unchanged: still emitted, still IP-free.
+        rejected = [
+            r
+            for r in records
+            if getattr(r, "_caller_fields", {}).get("event") == "ratelimit.rejected"
+        ]
+        assert len(rejected) == 1
+        assert not {k for k in rejected[0]._caller_fields if "ip" in k.lower()}
+
+    async def test_oauth_429_does_not_emit_forensic_record(
+        self,
+        client: httpx.AsyncClient,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """The forensic event is e2e_login-only: oauth 429s stay IP-free."""
+        from app.core import config as config_module
+
+        base_settings = config_module.get_settings()
+        monkeypatch.setattr(
+            config_module,
+            "get_settings",
+            lambda: base_settings.__class__.model_copy(
+                base_settings, update={"trust_xff": True}
+            ),
+        )
+
+        with caplog.at_level(logging.INFO, logger="app"):
+            # Exhaust the oauth IP bucket (limit 10/min) for a unique IP.
+            for _ in range(10):
+                await client.get(
+                    "/auth/callback",
+                    headers={"X-Forwarded-For": "10.9.9.7"},
+                    follow_redirects=False,
+                )
+            response = await client.get(
+                "/auth/callback",
+                headers={"X-Forwarded-For": "10.9.9.7"},
+                follow_redirects=False,
+            )
+
+        assert response.status_code == 429
+        records = [r for r in caplog.records if r.name == "app"]
+        forensic = [
+            r
+            for r in records
+            if getattr(r, "_caller_fields", {}).get("event") == "e2e.login"
+        ]
+        assert len(forensic) == 0, "oauth rejections must not emit e2e.login"
+        # Sanity: the oauth rejection did log ratelimit.rejected.
+        rejected = [
+            r
+            for r in records
+            if getattr(r, "_caller_fields", {}).get("event") == "ratelimit.rejected"
+        ]
+        assert len(rejected) >= 1
+
+    def test_bucket_key_ignores_client_supplied_xff_when_untrusted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Issue #904 fix round 1 (JD-B-004/JD-A-005, disposition pin).
+
+        With ``APAP_TRUST_XFF`` unset/false (the default; no manifest sets
+        it true), a client-supplied multi-hop ``X-Forwarded-For`` must NOT
+        reset the bucket key: rotating the leftmost entry does not give a
+        fresh 5-attempt budget. ``_extract_identity`` ignores XFF when
+        trust is off — this test pins that behaviour at the bucket level
+        so a future XFF redesign cannot silently flip it. XFF redesign is
+        deferred to a follow-up issue (not this fix round).
+        """
+        client = TestClient(self._make_e2e_app(monkeypatch))
+
+        # 5 attempts, each trying to rotate identity via a fresh
+        # client-supplied leftmost XFF entry (multi-hop style).
+        for i in range(5):
+            response = client.get(
+                "/e2e/login",
+                headers={
+                    "X-E2E-Secret": "wrong",
+                    "X-Forwarded-For": f"203.0.113.{i}, 10.0.0.1",
+                },
+            )
+            assert response.status_code == 401, (
+                f"attempt {i + 1} must reach the route regardless of XFF rotation"
+            )
+
+        # 6th attempt: the bucket is still keyed by the real client host,
+        # so the rotated XFF entries did not reset it → 429.
+        response = client.get(
+            "/e2e/login",
+            headers={
+                "X-E2E-Secret": "wrong",
+                "X-Forwarded-For": "203.0.113.99, 10.0.0.1",
+            },
+        )
+        assert response.status_code == 429, (
+            "rotating client-supplied XFF entries must NOT reset the bucket"
+        )
+
+    def test_rotating_leftmost_xff_entries_do_not_reset_e2e_login_bucket(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Issue #1007: with a trusted proxy peer, rotating the client-supplied
+        leftmost XFF entry does not reset the e2e_login bucket — the identity
+        is the rightmost (proxy-appended) entry, so the 6th attempt gets 429."""
+        monkeypatch.setenv("APAP_TRUST_XFF", "true")
+        monkeypatch.setenv("APAP_TRUSTED_PROXIES", '["198.51.100.0/24"]')
+        get_settings.cache_clear()
+        client = TestClient(
+            self._make_e2e_app(monkeypatch),
+            client=("198.51.100.1", 50000),
+        )
+
+        for i in range(5):
+            response = client.get(
+                "/e2e/login",
+                headers={
+                    "X-E2E-Secret": "wrong",
+                    "X-Forwarded-For": f"9.9.9.{i}, 203.0.113.77",
+                },
+            )
+            assert response.status_code == 401, (
+                f"attempt {i + 1} must reach the route: rotation must not 429 early"
+            )
+
+        response = client.get(
+            "/e2e/login",
+            headers={
+                "X-E2E-Secret": "wrong",
+                "X-Forwarded-For": "9.9.9.99, 203.0.113.77",
+            },
+        )
+        assert response.status_code == 429, (
+            "rotating leftmost XFF entries must NOT reset the e2e_login bucket"
+        )
+
+    def test_flag_off_probes_get_bare_404_without_rate_limit_headers(self) -> None:
+        """Issue #904 fix round 1 (JD-B-001/JD-A-003): flag off → bare 404s.
+
+        With the e2e flag off the route is not registered, so probes to
+        ``GET /e2e/login`` must answer the same bare 404 as any unknown
+        path: no ``X-RateLimit-*`` headers, no ``Retry-After``, and no
+        bucket consumption (the endpoint is not fingerprintable via a
+        6th-request 429).
+        """
+        client = TestClient(self._make_flag_off_app())
+
+        for i in range(6):
+            response = client.get("/e2e/login")
+            assert response.status_code == 404, f"probe {i + 1} must be a bare 404"
+            assert "X-RateLimit-Limit" not in response.headers
+            assert "X-RateLimit-Remaining" not in response.headers
+            assert "X-RateLimit-Reset" not in response.headers
+            assert "Retry-After" not in response.headers
+
+    def test_flag_on_still_returns_429_on_sixth_request(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Positive control: the bare-404 change keeps the flag-on 429 intact."""
+        client = TestClient(self._make_e2e_app(monkeypatch))
+
+        for _ in range(5):
+            response = client.get("/e2e/login", headers={"X-E2E-Secret": "wrong"})
+            assert response.status_code == 401
+
+        response = client.get("/e2e/login", headers={"X-E2E-Secret": "wrong"})
+        assert response.status_code == 429
+        assert "X-RateLimit-Limit" in response.headers
+
+    def test_limit_is_per_ip(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Exhausting one IP's bucket does not exhaust another IP's.
+
+        Under the #920 semantics, XFF is only honored when the direct
+        peer is parseable and covered by ``trusted_proxies``: the client
+        presents a routable peer inside the trusted CIDR and the header
+        carries the (spoofable-by-design) end-client IP that must map to
+        its own bucket.
+        """
+        monkeypatch.setenv("APAP_TRUST_XFF", "true")
+        monkeypatch.setenv("APAP_TRUSTED_PROXIES", '["198.51.100.0/24"]')
+        get_settings.cache_clear()
+        client = TestClient(
+            self._make_e2e_app(monkeypatch),
+            client=("198.51.100.1", 50000),
+        )
+
+        for _ in range(5):
+            client.get(
+                "/e2e/login",
+                headers={"X-E2E-Secret": "wrong", "X-Forwarded-For": "203.0.113.9"},
+            )
+        exhausted = client.get(
+            "/e2e/login",
+            headers={"X-E2E-Secret": "wrong", "X-Forwarded-For": "203.0.113.9"},
+        )
+        assert exhausted.status_code == 429
+
+        fresh_ip = client.get(
+            "/e2e/login",
+            headers={"X-E2E-Secret": "wrong", "X-Forwarded-For": "203.0.113.10"},
+        )
+        assert fresh_ip.status_code == 401, "a different IP must have its own bucket"
+
+
+# ---------------------------------------------------------------------------
+# Issue #922 (finding A-10) — concurrent burst: exactly `limit` accepted
+# ---------------------------------------------------------------------------
+
+
+class _InterleavingStore(dict):
+    """Storage double that yields the GIL on every operation.
+
+    ``InProcessRateLimitBackend._timestamps`` is replaced with this store
+    in ``TestRateLimitConcurrency.test_concurrent_hits_never_exceed_limit``
+    so the scheduler is forced to interleave threads *inside* the backend's
+    critical section. ``time.sleep(0)`` is a cooperative reschedule (the
+    thread gives up the GIL and is immediately re-queued), not a wall-clock
+    wait — with the backend lock held the count stays exact, so the test
+    remains deterministic in both the green and the mutation direction.
+    """
+
+    def __contains__(self, key: object) -> bool:
+        time.sleep(0)
+        return super().__contains__(key)
+
+    def __getitem__(self, key: Any) -> Any:
+        time.sleep(0)
+        return super().__getitem__(key)
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        time.sleep(0)
+        super().__setitem__(key, value)
+
+
+class TestRateLimitConcurrency:
+    """Concurrent burst against the REAL middleware + counter (issue #922).
+
+    N threads synchronize on a ``threading.Barrier`` and fire requests
+    against a single shared ``RateLimitMiddleware`` +
+    ``InProcessRateLimitBackend`` instance. Exactly ``limit`` requests must
+    be accepted and the rest rejected with 429.
+
+    Determinism: the barrier synchronizes the burst without sleeps, and
+    each thread uses its own ``TestClient`` so the only shared state under
+    test is the production counter (its ``threading.Lock`` guarding the
+    check-and-append). Removing the lock or the counter makes the exact-
+    count assertions fail (verified by manual mutation in #922).
+    """
+
+    LIMIT = 5  # E2E_LOGIN_RATE_LIMIT_PER_MIN — the fixed /e2e/login ceiling
+    THREADS = 16
+    ROUNDS = 100  # independent buckets per burst round, each started in lockstep
+    HITS_PER_ROUND = 3  # per thread per bucket: 16 x 3 = 48 hits vs limit 5
+
+    @pytest.fixture(autouse=True)
+    def _web_mode(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+        """Activate the middleware: APAP_MODE must not be the test bypass."""
+        monkeypatch.setenv("APAP_MODE", "web")
+        get_settings.cache_clear()
+        yield
+        get_settings.cache_clear()
+
+    def test_concurrent_hits_never_exceed_limit(self) -> None:
+        """The production counter is atomic under contention (issue #922).
+
+        Hammers ``InProcessRateLimitBackend.hit`` — the exact call the
+        middleware makes per request — from N threads that start every
+        bucket's burst in lockstep on a barrier. Exactly ``LIMIT`` of the
+        ``THREADS x HITS_PER_ROUND`` hits per bucket may be accepted.
+
+        A pure timing-based race test cannot detect a missing lock in
+        CPython 3.12: the interpreter virtually never preempts between the
+        counter's compare and its append (verified experimentally in
+        #922 — 100k+ lockless iterations never over-admitted). The
+        ``_InterleavingStore`` seam forces the interleaving instead, so
+        removing the backend lock deterministically over-admits and
+        removing the admission check accepts everything (both mutations
+        verified in #922). With the lock, the exact count holds
+        regardless of scheduling.
+        """
+        from app.core.rate_limit import InProcessRateLimitBackend
+
+        backend = InProcessRateLimitBackend()
+        backend._timestamps = _InterleavingStore()  # noqa: SLF001 — test seam
+        barrier = threading.Barrier(self.THREADS)
+        accepted_count: list[int] = []
+        accepted_lock = threading.Lock()
+
+        def _hammer() -> None:
+            local_accepted = 0
+            for round_index in range(self.ROUNDS):
+                # Lockstep start per bucket: every thread hits the same
+                # fresh identity simultaneously, maximizing the number of
+                # independent race windows (one per round).
+                barrier.wait(timeout=30)
+                for _ in range(self.HITS_PER_ROUND):
+                    allowed, _info = backend.hit(
+                        "write_ip",
+                        f"203.0.113.{round_index}",
+                        limit=self.LIMIT,
+                        now=1000.0,
+                        window_seconds=60,
+                    )
+                    if allowed:
+                        local_accepted += 1
+            with accepted_lock:
+                accepted_count.append(local_accepted)
+
+        threads = [threading.Thread(target=_hammer) for _ in range(self.THREADS)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=60)
+
+        total_accepted = sum(accepted_count)
+        expected_accepted = self.LIMIT * self.ROUNDS
+        assert len(accepted_count) == self.THREADS, "every thread must complete"
+        assert total_accepted == expected_accepted, (
+            f"counter is not atomic under contention: expected exactly "
+            f"{expected_accepted} accepted ({self.LIMIT} per bucket x "
+            f"{self.ROUNDS} buckets), got {total_accepted}"
+        )
+
+    def test_concurrent_burst_accepts_exactly_limit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Of N simultaneous requests through the REAL middleware, exactly
+        ``limit`` get 401 and the rest get 429 — no over-admission, no
+        under-admission."""
+        app = TestE2ELoginRateLimit._make_e2e_app(monkeypatch)
+        barrier = threading.Barrier(self.THREADS)
+        statuses: list[int] = []
+        statuses_lock = threading.Lock()
+
+        # Aggressive GIL switching so the request handlers genuinely
+        # interleave; with the backend lock the exact count below is
+        # deterministic regardless of timing (the lock-detection race
+        # test is test_concurrent_hits_never_exceed_limit, which hammers
+        # the counter directly).
+        original_switch_interval = sys.getswitchinterval()
+        sys.setswitchinterval(1e-6)
+        try:
+            self._run_burst(app, barrier, statuses, statuses_lock)
+        finally:
+            sys.setswitchinterval(original_switch_interval)
+
+        accepted = statuses.count(401)
+        rejected = statuses.count(429)
+        assert len(statuses) == self.THREADS, (
+            f"every thread must complete: got {len(statuses)} responses"
+        )
+        assert accepted == self.LIMIT, (
+            f"expected exactly {self.LIMIT} accepted, got {accepted} "
+            f"(statuses={statuses})"
+        )
+        assert rejected == self.THREADS - self.LIMIT, (
+            f"expected exactly {self.THREADS - self.LIMIT} rejected, got {rejected}"
+        )
+
+    def _run_burst(
+        self,
+        app: FastAPI,
+        barrier: threading.Barrier,
+        statuses: list[int],
+        statuses_lock: threading.Lock,
+    ) -> None:
+        """Fire one concurrent request per thread and collect statuses."""
+
+        def _fire() -> None:
+            # One client per thread: the shared state under test is the
+            # app's rate-limit backend, not the test HTTP client.
+            client = TestClient(app)
+            barrier.wait()
+            response = client.get("/e2e/login", headers={"X-E2E-Secret": "wrong"})
+            with statuses_lock:
+                statuses.append(response.status_code)
+
+        threads = [threading.Thread(target=_fire) for _ in range(self.THREADS)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)

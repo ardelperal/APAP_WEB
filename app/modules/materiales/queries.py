@@ -167,7 +167,7 @@ _JUNCTION_LIST_FOR_ESTANCIA_ALL_SQL: Final[str] = (
 _JUNCTION_DEACTIVATE_SQL: Final[str] = """
 UPDATE estancia_materiales
 SET activo = false
-WHERE id = $1 AND activo = true
+WHERE estancia_id = $1 AND id = $2 AND activo = true
 RETURNING id
 """
 
@@ -329,5 +329,13 @@ def build_junction_list_for_estancia(
     return _JUNCTION_LIST_FOR_ESTANCIA_ALL_SQL, [estancia_id]
 
 
-def build_junction_deactivate(junction_id: str) -> tuple[str, list[Any]]:
-    return _JUNCTION_DEACTIVATE_SQL, [junction_id]
+def build_junction_deactivate(
+    estancia_id: str, junction_id: str
+) -> tuple[str, list[Any]]:
+    """Soft-delete one junction row scoped to its owning estancia.
+
+    Issue #919 (audit finding A-07): the UPDATE only matches when the
+    junction belongs to ``estancia_id``, so a junction of another
+    estancia is never deactivated (returns zero rows -> 404 upstream).
+    """
+    return _JUNCTION_DEACTIVATE_SQL, [estancia_id, junction_id]

@@ -15,6 +15,15 @@ on:
   # an open PR after the workflow itself was edited). Use:
   #   gh workflow run ci.yml --ref <branch>
   workflow_dispatch:
+  # Issue #1046: weekly deep-scan cadence. The scan result is a function
+  # of the pinned base-image digests, not of time, so per-release runs
+  # repeated an identical scan at MVP release cadence. GitHub executes a
+  # scheduled run on the default branch only, and this block applies to
+  # EVERY job in the file — each job's `if:` pins what a scheduled run
+  # may execute: security-deep alone (see that job, pr-size and the
+  # schedule pins in tests/test_ci_workflow.py).
+  schedule:
+    - cron: '0 6 * * 1'
 
 # Checks run on isolated hosted runners. A newer commit makes an older run stale,
 # so cancel it instead of spending capacity on evidence that can no longer merge.
@@ -37,6 +46,14 @@ jobs:
   # label changes (see its `on:` block), so exactly one workflow publishes
   # the `pr-size` check for any given event.
   pr-size:
+    # Issue #1046: the workflow-level `schedule:` block reaches this job
+    # too, and the 400-line budget is a per-PR concept with nothing to
+    # diff against on a scheduled run. Skipping here is the single
+    # chokepoint of the schedule matrix: every job that `needs` pr-size
+    # (everything except ui-detection and required) is skipped on a
+    # scheduled run by GitHub's default success() semantics, so the
+    # weekly run executes security-deep alone.
+    if: github.event_name != 'schedule'
     # Issue #926: `issues: read` added alongside `contents: read` — a
     # called reusable workflow cannot exceed the caller's granted
     # permissions, and pr-size.yml now reads the PR's live labels via the
@@ -72,6 +89,107 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python scripts/check_issue_specs.py pr-event "$GITHUB_EVENT_PATH"
+
+  # Issue #895: computes the no-UI-change marker for the SHA under test so
+  # the e2e job runs exactly when the revision touches a UI path, and so
+  # the `required` checker can accept a skipped e2e only when the run
+  # carries the marker. The UI path list lives in
+  # scripts/check_required_jobs.py (single source of truth, shared with
+  # deploy.yml's ui-e2e-gate) and is consumed via --print-ui-paths.
+  ui-detection:
+    name: ui-detection
+    # Issue #1046: a scheduled run carries no revision diff worth
+    # classifying, and this job has no `needs`, so the pr-size cascade
+    # cannot skip it — an explicit guard keeps the schedule matrix at
+    # security-deep alone.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # Issue #879: does not read issues.
+    permissions:
+      contents: read
+    outputs:
+      ui_changed: ${{ steps.detect.outputs.ui_changed }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # The diff needs the full history (same rationale as pr-size.yml).
+          fetch-depth: 0
+
+      # The hosted image ships no `python` (issue #533 precedent in
+      # pr-size.yml), and the UI path list lives in the checker script.
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12.11"
+
+      - name: Detect UI-path changes
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          # Single source of truth for the UI surface (issue #895, fix round
+          # 1, JD-B-001): detection is INVERTED and fail-closed. The checker
+          # prints the NON-UI allowlist and classifies the changed-file set
+          # (via --ui-changed); ui_changed is true unless EVERY changed file
+          # is allowlisted, because FastAPI renders Jinja from Python — all
+          # of app/** (routes, _form_render, templates, static) affects the
+          # browser, so a UI-path prefix list could never be exhaustive.
+          NON_UI_PATHS="$(python scripts/check_required_jobs.py --print-ui-paths)"
+          CHANGED=""
+          ui_changed=true
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            if [ -z "$BASE_REF" ]; then
+              echo "::error::pull_request event without base_ref" >&2
+              exit 1
+            fi
+            git fetch --no-tags origin "$BASE_REF"
+            BASE="$(git merge-base "origin/${BASE_REF}" HEAD)"
+            CHANGED="$(git diff --name-only "${BASE}...HEAD")"
+            ui_changed="$(printf '%s\n' "$CHANGED" | python scripts/check_required_jobs.py --ui-changed)"
+          else
+            # Issue #895 fix round 1 (JD-B-002): on push the diff base is
+            # github.event.before — the SHA the branch pointed at before
+            # the push. The parent-commit diff only covers the LAST commit,
+            # so a UI change hidden in an earlier commit of a multi-commit
+            # push used to skip e2e. HEAD^ remains only as the fallback for
+            # a zero-SHA initial push and for workflow_dispatch (which has
+            # no event.before). A root commit (no parent) fails closed:
+            # assume the UI changed.
+            if [ -n "$EVENT_BEFORE" ] \
+               && [ "$EVENT_BEFORE" != "0000000000000000000000000000000000000000" ] \
+               && git cat-file -e "$EVENT_BEFORE" 2>/dev/null; then
+              CHANGED="$(git diff --name-only "$EVENT_BEFORE" 'HEAD')"
+              ui_changed="$(printf '%s\n' "$CHANGED" | python scripts/check_required_jobs.py --ui-changed)"
+            elif git rev-parse --verify -q 'HEAD^' >/dev/null; then
+              CHANGED="$(git diff --name-only 'HEAD^' 'HEAD')"
+              ui_changed="$(printf '%s\n' "$CHANGED" | python scripts/check_required_jobs.py --ui-changed)"
+            else
+              echo "::warning::no event.before and no parent commit; assuming UI changed (fail-closed)" >&2
+            fi
+          fi
+          # ANTI-SELF-EXEMPTION toll (issue #895 fix round 1, JD-A-001): the
+          # gate's own source cannot be edited without paying the e2e toll.
+          # These three files DEFINE the detection, so a change to any of
+          # them forces ui_changed=true — otherwise an allowlist edit could
+          # reclassify future UI changes without e2e evidence.
+          for path in $CHANGED; do
+            case "$path" in
+              scripts/check_required_jobs.py|.github/workflows/ci.yml|.github/workflows/deploy.yml)
+                ui_changed=true
+                echo "::notice::gate-source change ($path) forces ui_changed=true (anti-self-exemption toll, issue #895)."
+                break
+                ;;
+            esac
+          done
+          echo "ui_changed=${ui_changed}" >> "$GITHUB_OUTPUT"
+          # NON_UI_PATHS is the live allowlist from the single source of
+          # truth; echoing it keeps every run's detection auditable.
+          echo "::notice::ui-detection: ui_changed=${ui_changed} (non-UI allowlist: ${NON_UI_PATHS})"
 
   lint:
     name: lint
@@ -316,10 +434,11 @@ jobs:
   security:
     name: security
     # Issue #381. Light scanners only — these run on every PR and must stay
-    # fast. The heavy image scanning lives in `security-deep` below, reserved
-    # for release cadence (tag push / manual dispatch), because base images
-    # change roughly monthly and paying that cost per pull request slows the
-    # loop for nothing while the MVP is still being built.
+    # fast. The heavy image scanning lives in `security-deep` below, on a
+    # weekly schedule plus manual dispatch (issue #1046): the scan result is
+    # a function of the pinned digests, not of release time, and paying that
+    # cost per pull request slows the loop for nothing while the MVP is
+    # still being built.
     #
     # Hosted Docker is disposable; no production daemon is exposed to PR code.
     runs-on: ubuntu-24.04
@@ -366,12 +485,15 @@ jobs:
         # worktree, and on a shallow checkout. Full-history scanning is in
         # `security-deep`.
         #
-        # There is NO .gitleaksignore, and none is needed: the historical false
-        # positive from #381 (a storage-object filename fixture in
-        # a retired migration storage-methods test (deleted in issue #670) does not fire under
-        # the pinned digest below. This comment used to claim an allowlist file
-        # that was never committed — see #495. The retired file, with its one
-        # documented entry, is on archive/tmp-test-merge5-staged-2026-08-09.
+        # .gitleaksignore EXISTS and is load-bearing: issue #903 triaged the
+        # full-history scan (gitleaks detect on the same pinned digest below)
+        # and allowlisted all 11 findings — every one a false positive or test
+        # data, zero real secrets — as per-fingerprint history entries pinned
+        # to the exact <commit>:<file>:<rule>:<line>. Entries are never
+        # path-wide and never value-quoted, so a new secret of the same shape
+        # still fails the gate. This comment previously claimed no allowlist
+        # file existed, and before that claimed the opposite — see #495 and
+        # #903 for the two corrections.
         #
         # If the rule ever fires again, add an allowlist entry with its reason
         # and date — never weaken the ruleset and never narrow the scan path.
@@ -441,17 +563,31 @@ jobs:
     name: security-deep
     needs: pr-size
     # Issue #381. The heavy half: pulls base images and a vulnerability
-    # database, so it does NOT run per pull request. Triggers are any tag
-    # push (releases) and manual dispatch.
+    # database, so it does NOT run per pull request. Issue #1046: weekly
+    # cadence — the scan result is a function of the pinned digests
+    # (issue #338), not of time, so MVP release cadence made per-release
+    # runs redundant and tags no longer trigger it. The weekly schedule
+    # bounds the CVE-decay window at 7 days; `workflow_dispatch` stays as
+    # the manual button for big releases.
     #
-    # This split is deliberate. A digest-pinned base image (issue #338) is
-    # reproducible, not safe — it keeps shipping the same layer while CVEs
-    # accumulate against it. Reserving the scan for release cadence is
-    # acceptable for that decay; per-PR is not, because nothing in a pull
-    # request can change it.
+    # A digest-pinned base image (issue #338) is reproducible, not safe — it
+    # keeps shipping the same layer while CVEs accumulate against it.
+    # Per-PR remains wrong because nothing in a pull request can change the
+    # pinned digests.
+    #
+    # The pr-size clause overrides the implicit success(): on schedule runs
+    # pr-size is guarded off (`!= 'schedule'`), and a job whose needed job
+    # is skipped is itself skipped unless its `if` carries a status
+    # function. `!cancelled()` keeps cancellation semantics; the result
+    # clause lets the scan through on the skip but still blocks on a failed
+    # or cancelled pr-size.
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      startsWith(github.ref, 'refs/tags/')
+      !cancelled() &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule'
+      ) &&
+      (needs.pr-size.result == 'success' || needs.pr-size.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     # Issue #879: does not read issues.
@@ -510,15 +646,41 @@ jobs:
         # the digests pinned in the Dockerfile, so those are the layers whose
         # CVE exposure actually matters. Digests are read from the Dockerfile
         # itself, so re-pinning a base image automatically re-points this scan.
+        # Issue #1043: the working directory is mounted into the container so
+        # trivy reads the repo's `.trivyignore` — the per-CVE suppression
+        # register is the only sanctioned suppression mechanism.
         run: |
           set -euo pipefail
           images=$(grep -oE '^FROM [^ ]+@sha256:[a-f0-9]+' Dockerfile \
                    | awk '{print $2}' | sort -u)
-          echo "Scanning:"; echo "$images"
+          # Issue #1035: FROM lines interpolate ARGs (e.g.
+          # node:${NODE_VERSION}-bookworm-slim@sha256:...) and trivy dies with
+          # "could not parse reference" on the unresolved form. Resolve every
+          # ${NAME} against the ARG defaults the Dockerfile itself declares;
+          # the @sha256 digest pins pass through untouched. Pure shell — this
+          # job sets up no Python toolchain of its own.
+          arg_defaults=$(grep -oE '^ARG [A-Za-z_]+=[^ ]+' Dockerfile | awk '{print $2}')
+          resolved_images=""
+          while IFS= read -r img; do
+            [ -n "$img" ] || continue
+            resolved="$img"
+            for pair in $arg_defaults; do
+              name=${pair%%=*}
+              value=${pair#*=}
+              resolved=$(printf '%s' "$resolved" | sed "s/\${${name}}/${value}/g")
+            done
+            if printf '%s' "$resolved" | grep -q '\${'; then
+              echo "::error::unresolved ARG in base image '$img' (resolved to '$resolved'); an ARG used in FROM must declare a default in the Dockerfile."
+              exit 1
+            fi
+            resolved_images="${resolved_images}${resolved_images:+ }$resolved"
+          done <<< "$images"
+          echo "Scanning:"; echo "$resolved_images"
           status=0
-          for img in $images; do
+          for img in $resolved_images; do
             echo "::group::trivy $img"
             docker run --rm \
+              -v "$PWD:/repo" -w /repo \
               aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
               image "$img" --severity HIGH,CRITICAL --exit-code 1 --quiet || status=1
             echo "::endgroup::"
@@ -531,10 +693,12 @@ jobs:
     # Issue #431. Mutation testing is a trend instrument, not a per-PR check:
     # the pilot module alone is 233 mutants. Same split rationale as
     # `security-deep` above — release and manual only, never on a pull
-    # request. Guards that reach this job: an explicit `gh workflow run
-    # ci.yml`, and release-tag pushes (so a release can bundle a mutation
-    # evidence run). Nothing in a pull request triggers it (§32.P7: this
-    # comment names which events reach the job and which are skipped).
+    # request; unlike the deep scan, mutation KEEPS its tag trigger (issue
+    # #1046 touches only security-deep's cadence). Guards that reach this
+    # job: an explicit `gh workflow run ci.yml`, and release-tag pushes (so
+    # a release can bundle a mutation evidence run). Nothing in a pull
+    # request or a scheduled run triggers it (§32.P7: this comment names
+    # which events reach the job and which are skipped).
     #
     # LINUX ONLY, and that is load-bearing rather than incidental. cosmic-ray
     # 8.4.6 returns INCOMPETENT for 100% of mutants on native Windows while
@@ -1028,18 +1192,28 @@ jobs:
     name: e2e
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    needs: build
-    # Issue #879: does not read issues.
+    needs: [build, ui-detection]
+    # Issue #879: does not read issues. Issue #973: `packages: read`
+    # lets the service pull the private GHCR MinIO replica with the
+    # ephemeral GITHUB_TOKEN.
     permissions:
       contents: read
-    # E2E suite requires Postgres + MinIO + Chromium; the Docker
-    # pull for those services flakes intermittently on the hosted
-    # runner. Run only on release events (workflow_dispatch / tag
-    # push) so PRs are not blocked by infrastructure flakes. PRs
-    # that need e2e validation can dispatch this workflow manually.
+      packages: read
+    # Release events (workflow_dispatch / tag push) always run the suite
+    # (issue #780/#766). Since issue #895, a pull_request or branch push
+    # also runs it when the ui-detection job detected a UI-path change on
+    # the SHA under test; with ui_changed=false the job skips explicitly
+    # (never silently — the `required` checker accepts the skip only when
+    # the run carries that marker). Issue #1046: scheduled runs never
+    # reach e2e — the guard below is explicit even though the pr-size
+    # cascade already skips the job (defense in depth).
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      startsWith(github.ref, 'refs/tags/')
+      github.event_name != 'schedule' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        startsWith(github.ref, 'refs/tags/') ||
+        needs.ui-detection.outputs.ui_changed == 'true'
+      )
     services:
       postgres:
         image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
@@ -1055,7 +1229,22 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       minio:
-        image: minio/minio:latest
+        # Issue #973: the upstream `minio/minio` binary images no longer
+        # exist. MinIO Community Edition went source-only in late 2025
+        # and its binary images were removed from Docker Hub, quay.io,
+        # and every public mirror (minio/minio#21662), so no upstream
+        # pull can be authenticated into working again. This service pulls the repo-owned GHCR replica built
+        # from pinned MinIO CE source by minio-replica.yml instead. The
+        # package is private, so the pull authenticates with the
+        # ephemeral GITHUB_TOKEN (service containers accept expressions
+        # in credentials). The image is pinned by digest, recorded from
+        # replica build run 36249625652. To refresh it: re-run
+        # minio-replica.yml and update this pin. Runbook:
+        # docs/operations/minio-replica.md.
+        image: ghcr.io/ardelperal/minio@sha256:6140fe7015bd97e4e6340c9a8ead775c09bc1a226b7c36e41d24852f839dae8f
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
         command: server /data --console-address ":9001"
         env:
               MINIO_ROOT_USER: ${{ secrets.MINIO_E2E_ACCESS_KEY }}
@@ -1109,6 +1298,15 @@ jobs:
           MINIO_HOST_PORT: ${{ job.services.minio.ports['9000'] }}
           APAP_DEBUG: "true"
           APAP_MODE: test
+          # Issue #1005 (JD-B-011, fix round 2): this env var makes the
+          # e2e app START with the flag ON, matching production parity
+          # (Coolify sets it too). It does NOT by itself detect flag
+          # regressions: the e2e suite (tests/e2e_ci/) never exercises
+          # /login or /auth/magic/*. Flag-parity detection rests on the
+          # unit atoms in tests/test_auth_flow.py (login render in both
+          # flag states) and tests/test_magic_link_flag.py (fail-closed
+          # 404, gate short-circuit).
+          APAP_AUTH_ENABLE_MAGIC_LINK: "true"
           APAP_E2E_AUTH_ENABLED: "true"
           APAP_E2E_AUTH_DEFAULT_EMAIL: e2e@apap.local
           APAP_S3_ENDPOINT: http://127.0.0.1:${MINIO_HOST_PORT}
@@ -1151,7 +1349,12 @@ jobs:
     name: required
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    if: always()
+    # Issue #1046: `schedule` must never reach the checker — it fails
+    # closed on unsupported events (pinned by test_check_required_jobs.py),
+    # and the weekly deep-scan run needs no PR rollup verdict. always() is
+    # kept so the rollup still runs when sibling jobs skip or fail on
+    # pull_request, push and release events.
+    if: always() && github.event_name != 'schedule'
     # Issue #879: does not read issues.
     permissions:
       contents: read
@@ -1168,6 +1371,7 @@ jobs:
       - verify-fallback-ready
       - build
       - e2e
+      - ui-detection
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

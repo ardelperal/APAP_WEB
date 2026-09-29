@@ -326,38 +326,17 @@ def set_cached_auth(email: str, *, is_authorized: bool, rol: str | None) -> None
     _get_backend().set(email, is_authorized=is_authorized, rol=rol)
 
 
-def _case_variants(email: str) -> set[str]:
-    """Generate all case variants of an email address for cache invalidation.
-
-    Defense-in-depth for issue #278: legacy entries may have been cached at
-    non-normalized casings (e.g. ``Maria.Lopez@Example.COM``).  Invalidation
-    that only bumps the canonical key leaves stale entries at variant casings
-    reachable if a future lookup uses those casings.  This function generates
-    all variants reachable by swapping the case of each alphabetic character
-    in turn, plus the full-swapcase variant.
-    """
-    # All-lowercase is the canonical form used at write time.
-    variants = {email.lower(), email.upper()}
-    chars = list(email)
-    for i, ch in enumerate(chars):
-        if ch.isalpha():
-            chars[i] = ch.swapcase()
-            variants.add("".join(chars))
-            chars[i] = ch  # restore
-    return variants
-
-
 def invalidate_auth(email: str) -> None:
-    """Drop the cached verdict for one email and all its case variants.
+    """Drop the cached verdict for one email.
 
     Issue #145 — the invalidate bumps the named email's generation on the
-    in-process backend. Issue #278 — because the cache keys on the exact
-    string passed, and ``add_authorized_user`` / ``get_user_by_email`` now
-    always normalize before reaching the cache, a legacy entry cached at a
-    non-normalized casing would survive a single-key invalidation.  This
-    function invalidates the canonical key AND every case-variant string
-    so that no stale entry survives regardless of which casing the
-    service layer stored it under.
+    in-process backend. Issue #278 — the backend normalizes with
+    ``email.lower()`` on every ``get``, ``set`` and ``invalidate``, so all
+    case variants of the same address share one cache entry and one
+    generation counter: this single invalidation covers every casing.
+    (Issue #921 removed the now-dead ``_case_variants`` enumeration: with
+    normalized writes there is no way for an entry at a non-normalized
+    casing to exist.)
 
     **Scope (issues #262 and #287)** — read this before deploying with
     multiple workers: invalidation is WORKER-LOCAL. It is visible only
@@ -372,9 +351,7 @@ def invalidate_auth(email: str) -> None:
     for immediate revocation. See
     ``docs/runbooks/auth-cache-multi-worker.md``.
     """
-    backend = _get_backend()
-    for variant in _case_variants(email):
-        backend.invalidate(variant)
+    _get_backend().invalidate(email)
 
 
 def invalidate_all() -> None:

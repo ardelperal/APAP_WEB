@@ -63,7 +63,7 @@ def _run_subprocess_check(
     ``extra_env`` is merged on top of the inherited environment so
     checks can override specific variables (the local-backend fixture
     wiring uses this to inject ``APAP_LOCAL_BACKEND`` /
-    ``APAP_INSFORGE_URL`` without disturbing the rest of the env).
+    ``APAP_LOCAL_BACKEND_URL`` without disturbing the rest of the env).
     """
     env = None
     if extra_env:
@@ -137,9 +137,12 @@ def _drop_ephemeral_schema(dsn: str, schema: str) -> None:
     never at risk because the schema name is unique per run.
     """
     import psycopg
+    from psycopg import sql
 
     with psycopg.connect(dsn, autocommit=True) as conn:
-        conn.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+        conn.execute(
+            sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(schema))
+        )
 
 
 

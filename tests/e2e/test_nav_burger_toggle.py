@@ -147,10 +147,20 @@ def test_internal_link_click_closes_nav(mobile_login_page: Page) -> None:
     page = mobile_login_page
     page.locator("#nav-burger-toggle").click()  # open
 
-    # Click the first internal link in the nav. Navigation is blocked
-    # server-side (route may 404 without auth context), but the close
-    # happens BEFORE navigation so the state assertion holds either way.
-    page.locator("#nav-main a[href='/animales']").click(no_wait_after=True)
+    # Issue #901: the menu really deploys now, so a click on the link
+    # starts a navigation that races (and destroys) the evaluation
+    # context. Dispatch a click whose default action (navigation) is
+    # cancelled in the capture phase: the event still bubbles to the
+    # nav-burger.js listener (which closes the menu), so the
+    # close-before-navigate contract is observable deterministically.
+    page.evaluate(
+        "() => {"
+        "  const link = document.querySelector(\"#nav-main a[href='/animales']\");"
+        "  document.addEventListener('click', (e) => e.preventDefault(),"
+        "    {capture: true, once: true});"
+        "  link.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));"
+        "}"
+    )
 
     state = _state(page)
     assert state["expanded"] == "false", (

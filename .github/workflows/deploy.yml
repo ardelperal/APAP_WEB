@@ -81,11 +81,175 @@ jobs:
           echo "::error::Refusing to deploy: ${{ steps.check.outputs.source }}."
           exit 1
 
+  release-e2e-gate:
+    name: release-e2e-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # Issue #908: signal-only checklist-contract gate for the production e2e
+    # validation (docs/runbooks/e2e-production.md). It runs NO e2e suite and
+    # holds NO secret, and does NOT validate production: it only enforces that
+    # the operator recorded the e2e gate evidence (a run URL or artifact
+    # reference produced by the runbook checklist) in the repository variable
+    # APAP_E2E_GATE_EVIDENCE before the release can proceed. Fail-closed: an
+    # absent or empty variable fails this job and, via deploy's `needs:`,
+    # blocks the release (same signal-job precedent as ci.yml's `required`).
+    # Auditable bypass: set APAP_E2E_GATE_EVIDENCE=skipped:<reason> to record
+    # a skip with a reason instead of failing.
+    permissions:
+      contents: read
+    steps:
+      - name: Require recorded production e2e gate evidence
+        env:
+          APAP_E2E_GATE_EVIDENCE: ${{ vars.APAP_E2E_GATE_EVIDENCE }}
+        run: |
+          set -euo pipefail
+          evidence="${APAP_E2E_GATE_EVIDENCE:-}"
+          if [ -z "$evidence" ]; then
+            echo "::error::APAP_E2E_GATE_EVIDENCE is empty or unset. Record the production e2e validation evidence (run URL or artifact reference) per docs/runbooks/e2e-production.md before releasing, or record an auditable skip with APAP_E2E_GATE_EVIDENCE=skipped:<reason>."
+            exit 1
+          fi
+          echo "::notice::release e2e gate evidence recorded: ${evidence}"
+
+  ui-e2e-gate:
+    name: ui-e2e-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # Issue #895: fail-closed gate for the UI path to deployment. It runs NO
+    # e2e suite and holds NO secret: it recomputes ui_changed for the merged
+    # revision (same UI surface single source of truth as ci.yml, consumed
+    # via --print-ui-paths) and, when UI paths changed, verifies via the
+    # read-only check-runs API that a CI run on the reviewed revision had
+    # the `e2e` job conclude success. Failure, cancellation, unexpected
+    # skip, incomplete run or absent check all fail this gate and, via
+    # deploy's needs:, block the deployment. A revision with no UI-path
+    # change passes with an explicit exemption line.
+    permissions:
+      contents: read
+      checks: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # The parent-commit diff and the HEAD^2 resolution need history.
+          fetch-depth: 0
+
+      # The hosted image ships no `python` (issue #533 precedent).
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12.11"
+
+      - name: Gate the UI revision on green e2e evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          # Issue #895 fix round 1 (JD-B-001): fail-closed INVERTED detection.
+          # The checker prints the NON-UI allowlist and classifies the
+          # changed-file set (via --ui-changed); ui_changed is true unless
+          # EVERY changed file is allowlisted — all of app/** affects the
+          # browser (FastAPI renders Jinja from Python), so a UI prefix list
+          # could never be exhaustive.
+          NON_UI_PATHS="$(python scripts/check_required_jobs.py --print-ui-paths)"
+          ui_changed=true
+          CHANGED=""
+          if [ -n "$(git rev-parse --verify -q 'HEAD^')" ]; then
+            # Issue #895 fix round 1 (JD-B-002): the diff base is
+            # github.event.before — the main tip this push replaced, i.e.
+            # exactly the revision delta against what is already deployed.
+            # HEAD^ only covers the last commit of a multi-commit push and
+            # stays as the fallback (zero-SHA initial push, dispatch).
+            BEFORE="$EVENT_BEFORE"
+            if [ -n "$BEFORE" ] \
+               && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] \
+               && git cat-file -e "$BEFORE" 2>/dev/null; then
+              CHANGED="$(git diff --name-only "$BEFORE" 'HEAD')"
+              ui_changed="$(printf '%s\n' "$CHANGED" | python scripts/check_required_jobs.py --ui-changed)"
+            else
+              CHANGED="$(git diff --name-only 'HEAD^' 'HEAD')"
+              ui_changed="$(printf '%s\n' "$CHANGED" | python scripts/check_required_jobs.py --ui-changed)"
+            fi
+          else
+            echo "::warning::no event.before and no parent commit; assuming UI changed (fail-closed)" >&2
+          fi
+
+          # ANTI-SELF-EXEMPTION toll (issue #895 fix round 1, JD-A-001): the
+          # gate's own source cannot be edited without paying the e2e toll —
+          # these three files DEFINE the detection, so a change to any of
+          # them forces ui_changed=true in BOTH workflow consumers.
+          for path in $CHANGED; do
+            case "$path" in
+              scripts/check_required_jobs.py|.github/workflows/ci.yml|.github/workflows/deploy.yml)
+                ui_changed=true
+                echo "::notice::gate-source change ($path) forces ui_changed=true (anti-self-exemption toll, issue #895)."
+                break
+                ;;
+            esac
+          done
+
+          if [ "$ui_changed" != "true" ]; then
+            echo "::notice::ui-e2e-gate exemption: no UI-relevant change in this revision; e2e evidence not required (issue #895)."
+            exit 0
+          fi
+
+          # pull_request check-runs are reported on the PR head SHA, not on
+          # the merge commit, so resolve the reviewed head (evidence-job
+          # precedent) and bind the tree before querying.
+          if head2=$(git rev-parse --verify -q 'HEAD^2'); then
+            tree_merged=$(git rev-parse 'HEAD^{tree}')
+            tree_branch=$(git rev-parse "${head2}^{tree}")
+            if [ "$tree_merged" != "$tree_branch" ]; then
+              echo "::error::main moved: merged tree differs from the reviewed branch tree; cannot bind e2e evidence to this revision. Recovery: update the branch on the new main (merge or rebase), let ci.yml run green on the updated branch, then re-merge — re-running ci.yml by dispatch on the existing merge commit does NOT satisfy this gate."
+              exit 1
+            fi
+            reviewed_sha="$head2"
+          else
+            reviewed_sha="$GITHUB_SHA"
+          fi
+
+          # filter=latest (F4, JD-B-006/JD-A-002): return only the most
+          # recent check run per check name/app instead of every historical
+          # run. Accepted fail-closed limitation: the response is one page
+          # of at most 100 check runs; if the e2e check is not in the first
+          # page (page-1 limit), the query below reports "no e2e check run"
+          # and the gate fails closed rather than passing without evidence.
+          # The jq selections are scoped to .app.slug == "github-actions" so
+          # a third-party check app reporting an 'e2e' check cannot satisfy
+          # the gate.
+          body=$(mktemp)
+          code=$(curl -sS -o "$body" -w '%{http_code}' --max-time 30 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${reviewed_sha}/check-runs?per_page=100&filter=latest")
+          if [ "$code" != "200" ]; then
+            echo "::error::the e2e-evidence query itself failed (HTTP ${code})."
+            exit 1
+          fi
+
+          e2e_count=$(jq '[.check_runs[] | select(.name == "e2e" and .app.slug == "github-actions")] | length' "$body")
+          if [ "${e2e_count:-0}" -eq 0 ]; then
+            echo "::error::no e2e check run for ${reviewed_sha} although the revision changed UI paths. A UI change cannot deploy without e2e on the integrated revision; run ci.yml (e2e job) on that SHA — see .github/workflows/ci.yml."
+            exit 1
+          fi
+          pending=$(jq '[.check_runs[] | select(.name == "e2e" and .app.slug == "github-actions" and .status != "completed")] | length' "$body")
+          if [ "${pending:-0}" -gt 0 ]; then
+            echo "::error::the e2e check run for ${reviewed_sha} has not completed; wait for ci.yml to finish before deploying."
+            exit 1
+          fi
+          bad=$(jq -r '[.check_runs[] | select(.name == "e2e" and .app.slug == "github-actions") | .conclusion] | map(select(. != "success")) | join(", ")' "$body")
+          if [ -n "$bad" ]; then
+            echo "::error::e2e on ${reviewed_sha} did not conclude success (conclusions: ${bad} — failure, cancellation or unexpected skip). A UI change cannot deploy without green e2e on the integrated revision; see .github/workflows/ci.yml."
+            exit 1
+          fi
+          echo "::notice::ui-e2e-gate: e2e concluded success on ${reviewed_sha} for a UI-changing revision (issue #895). (non-UI allowlist: ${NON_UI_PATHS})"
+
   deploy:
     name: deploy
     runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble, deploy]
     timeout-minutes: 30
-    needs: [evidence]
+    needs: [evidence, release-e2e-gate, ui-e2e-gate]
     if: needs.evidence.outputs.verified == 'true'
     # id-token: write lets Cosign exchange this job's short-lived GitHub OIDC
     # token for an ephemeral Fulcio certificate (keyless signing, no stored

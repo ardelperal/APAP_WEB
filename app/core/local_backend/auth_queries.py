@@ -51,10 +51,16 @@ RETURNING id, email, rol
 # ``add_authorized_user`` (``_CHECK_DUPLICATE_EMAIL_SQL``). The legacy
 # ``app.core.auth.get_user_by_email`` test suite keys on the WHERE
 # clause, not the projection.
+#
+# Case-insensitive WHERE (``lower(email) = lower($1)``) so a mixed-case
+# ``APAP_INITIAL_ADMIN_EMAIL`` does not lock the admin out of magic-link
+# login. Mirrors ``app.core.auth_cache``'s ``.lower()`` cache-key
+# convention (issue #1003). No functional index needed for this slice
+# — the table is single-digit rows.
 GET_USER_BY_EMAIL_SQL = """
 SELECT id, email, rol, activo
 FROM usuarios_autorizados
-WHERE email = $1
+WHERE lower(email) = lower($1)
   AND activo = true
 """
 

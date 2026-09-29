@@ -26,7 +26,7 @@ Cada slice de feature que añade o cambia UI (routes que renderizan templates, f
 
 **QA-through-UI solamente.** La verificación de cualquier slice con superficie UI debe pasar por la suite Playwright E2E existente bajo `tests/e2e/` (o un test de navegador in-tree equivalente). QA vía shell de Python, inspección directa de DB o `curl` contra un servidor corriendo no es sustituto y no debe presentarse como tal en descripciones de PR, runbooks o reportes de estado.
 
-El job `e2e` de CI se reserva para tags `v*` y `workflow_dispatch`; se salta en pull requests y pushes normales. Cuando corre, levanta la aplicación real contra PostgreSQL efímero, instala Chromium desde el lock y ejecuta la suite fail-closed `tests/e2e_ci/`: Chromium ausente, startup fallido, cero tests o cualquier fallo producen rojo. La suite histórica `tests/e2e/` no es el gate porque mezcla deuda funcional y skips condicionales; no se presenta como evidencia hasta su saneamiento. `ci / required` exige el smoke real en esos eventos de release y evita falsos verdes de infraestructura.
+El job `e2e` de CI corre en eventos de release (`workflow_dispatch`, tags `v*`) y, desde el issue #895, en cualquier pull request o push cuya revisión declare cambio de UI. La detección es **fail-closed invertida** (fix round 1): `ui_changed=true` salvo que todos los ficheros cambiados estén en la lista blanca de no-UI (`NON_UI_PATH_PREFIXES` en `scripts/check_required_jobs.py`) — todo `app/**` es relevante para el navegador porque FastAPI renderiza Jinja desde Python. Un skip de `e2e` solo es aceptable cuando el run lleva el marcador `ui_changed=false` publicado por `ui-detection`. Además, editar el código fuente del propio gate (`scripts/check_required_jobs.py`, `ci.yml`, `deploy.yml`) fuerza `ui_changed=true`: el gate no puede editarse sin pagar el peaje e2e. Cuando corre, levanta la aplicación real contra PostgreSQL efímero, instala Chromium desde el lock y ejecuta la suite fail-closed `tests/e2e_ci/`: Chromium ausente, startup fallido, cero tests o cualquier fallo producen rojo. La suite histórica `tests/e2e/` no es el gate porque mezcla deuda funcional y skips condicionales; no se presenta como evidencia hasta su saneamiento. `ci / required` exige el smoke real en esos eventos de release y evita falsos verdes de infraestructura. El deploy queda bloqueado a la evidencia de esa misma revisión: el job `ui-e2e-gate` de `deploy.yml` exige un `e2e` con conclusión `success` sobre la SHA revisada antes de desplegar una revisión con cambio de UI (issue #895).
 
 **Aplicación**: revisión de PR. Un PR cuyo diff toca `templates/` o añade/cambia una route UI sin tocar `tests/e2e/` debe justificar la exención explícitamente en la descripción del PR o ser bloqueado.
 
@@ -35,6 +35,42 @@ El job `e2e` de CI se reserva para tags `v*` y `workflow_dispatch`; se salta en 
 El tipado estático se enforza, no se aspira: el job `typecheck` de CI corre `python -m mypy` y cualquier error falla el build. El scope y los flags viven en `pyproject.toml` bajo `[tool.mypy]` — la **única fuente de verdad** (`files = ["app", "migration"]`, `warn_unused_ignores`, `warn_redundant_casts`, `show_error_codes`, `enable_error_code = ["ignore-without-code"]`, `python_version = "3.11"`, `platform = "linux"` — la plataforma de CI es la vista autoritativa); ni el job de CI ni el Makefile los repiten, así que `make typecheck` local corre el chequeo exacto del job `typecheck` de CI. Cada `# type: ignore` debe llevar su código de error específico (por ejemplo, `# type: ignore[assignment]`) — los ignores desnudos los rechaza el código de error `ignore-without-code` habilitado en `enable_error_code`, mientras que `warn_unused_ignores` borra ignores que ya no se necesitan. Quitar el job `typecheck`, quitar flags de `[tool.mypy]` o reducir `files` es un cambio bloqueado: des-tipifica paquetes enteros silenciosamente. Apriete es una sola vía — la configuración solo puede AÑADIR flags (por ejemplo, `strict = true` por módulo), nunca quitarlos.
 
 **Aplicación**: `tests/test_ci_workflow.py::test_ci_workflow_defines_typecheck_job_running_mypy` pinea el job de CI y su invocación `python -m mypy`; `ci / required` agrega `typecheck`, por lo que una regresión de tipos bloquea el merge y, en consecuencia, el deploy; mypy sale con código no-cero ante cualquier error, fallando el job.
+
+## Escaneo profundo de seguridad: cadencia semanal (`security-deep`)
+
+El job `security-deep` de `ci.yml` no corre por PR ni por tag de release:
+corre los lunes a las 06:00 UTC por el trigger `schedule` del workflow y
+bajo demanda vía `workflow_dispatch` (issue #1046). La justificación es
+económica, no de rigor: el resultado del escaneo es función de los digests
+pineados en el Dockerfile (issue #338), no del tiempo — mientras no haya
+re-pin, cada corrida por release repetía una señal idéntica a cadencia MVP,
+y nada en un pull request puede cambiarla. La ventana de decaimiento que la
+cadencia semanal introduce (hasta 7 días entre la publicación de una
+vulnerabilidad y su detección sobre los digests vigentes) es el trade-off
+aceptado del MVP; el dispatch manual queda como botón de escape para releases grandes. En un
+run programado se ejecuta solo `security-deep` (matriz pineada en
+`tests/test_ci_workflow.py`), y el skip de `security-deep` en un tag push
+es resultado aceptado del checker de `required` mientras la exigencia del
+issue #766 de que `e2e` y `mutation` terminen en éxito en eventos de
+release se mantiene intacta.
+
+**Aplicación**: `tests/test_ci_workflow.py::test_ci_workflow_declares_weekly_schedule_trigger`,
+`test_ci_workflow_security_deep_runs_on_schedule_and_dispatch_not_tags` y
+`test_ci_workflow_schedule_runs_security_deep_only` pinean el bloque
+`schedule`, el `if` del job (dispatch + schedule, sin tags) y que ningún
+otro job corre en un run programado;
+`tests/test_security_scanning.py::test_deep_job_runs_weekly_and_on_dispatch_not_on_tags`
+pinea el contrato del job; `tests/test_check_required_jobs.py::test_tag_push_accepts_the_weekly_deep_security_skip`
+pinea la política del checker en tag push.
+
+## Criterio de gates bloqueantes
+
+Decisión del mantenedor, 2026-09-25: un gate bloqueante solo se mantiene si
+detecta defectos reales o es práctica estándar del sector; el resto pasa a
+informativo o se elimina. Si una métrica obliga a reestructurar código
+correcto para cumplirla, el defecto está en el gate, no en el código. El
+inventario completo, gate por gate, con la evidencia y la decisión de cada
+uno, vive en [`docs/quality/ci-gate-inventory.md`](../quality/ci-gate-inventory.md).
 
 ## Contributor checklist
 

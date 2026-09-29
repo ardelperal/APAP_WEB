@@ -32,6 +32,13 @@ PR #432 (DRAFT, branch `feat/quality-gates-mutation`, stacked on
 | `Makefile` → `mutation` | Refuses to run outside Linux |
 | `AGENTS.md` §34 | The doctrine behind all of it |
 
+## 1. Gate register
+
+| Gate | Where | What it enforces | Fail-closed semantics | State |
+|---|---|---|---|---|
+| `release-e2e-gate` | `.github/workflows/deploy.yml` | The release path may only proceed when the production e2e validation evidence was recorded in the repository variable `APAP_E2E_GATE_EVIDENCE` (run URL or artifact reference produced by the `docs/runbooks/e2e-production.md` checklist) | Signal-only: absent or empty evidence emits a `::error::` pointing at the runbook and fails the job, which blocks `deploy` via `needs: [evidence, release-e2e-gate, ui-e2e-gate]`. Auditable bypass: `APAP_E2E_GATE_EVIDENCE=skipped:<reason>`. The variable persists between releases: the operator must replace its value per release (or record a `skipped:<reason>` bypass) — the gate enforces that evidence was recorded, not per-release freshness. It runs no e2e suite, holds no secret, and does not validate production (epic #909). Pinned by `tests/test_deploy_workflow.py` | active (#908) |
+| `ui-e2e-gate` | `.github/workflows/deploy.yml` | When the merged revision declares a UI change (same fail-closed inverted detection as `ci.yml`: `ui_changed=true` unless every changed file is in the `NON_UI_PATH_PREFIXES` allowlist served by `scripts/check_required_jobs.py --print-ui-paths`, diff base `github.event.before` with parent-commit fallback), a CI run on the reviewed revision must have the `e2e` job conclude `success`, verified through the read-only check-runs API (`filter=latest`, scoped to the `github-actions` app) | Signal-only: a failed, cancelled, unexpectedly skipped, incomplete or absent `e2e` check emits `::error::` and fails the job, which blocks `deploy` via `needs: [evidence, release-e2e-gate, ui-e2e-gate]`. A revision with no UI-path change passes with an explicit exemption line. Editing the gate's own source files forces `ui_changed=true` (the file toll). It runs no e2e suite and holds no secret (issue #895). Pinned by `tests/test_deploy_workflow.py` | active (#1030) |
+
 ### The open wound — fix this first
 
 ```

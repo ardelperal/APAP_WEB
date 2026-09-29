@@ -7,22 +7,26 @@
 #     into /work/app/static/css/output.css.
 #
 # Stage 2 (builder):
-#   - Python 3.12.11 + build-essential on Debian Bookworm slim
+#   - Python 3.12.14 + build-essential on Debian Bookworm slim
 #   - Builds an installable wheel of the project (apap_web)
 #   - Inherits the compiled CSS from tailwind-base.
 #
 # Stage 3 (runtime):
-#   - Python 3.12.11 on Debian Bookworm slim, no Node, no build tools
+#   - Python 3.12.14 on Debian Bookworm slim, no Node, no build tools
 #   - Non-root user (uid 1001) for the unprivileged process
 #   - Installs the wheel produced by the builder
 #   - HEALTHCHECK probes /healthz, which is required for CD-02 (issue #1)
 
-ARG PYTHON_VERSION=3.12.11
-ARG NODE_VERSION=20
+ARG PYTHON_VERSION=3.12.14
+ARG NODE_VERSION=24
 ARG BUILD_SHA=development
 
 # ---- Tailwind base --------------------------------------------------------
-FROM node:${NODE_VERSION}-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 AS tailwind-base
+# Issue #1043: digest re-pin. node:20-bookworm-slim had frozen at its newest
+# (EOL) build carrying fixable CVEs; node:24-bookworm-slim is the current LTS
+# line. Digest resolved via the Docker registry API (2026-09-27) and scanned
+# clean of fixable Debian CVEs.
+FROM node:${NODE_VERSION}-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS tailwind-base
 WORKDIR /work
 
 # Install Tailwind v4 dependencies from the committed lockfile.
@@ -38,7 +42,11 @@ RUN cd /work/tailwindcss \
     && npx tailwindcss -i ./styles/app.css -o /work/app/static/css/output.css --minify
 
 # ---- Builder --------------------------------------------------------------
-FROM python:${PYTHON_VERSION}-slim-bookworm@sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7 AS builder
+# Issue #1043: digest re-pin. python:3.12.11-slim-bookworm had frozen on a
+# vulnerable Debian build (98 CVEs, run 36339815628); 3.12.14 resolves to a
+# rebuilt digest with zero fixable HIGH/CRITICAL CVEs. Digest resolved via
+# the Docker registry API (2026-09-27).
+FROM python:${PYTHON_VERSION}-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e AS builder
 WORKDIR /work
 
 # Build deps for Python wheels (uvloop, httptools, etc.).
@@ -62,7 +70,7 @@ RUN pip install --no-cache-dir uv==0.9.28 \
     && pip wheel --no-cache-dir --no-deps --wheel-dir /work/dist /work
 
 # ---- Runtime --------------------------------------------------------------
-FROM python:${PYTHON_VERSION}-slim-bookworm@sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7 AS runtime
+FROM python:${PYTHON_VERSION}-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e AS runtime
 ARG BUILD_SHA
 
 # Curl is required by the HEALTHCHECK directive.

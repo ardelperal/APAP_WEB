@@ -261,31 +261,31 @@ class AnimalsPort(Protocol):
         reason: str,
         operador_user_id: str,
     ) -> ChangeChipResult:
-        """Saga: change the animal's NCHIP and propagate across 6 tables.
+        """Saga: change the animal's ``NCHIP`` (D-43, issue #916).
 
-        Tables touched (atomic, rolled back together on any failure):
+        The unit of work is deliberately small. Dependent tables
+        (``entradas``, ``acogidas``, ``adopciones``,
+        ``actuacion_sanitaria``, ``terapias``) reference the animal
+        through the surrogate FK ``animal_id`` and carry no chip copy,
+        so nothing propagates to them. The adapter, inside one real
+        ``transaction()``:
 
-        - ``animals`` (the ``NCHIP`` column itself)
-        - ``entradas``, ``acogidas``, ``adopciones``,
-          ``actuaciones_sanitarias``, ``terapias`` (the 5 dependent
-          tables that carry the legacy ``chip`` column)
-        - ``animal_lifecycle_events`` (an append of the
-          ``CHIP_CHANGED`` event with the legacy ``metadata`` JSON
-          carrying ``{old_chip, new_chip, reason}``)
+        - updates ``animales.nchip`` guarded by ``old_chip``
+        - appends the ``CHIP_CHANGED`` event with the legacy
+          ``metadata`` JSON carrying ``{old_chip, new_chip, reason}``
 
-        The adapter runs the saga in a single transaction. Pre-flight
+        Both steps commit together or not at all. Pre-flight
         validations (non-empty ``new_chip``/``reason``; ``new_chip``
         not equal to ``old_chip``; uniqueness of ``new_chip``; current
         chip matches ``old_chip``) happen BEFORE the transaction
-        opens. On any failure inside the transaction the adapter
-        rolls back and returns ``success=False`` with the error
-        message — the route handler translates that into the
-        appropriate HTTP code (422 for validation, 409 for unique
-        violations, 500 for unexpected transport failures).
+        opens. On any failure the adapter rolls back and returns
+        ``success=False`` with the error message — the route handler
+        translates that into HTTP 409 for the duplicate-chip preflight
+        failure and 422 for every other failure.
 
-        Returns a :class:`ChangeChipResult` with the per-table row
-        counts so the operator can audit the blast radius without
-        re-querying.
+        Returns a :class:`ChangeChipResult` with the row counts of the
+        touched tables (``{"animals": n}``) so the operator can audit
+        the change without re-querying.
         """
 
     def resolve_animal_photo(

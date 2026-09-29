@@ -50,14 +50,13 @@
 
 [cosmic-ray]
 module-path = [
-    "app/core/local_backend.py",
     "app/modules/adopciones/service.py",
     "migration/derivation.py",
     "migration/diff_engine.py",
 ]
 timeout = 60.0
 excluded-modules = []
-test-command = "python -m pytest tests/test_adopciones.py tests/test_adopciones_queries.py tests/test_adopciones_routes.py tests/test_derivation.py tests/test_derivation_11cases.py tests/test_local_backend.py tests/test_migration.py::TestDiffEngine -x -q --no-cov -p no:cacheprovider -o addopts=''"
+test-command = "python -m pytest tests/test_adopciones.py tests/test_adopciones_queries.py tests/test_adopciones_routes.py tests/test_derivation.py tests/test_derivation_11cases.py tests/test_migration.py::TestDiffEngine -x -q --no-cov -p no:cacheprovider -o addopts=''"
 
 [cosmic-ray.distributor]
 name = "local"
@@ -79,9 +78,9 @@ name = "local"
 # `cosmic_ray/distribution/local.py:26` in 8.7.0, unchanged from 8.4.6)
 # — one core busy while the rest of the host sits idle. The pilot
 # baseline of 233 mutants ran in 3111 s on the same runner; the
-# curated 5-module set today produces 1114 work items and is expected
-# to take ~4–5 hours wall-clock. The job timeout in
-# `.github/workflows/ci.yml` is bumped to 360 minutes accordingly.
+# previous acquisition produced 1114 work items. The current
+# 3-module set needs a fresh measurement. The job timeout in
+# `.github/workflows/ci.yml` remains 360 minutes.
 #
 # The original baseline (`migration/derivation.py`, 38 survivors out of
 # 167 killable mutants) was acquired with this same `local` distributor

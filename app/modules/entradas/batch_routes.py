@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Annotated, Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -30,13 +31,13 @@ from fastapi.templating import Jinja2Templates
 
 from app.core.auth_dependencies import (
     get_local_postgres_executor_dep,
-    require_authorized_user,
     require_writer_user,
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
 from app.core.data_access import SqlExecutor
 from app.core.middleware import base_template_context_processor, current_path_context_processor
+from app.core.rbac import Permission, require_permission
 from app.modules.entradas import batch_service
 
 router = APIRouter(prefix="/entradas/batch", tags=["entradas-batch"])
@@ -86,7 +87,7 @@ def _form_data_to_params(form: dict[str, Any]) -> dict[str, Any]:
 @router.get("/new", response_class=HTMLResponse)
 def new_batch_form(
     request: Request,
-    user: Annotated[Response | dict, Depends(require_authorized_user)],
+    user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ENTRADAS))],
 ):
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -176,7 +177,7 @@ def stage_batch_view(  # noqa: PLR0913  # batch endpoint with 6 list-form fields
         )
 
     return RedirectResponse(
-        url=f"/entradas/batch/{staging.batch_id}",
+        url=f"/entradas/batch/{quote(str(staging.batch_id), safe='')}",  # issue #919
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
@@ -185,7 +186,7 @@ def stage_batch_view(  # noqa: PLR0913  # batch endpoint with 6 list-form fields
 def batch_preview(
     batch_id: str,
     request: Request,
-    user: Annotated[Response | dict, Depends(require_authorized_user)],
+    user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ENTRADAS))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     if (early := return_early_if_response(user)) is not None:

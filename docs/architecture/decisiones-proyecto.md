@@ -5,13 +5,13 @@
 Registro canónico de decisiones de producto, UX, arquitectura y proceso. Cada decisión es un ADR individual que sigue la receta §14 (Decision, Quick path, Problem, Evidence, Options, Goals, Non-goals, Non-negotiable invariants, Consequences, When this changes). Si una decisión contradice el código o la doc, gana el código y este registro se actualiza en la misma sesión (ver [`proceso.md`](../proceso.md) P3 y [`roadmap.md`](../roadmap.md) §9).
 
 **Mantenedor único:** aroman (ver [d-36](decisiones/d-36-mantenedor-aroman.md)).
-**Última actualización del índice:** 2026-08-18 (refactor §14 — split por ADR individual).
+**Última actualización del índice:** 2026-09-26 (D-44 — alcance de lectura legacy, issue #923).
 
 ## What this index is / is not
 
 | Es | Evidencia |
 |---|---|
-| Índice navegable de las decisiones D-XX con un enlace al ADR individual. | `decisiones/d-01-product-standalone.md` hasta [d-41](decisiones/d-41-trazabilidad-cierre-issues.md). |
+| Índice navegable de las decisiones D-XX con un enlace al ADR individual. | `decisiones/d-01-product-standalone.md` hasta [d-44](decisiones/d-44-legacy-read-scope.md). |
 | Single source of truth para divergencias formales con el legacy. | Premisa P1 en [`AGENTS.md`](../../AGENTS.md) y [`proceso.md`](../proceso.md) §0. |
 
 | No es | Use este límite |
@@ -48,6 +48,12 @@ Registro canónico de decisiones de producto, UX, arquitectura y proceso. Cada d
 | D-21 | CodeGraph es el read path principal | aceptado | [d-21](decisiones/d-21-codegraph-read-path.md) |
 | D-24 | Regla de validación de fechas en actuaciones sanitarias | aceptado | [d-24](decisiones/d-24-validacion-fechas-sanidad.md) |
 | D-25 | Librería de fuzzy match: rapidfuzz (no thefuzz) | aceptado | [d-25](decisiones/d-25-rapidfuzz-fuzzy-match.md) |
+| D-43 | Cascade de NCHIP legacy reemplazado por FK `animal_id` + evento `CHIP_CHANGED` (#916) | aceptado | [d-43](decisiones/d-43-chip-cascade-fk-animal-id.md) |
+| D-44 | Alcance de lectura de los roles legacy: mapeo explícito fail-closed (#923) | aceptado | [d-44](decisiones/d-44-legacy-read-scope.md) |
+
+> **D-43 — detalle (issue #916, epic #911 A-04; 2026-09-26).** El saga de cambio de chip ya no propaga NCHIP a las tablas dependientes: el schema web referencia al animal por la FK sustituta `animal_id UUID REFERENCES animales(id)` (`app/core/domain_entradas.py:38`, `domain_adopciones.py:40`, `domain_foster.py:42`, `domain_terapias.py:11`, `domain_salud.py:35`) y ninguna de esas tablas tiene columna `chip` (la tabla real de salud es `actuacion_sanitaria`, singular). El legacy propagaba NCHIP porque era su join key (`docs/discovery/feature-01-animal-lifecycle.md:217`, `docs/discovery/data-model-notes.md:123`); la FK sustituye ese join key, así que los `UPDATE <tabla> SET chip` eran innecesarios y fallaban con `UndefinedColumn`. El saga conserva el preflight de unicidad y chip actual, el `UPDATE animales SET nchip` protegido por `old_chip` y el evento `CHIP_CHANGED`, todo dentro de un `transaction()` real (#914) — los `BEGIN`/`COMMIT`/`ROLLBACK` vía `execute_sql` (una conexión nueva por llamada) se eliminaron.
+
+> **D-44 — detalle (issue #923, epic #911 hallazgo A-11; 2026-09-26).** Decisión de producto: "Compatibilidad explícita". `require_permission` deja de conceder cualquier `read:*` genérico a los roles legacy: `developer`, `key_user` y `reader` reciben el conjunto explícito de los 10 permisos de lectura vigentes en `_LEGACY_READ_MATRIX` (`app/core/rbac.py`), y cualquier otro string de rol no reconocido recibe 403 también en lecturas (fail-closed). Evidencia: todos los roles asignables hoy son legacy — el panel de admin construye su selector desde `VALID_ROLES` (`app/core/auth.py:78`, derivado del enum `Rol` en `app/core/roles.py`: developer, admin, key_user, reader) y `voluntario`/`staff` no son asignables desde ahí, de modo que el mapeo preserva el acceso real de los usuarios actuales (cero impacto, verificado para los cuatro strings de rol canónicos de `VALID_ROLES`; una fila preexistente de `usuarios_autorizados` con un `rol` no canónico pasa a fail-closed por diseño — follow-up de saneamiento pendiente). Las escrituras no cambian (`_LEGACY_WRITER_ROLES`). El guard test `test_legacy_read_matrix_covers_every_read_permission` falla si un permiso de lectura nuevo carece de decisión explícita para cada rol legacy. Condición de salida: migrar sesiones legacy al enum nuevo antes de ampliar permisos (invariante de `docs/security/rbac-matrix.md`).
 
 ### Proceso y entrega
 

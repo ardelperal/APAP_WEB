@@ -203,6 +203,28 @@ def _include_devtools_router(application: FastAPI, settings) -> None:
         application.include_router(devtools_router)
 
 
+def _include_magic_link_router(application: FastAPI, settings) -> None:
+    """Include the magic-link login router only when the flag is on (#1005).
+
+    Mirrors :func:`_include_devtools_router` (keeps the factory at
+    CC=1 per module-size-budgets). Default-deny (§6): when
+    ``Settings.auth_enable_magic_link`` is False the router is NOT
+    registered and the auth middleware answers ``/auth/magic/*``
+    probes with a fail-closed 404 (``MAGIC_LINK_PUBLIC_PATHS`` gate in
+    ``app.core.middleware``). With the flag on, behaviour is identical
+    to the pre-#1005 app.
+
+    DEPLOY-ORDER WARNING: production served magic-link login with the
+    router registered unconditionally. The operator MUST set
+    ``APAP_AUTH_ENABLE_MAGIC_LINK=true`` in the Coolify environment
+    BEFORE deploying a build that carries this flag — otherwise
+    magic-link login breaks on next deploy. See
+    ``docs/runbooks/operator-deploy-2026.md``.
+    """
+    if settings.auth_enable_magic_link:
+        application.include_router(magic_link_router)
+
+
 def create_app() -> FastAPI:
     """Application factory.
 
@@ -274,10 +296,12 @@ def create_app() -> FastAPI:
 
     _include_devtools_router(application, settings)
 
-    # Auth flow: magic-link login (M3.4, issue #651). The router
-    # lives in app.core.local_backend.magic_link; the lifespan above
-    # wires the port + transport + session secret onto app.state.
-    application.include_router(magic_link_router)
+    # Auth flow: magic-link login (M3.4, issue #651; flag #1005). The
+    # router lives in app.core.local_backend.magic_link; the lifespan
+    # above wires the port + transport + session secret onto app.state.
+    # The registration is flag-gated: with the flag off the router is
+    # not registered and probes receive a fail-closed 404.
+    _include_magic_link_router(application, settings)
 
     return application
 
