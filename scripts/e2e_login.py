@@ -224,13 +224,13 @@ def mint_storage_state(
     return state
 
 
-# The server keeps an in-process auth cache with a 300s TTL
-# (``Settings.auth_cache_ttl_seconds``, app/core/config.py) and
-# ``/e2e/login`` is what refreshes it. A storageState older than that
-# still carries a valid 7-day cookie, but requests start bouncing 302
-# to /login once the server-side cache entry expires. The fixture layer
-# therefore re-mints strictly before the server TTL: 240s leaves a 60s
-# safety margin (issue #906, fix F3).
+# ``/e2e/login`` (issue #1073) mints a session from the
+# ``usuarios_autorizados`` allowlist and does NOT seed the server's
+# in-process auth cache — ``require_authorized_user`` is its single
+# writer and revalidates against the DB on the first authorized
+# request. The fixture layer therefore re-mints the storageState every
+# 240s (issue #906, fix F3) so long suites always drive a freshly
+# minted session instead of replaying a stale one.
 AUTH_STATE_REFRESH_TTL_SECONDS = 240
 
 
