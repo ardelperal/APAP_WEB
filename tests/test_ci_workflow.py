@@ -897,6 +897,18 @@ def test_ci_workflow_job_declares_least_privilege_permissions(job_name: str) -> 
         )
 
 
+def test_issue_spec_job_reads_pull_request_links_with_read_only_scopes() -> None:
+    """Issue #956: GraphQL `closingIssuesReferences` needs `pull-requests: read`.
+
+    Only `issue-spec` gets that scope, and it stays read-only.
+    """
+    perms = _workflow_yaml.permissions(_job(WORKFLOW_PATH, "issue-spec"))
+
+    assert perms == {"contents": "read", "issues": "read", "pull-requests": "read"}
+    for job_name in _workflow_job_names(WORKFLOW_PATH) - {"issue-spec"}:
+        assert "pull-requests" not in _workflow_yaml.permissions(_job(WORKFLOW_PATH, job_name))
+
+
 def test_deploy_evidence_job_declares_least_privilege_permissions() -> None:
     """Issue #879: `evidence` reads via checkout + the Actions API only.
 
