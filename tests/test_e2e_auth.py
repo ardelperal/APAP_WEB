@@ -473,25 +473,26 @@ def test_debug_e2e_cookie_can_be_sent_over_loopback_http() -> None:
 def test_default_email_applies_when_query_param_omitted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Without ``?email=...`` the route falls back to the configured default."""
-    import app.core.e2e_auth as e2e_module
+    """Without ``?email=...`` the route falls back to the configured default.
 
-    e2e_module.get_settings = lambda: Settings(
-        e2e_auth_enabled=True,
-        e2e_auth_secret="test-secret",
-        e2e_auth_default_email="default@apap.local",
-        session_secret="test-session-secret-for-mock",
+    Issue #1073: the default email resolves through the DB allowlist
+    like any other email; the minted session carries the DB role.
+    """
+    user = {
+        "id": "u-default-1",
+        "email": "default@apap.local",
+        "rol": "reader",
+        "activo": True,
+    }
+    app = _build_app(
+        _e2e_settings(e2e_auth_default_email="default@apap.local"),
+        _executor_with_user(user),
     )
-    app = FastAPI()
-    app.state.sql_executor = _executor_with_user(
-        {"id": "u-default-1", "email": "default@apap.local", "rol": "reader", "activo": True}
-    )
-    register_e2e_auth_routes(app)
     client = TestClient(app)
 
     response = client.get(
         "/e2e/login",
-        headers={"X-E2E-Secret": "test-secret"},
+        headers={"X-E2E-Secret": SECRET},
     )
 
     assert response.status_code == 200
