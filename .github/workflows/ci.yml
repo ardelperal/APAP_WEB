@@ -208,6 +208,65 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
+      - name: Run actionlint (all workflows, pinned 1.7.12)
+        # Issue #1154: actionlint validates the workflow schema, runs
+        # shellcheck over embedded scripts and checks `runs-on` labels
+        # against .github/actionlint.yaml, for every file under
+        # .github/workflows/. Any finding fails the job via its exit code.
+        # Pinned by tests/test_ci_workflow.py::
+        # test_ci_workflow_lint_job_runs_actionlint.
+        #
+        # The binary is pinned to 1.7.12. Workstations keep a system-wide
+        # actionlint 1.7.12 (handoff 2026-09-30 §5), so scripts/preflight.py
+        # runs this same step locally with no download. CI downloads the
+        # official release tarball into $RUNNER_TEMP and verifies its SHA256
+        # against the pinned checksums from rhysd/actionlint v1.7.12. No
+        # third-party action is involved.
+        #
+        # Declared findings — every remaining finding must be fixed or
+        # declared here with its rationale (issue #1154):
+        # - `unexpected key "command" for "services" section`: the e2e
+        #   `services.minio` block belongs to open PR #900 (issue #894),
+        #   which removes the whole service; declared instead of touching
+        #   it here. Remove this ignore when #900 merges.
+        # - SC2129 / SC2086 in deploy.yml scripts: deploy.yml is a
+        #   deployment workflow outside this change's scope; the mechanical
+        #   script fixes belong to a dedicated deploy.yml change. Remove
+        #   both ignores with that fix.
+        run: |
+          set -euo pipefail
+          version="1.7.12"
+          if [ "$(actionlint -version 2>/dev/null | head -n 1 | awk '{print $1}')" = "$version" ]; then
+            echo "actionlint ${version} already available; skipping the pinned download"
+          else
+            case "$(uname -m)" in
+              x86_64)
+                tarball="actionlint_${version}_linux_amd64.tar.gz"
+                sha256="8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+                ;;
+              aarch64)
+                tarball="actionlint_${version}_linux_arm64.tar.gz"
+                sha256="325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6"
+                ;;
+              *)
+                echo "::error::unsupported runner architecture: $(uname -m)" >&2
+                exit 1
+                ;;
+            esac
+            dest="${RUNNER_TEMP:-$(mktemp -d)}/actionlint-${version}"
+            mkdir -p "$dest"
+            curl -fsSL --retry 3 \
+              "https://github.com/rhysd/actionlint/releases/download/v${version}/${tarball}" \
+              -o "${dest}/${tarball}"
+            echo "${sha256}  ${dest}/${tarball}" | sha256sum --check --strict -
+            tar -xzf "${dest}/${tarball}" -C "$dest" actionlint
+            export PATH="${dest}:${PATH}"
+          fi
+          actionlint \
+            -ignore 'unexpected key "command" for "services" section' \
+            -ignore 'shellcheck reported issue in this script: SC2129' \
+            -ignore 'shellcheck reported issue in this script: SC2086'
+
       - name: Set up locked Python environment
         uses: ./.github/actions/setup-python
 
@@ -672,7 +731,7 @@ jobs:
               value=${pair#*=}
               resolved=$(printf '%s' "$resolved" | sed "s/\${${name}}/${value}/g")
             done
-            if printf '%s' "$resolved" | grep -q '\${'; then
+            if printf '%s' "$resolved" | grep -q '[$][{]'; then
               echo "::error::unresolved ARG in base image '$img' (resolved to '$resolved'); an ARG used in FROM must declare a default in the Dockerfile."
               exit 1
             fi
@@ -1278,7 +1337,7 @@ jobs:
         env:
           MINIO_HOST_PORT: ${{ job.services.minio.ports['9000'] }}
         run: |
-          for i in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             if curl -fsS "http://127.0.0.1:${MINIO_HOST_PORT}/minio/health/live" >/dev/null 2>&1; then
               echo "MinIO is healthy"
               exit 0
@@ -1325,14 +1384,17 @@ jobs:
           fi
           export APAP_LOCAL_DB_URL="postgresql://postgres@127.0.0.1:${POSTGRES_HOST_PORT}/apap_e2e"
           python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --lifespan on &
-          echo "SERVER_PID=$!" >> "$GITHUB_ENV"
-          echo "APAP_LOCAL_DB_URL=$APAP_LOCAL_DB_URL" >> "$GITHUB_ENV"
-          echo "APAP_DEBUG=true" >> "$GITHUB_ENV"
-          echo "APAP_MODE=test" >> "$GITHUB_ENV"
-          echo "APAP_E2E_AUTH_ENABLED=true" >> "$GITHUB_ENV"
-          echo "APAP_E2E_AUTH_SECRET=$APAP_E2E_AUTH_SECRET" >> "$GITHUB_ENV"
-          echo "APAP_E2E_AUTH_DEFAULT_EMAIL=$APAP_E2E_AUTH_DEFAULT_EMAIL" >> "$GITHUB_ENV"
-          for i in {1..45}; do
+          # Grouped redirect (shellcheck SC2129): one block, one append.
+          {
+            echo "SERVER_PID=$!"
+            echo "APAP_LOCAL_DB_URL=$APAP_LOCAL_DB_URL"
+            echo "APAP_DEBUG=true"
+            echo "APAP_MODE=test"
+            echo "APAP_E2E_AUTH_ENABLED=true"
+            echo "APAP_E2E_AUTH_SECRET=$APAP_E2E_AUTH_SECRET"
+            echo "APAP_E2E_AUTH_DEFAULT_EMAIL=$APAP_E2E_AUTH_DEFAULT_EMAIL"
+          } >> "$GITHUB_ENV"
+          for _ in {1..45}; do
             if curl -fsS http://127.0.0.1:8000/healthz >/dev/null; then
               exit 0
             fi
