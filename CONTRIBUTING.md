@@ -239,8 +239,15 @@ actualizar la rama protegida.
 No se exige una segunda aprobación humana mientras exista un único mantenedor.
 Esto no permite omitir CI, hacer push directo ni usar force-push.
 
-El merge conserva `--no-ff` y la rama remota. Consulte
-[`docs/codebase/merge-workflow.md`](docs/codebase/merge-workflow.md) y
+El merge conserva `--no-ff` y la rama remota. El repositorio tiene activados
+`allow_auto_merge` y `allow_update_branch` (decisión de 2026-09-30, issue #958):
+encole el merge con `gh pr merge <N> --auto --merge` y actualice la rama con
+`gh api -X PUT repos/ardelperal/APAP_WEB/pulls/<N>/update-branch`. Con `strict`,
+si `main` avanza mientras el PR espera, el auto-merge se detiene hasta que
+alguien actualice la rama; una actualización disparada con `GITHUB_TOKEN` no
+reejecuta la CI, la hecha con el token de usuario vía `gh api` sí. Consulte
+[`docs/codebase/merge-workflow.md`](docs/codebase/merge-workflow.md)
+(sección §15.8) y
 [`.github/branch-protection.md`](.github/branch-protection.md).
 
 ---
