@@ -9,7 +9,14 @@
     resolves in every browser without a same-origin fetch, and so the
     icons ship with the document the nav is already part of.
 -#}
-<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+{#- The sprite is hidden via the Tailwind ``hidden`` class (compiled as
+    ``.hidden{display:none}`` in ``/static/css/output.css``), NOT an
+    inline ``style="display:none"`` attribute: the CSP baseline serves
+    ``style-src 'self'``, which blocks inline style attributes (issue
+    #1152 — the production battery flagged the violation on ``/login``
+    with hash sha256-aqNNdDLnnrDOnTNdkJpYlAxKVJtLt9CtFLklmInuUAE=,
+    exactly sha256("display:none")). -#}
+<svg xmlns="http://www.w3.org/2000/svg" class="hidden" aria-hidden="true">
   {#- Animales — lucide "paw-print" -#}
   <symbol id="nav-icon-paw-print" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <circle cx="11" cy="4" r="2" />
