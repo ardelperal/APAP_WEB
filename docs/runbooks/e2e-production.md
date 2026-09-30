@@ -109,8 +109,26 @@ required; every server-side action goes through the Coolify API.
 
 The on procedure is an environment edit plus a restart through the Coolify
 API, using the operator credentials `COOLIFY_BASE_URL` and
-`COOLIFY_ACCESS_TOKEN`. The generic endpoint pattern is shown with the
-application UUID as a placeholder.
+`COOLIFY_ACCESS_TOKEN`. The snippets use the variable
+`${APAP_COOLIFY_APP_UUID}` throughout; set it to the apap-web application
+UUID.
+
+**Warning — a Coolify API restart is not a safe flag-flip mechanism on the
+`dockerfile` build-pack.** The apap-web application is built with the
+`dockerfile` build-pack, and for that pack type Coolify's
+`POST /applications/{uuid}/restart` does not restart in place:
+`ApplicationDeploymentJob.php` neutralizes the `restart_only` path and
+queues a full deployment, which can rebuild the image from the branch tip
+and advance production off the SHA under validation (observed during the
+#905 dry run: deployment id 392, "Build configuration changed. Rebuilding
+image."). The safe mechanism for a flag flip is: PATCH the env through the
+API, mirror the change in the server's `.env` (a one-line `sed`), and
+recreate the containers in place with `docker compose --force-recreate`,
+which preserves the pinned image. Whenever a Coolify API restart was used
+anyway, re-check the `revision` field of `/healthz` immediately after: if
+it no longer matches the SHA under validation, production has advanced
+past the revision being validated and the gate must restart from Step 0.
+Never record a verdict on a SHA different from the deployed `revision`.
 
 ```bash
 # 1a. List the current environment variables of the application.
@@ -127,11 +145,20 @@ curl -sS -X PATCH \
   -H "Authorization: Bearer ${COOLIFY_ACCESS_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{"key": "APAP_E2E_AUTH_ENABLED", "value": "true"}' \
-  "${COOLIFY_BASE_URL}/api/v1/applications/{APP_UUID}/envs"
+  "${COOLIFY_BASE_URL}/api/v1/applications/${APAP_COOLIFY_APP_UUID}/envs"
 
-# 1c. Restart the application so the new env takes effect.
+# 1c. Restart the application so the new env takes effect. Read the
+# warning above: on the dockerfile build-pack this POST queues a full
+# deployment that can rebuild from the branch tip; prefer the .env sed +
+# docker compose --force-recreate mechanism, and always run 1d after it.
 curl -sS -X POST -H "Authorization: Bearer ${COOLIFY_ACCESS_TOKEN}" \
   "${COOLIFY_BASE_URL}/api/v1/applications/${APAP_COOLIFY_APP_UUID}/restart"
+
+# 1d. Post-restart revision re-check: the /healthz revision must equal
+# the SHA under validation. A different revision means the restart
+# advanced production and the gate must restart from Step 0.
+curl -sS "${APAP_E2E_BASE_URL:-https://apap.romancaba.com}/healthz" | python3 -c \
+  'import json, sys; print(json.load(sys.stdin)["revision"])'
 ```
 
 Observed during the #905 dry run: after the restart completes the
@@ -251,9 +278,11 @@ APAP_E2E_BASE_URL="${APAP_E2E_BASE_URL}" python -m pytest \
 ### Station suite, not regular CI
 
 `tests/e2e/` is a station suite: the regular CI pytest run ignores it, and
-the dedicated `e2e` job in `ci.yml` fires only on tag push or manual
-dispatch against its own ephemeral stack. The production gate in this
-runbook runs from a workstation against the live deployment.
+the dedicated `e2e` job in `ci.yml` fires on `workflow_dispatch`, on tag
+push, or on a pull request / branch push when the `ui-detection` job set
+`ui_changed == 'true'` (issue #895) — always against its own ephemeral
+stack. The production gate in this runbook runs from a workstation
+against the live deployment.
 
 ## Pass/fail criteria and failure handling
 
@@ -286,14 +315,21 @@ curl -sS -X PATCH \
   -H "Authorization: Bearer ${COOLIFY_ACCESS_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{"key": "APAP_E2E_AUTH_ENABLED", "value": "false"}' \
-  "${COOLIFY_BASE_URL}/api/v1/applications/{APP_UUID}/envs"
+  "${COOLIFY_BASE_URL}/api/v1/applications/${APAP_COOLIFY_APP_UUID}/envs"
 
-# 5b. Restart the application.
+# 5b. Restart the application (see the Step 1 warning: on the dockerfile
+# build-pack this POST can queue a full deployment; 5d must follow).
 curl -sS -H "Authorization: Bearer ${COOLIFY_ACCESS_TOKEN}" \
-  "${COOLIFY_BASE_URL}/api/v1/applications/{APP_UUID}/restart"
+  "${COOLIFY_BASE_URL}/api/v1/applications/${APAP_COOLIFY_APP_UUID}/restart"
 
 # 5c. Verify reposo: the route must be gone.
 curl -sS -o /dev/null -w '%{http_code}\n' "${APAP_E2E_BASE_URL}/e2e/login"
+
+# 5d. Post-restart revision re-check: the /healthz revision must still
+# equal the SHA under validation (Step 1 warning); a change means the
+# restart advanced production and no verdict may be recorded.
+curl -sS "${APAP_E2E_BASE_URL}/healthz" | python3 -c \
+  'import json, sys; print(json.load(sys.stdin)["revision"])'
 ```
 
 `404` is the required final state. Anything else means the flag did not
@@ -340,7 +376,10 @@ with a notice.
    SHA** with the GitHub statuses API (`SHA` is the deployed revision):
 
    ```bash
-   SHA=$(git rev-parse origin/main)   # the revision that was deployed
+   # The verdict goes on the deployed revision, read from /healthz —
+   # never on `git rev-parse origin/main` (see the Step 1 warning).
+   SHA=$(curl -sS "${APAP_E2E_BASE_URL:-https://apap.romancaba.com}/healthz" \
+     | python3 -c 'import json, sys; print(json.load(sys.stdin)["revision"])')
    REPO=ardelperal/APAP_WEB
 
    # Green run: state success, the run URL (or artifact) as target_url.
@@ -481,22 +520,32 @@ APAP_E2E_BASE_URL="${APAP_E2E_BASE_URL}" python -m pytest \
   tests/e2e/test_security_headers.py \
   -v
 
-# 5. Flag off (Coolify API: env edit + restart).
+# 5. Flag off (Coolify API: env edit + restart; see the Step 1 warning
+# about dockerfile build-packs and the 6b revision re-check).
 curl -sS -X PATCH -H "Authorization: Bearer ${COOLIFY_ACCESS_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{"key": "APAP_E2E_AUTH_ENABLED", "value": "false"}' \
-  "${COOLIFY_BASE_URL}/api/v1/applications/{APP_UUID}/envs"
+  "${COOLIFY_BASE_URL}/api/v1/applications/${APAP_COOLIFY_APP_UUID}/envs"
 curl -sS -H "Authorization: Bearer ${COOLIFY_ACCESS_TOKEN}" \
-  "${COOLIFY_BASE_URL}/api/v1/applications/{APP_UUID}/restart"
+  "${COOLIFY_BASE_URL}/api/v1/applications/${APAP_COOLIFY_APP_UUID}/restart"
 
 # 6. Reposo verified: expect 404.
 curl -sS -o /dev/null -w '%{http_code}\n' "${APAP_E2E_BASE_URL}/e2e/login"
+
+# 6b. Post-restart revision re-check: must equal the SHA under
+# validation (Step 1 warning) before recording any verdict.
+curl -sS "${APAP_E2E_BASE_URL}/healthz" | python3 -c \
+  'import json, sys; print(json.load(sys.stdin)["revision"])'
 
 # 7. Destroy the live session file.
 rm -f .auth/state.json
 
 # 8. Record the verdict on the deployed SHA (success | failure | skipped:<reason>).
-SHA=$(git rev-parse origin/main); REPO=ardelperal/APAP_WEB
+# The SHA comes from /healthz, never from `git rev-parse origin/main`
+# (Step 1 warning: main can be ahead of production).
+SHA=$(curl -sS "${APAP_E2E_BASE_URL}/healthz" \
+  | python3 -c 'import json, sys; print(json.load(sys.stdin)["revision"])')
+REPO=ardelperal/APAP_WEB
 gh api --method POST "repos/${REPO}/statuses/${SHA}" \
   -f state=success -f context=release/e2e-production \
   -f description="e2e gate green" -f target_url="<run URL or artifact>"
@@ -511,6 +560,7 @@ gh api --method POST "repos/${REPO}/statuses/${SHA}" \
 | Passing the secret on the command line | argv leaks through shell history and process listings | Use `--secret-env` and export the variable |
 | Committing or sharing `.auth/state.json` | It contains a live session cookie | Keep it in the gitignored `.auth/` and delete it after the run |
 | Marking the release valid with a red or skipped gate | A green-skipped gate validates nothing | Only an exit 0 run with only the expected skips counts |
+| Recording the verdict on `git rev-parse origin/main` instead of the `/healthz` `revision` | `main` can be ahead of production (or behind, after a rollback); the status would validate a revision production does not serve | Read the SHA from `/healthz` and verify it is unchanged after every restart (Steps 1d and 5d) |
 | Turning the devtools flag on in production to unskip preview tests | Widens the production surface for a test convenience | Accept the documented skip |
 
 ## Contributor checklist

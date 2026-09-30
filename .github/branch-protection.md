@@ -41,8 +41,10 @@ cancelado, fallido u omitido sin permiso bloquea el merge.
 El número de aprobaciones requeridas es `0`. El proyecto tiene un único
 mantenedor; exigir una segunda persona impediría integrar cualquier PR.
 
-Esto no relaja el gate automático. Todos los checks deben quedar verdes y todas
-las conversaciones deben resolverse.
+Esto no relaja el gate automático: todos los checks deben quedar verdes. La
+exigencia de conversaciones resueltas está desactivada
+(`required_conversation_resolution.enabled: false`, issue #972); ver
+«Estado verificado».
 
 Cuando se incorpore un segundo mantenedor humano, eleve el requisito a `1` y
 actualice `CODEOWNERS`.
@@ -50,7 +52,7 @@ actualice `CODEOWNERS`.
 ## Ajustes aplicados
 
 - Exigir pull request y rama actualizada antes del merge.
-- Exigir todas las conversaciones resueltas.
+- Exigir todas las conversaciones resueltas — **desactivado** desde el issue #972 (CodeQL no debe bloquear merges por hilos de alertas preexistentes); ver «Estado verificado».
 - Aplicar las reglas también a administradores.
 - Restringir el merge a `Maintain` y `Admin` mediante pull request — **desactivado** desde el issue #892 (2026-09-23); reactivar al incorporar un segundo colaborador `Write`.
 - Prohibir force-push y borrado de la rama.
