@@ -2,8 +2,9 @@
 
 Pins the casas de acogida CRUD contract end-to-end via Playwright + the
 OAuth mock landed in ``tests/e2e/test_admin_authenticated.py``. The
-``authenticated_session`` fixture mints a developer session (the mock's
-default rol — see ``app/core/e2e_auth.py::MOCK_USER_ROL``) via
+``authenticated_session`` fixture mints a session for a seeded row (the
+role is read from ``usuarios_autorizados`` — the DB is the single
+allowlist, see ``app/core/e2e_auth.py``) via
 ``GET /e2e/login`` with the ``X-E2E-Secret`` header, then returns a
 ``(Page, csrf_token)`` tuple so the csrf_token can be threaded into
 the form-encoded POSTs the routes require (the form template's

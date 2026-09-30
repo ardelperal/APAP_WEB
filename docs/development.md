@@ -310,7 +310,7 @@ python -m playwright install --with-deps chromium
 APAP_LOCAL_DB_URL=postgresql://... APAP_E2E_AUTH_SECRET=... \
   uvicorn app.main:app --lifespan on &
 APAP_E2E_BASE_URL=http://127.0.0.1:8000 APAP_E2E_AUTH_SECRET=... \
-  pytest tests/e2e_ci/ -v
+  APAP_LOCAL_DB_URL=postgresql://... pytest tests/e2e_ci/ -v
 ```
 
 El workflow `deploy.yml` corre después de un merge a `main`, verifica que el
