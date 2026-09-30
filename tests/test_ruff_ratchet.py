@@ -8,10 +8,14 @@ freezes the per-rule counts so they may only shrink. These tests cover:
 2. Behavioural: ``compare()`` reports an improvement without failing.
 3. Integration: the ratchet passes against the real tree.
 4. Wiring: the CI ``lint`` job runs the gate.
+5. Lock-in: ``update_baseline()`` (``--update-baseline``) lowers the BASELINE
+   to the measured counts, refuses to raise anything, and never mutates the
+   committed script when it refuses (issue #1120).
 """
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from collections import Counter
@@ -25,9 +29,12 @@ from check_ruff_ratchet import (  # noqa: E402
     BASELINE,
     SCOPE,
     SELECT,
+    UpdateRefusedError,
     compare,
+    load_baseline,
     main,
     run_ruff,
+    update_baseline,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -194,3 +201,164 @@ def test_pyproject_pins_ruff_exactly() -> None:
         "pyproject must pin ruff exactly, and to the version BASELINE was measured with"
     )
     assert '"ruff>=' not in text, "ruff must not be declared with an open floor"
+
+
+# ---------------------------------------------------------------------------
+# Lock-in: ``--update-baseline`` (issue #1120).
+#
+# The tests run against tmp copies of the real script so a failing or
+# refused update can never mutate the committed BASELINE.
+# ---------------------------------------------------------------------------
+
+SCRIPT_PATH = REPO_ROOT / "scripts" / "check_ruff_ratchet.py"
+
+
+def _copy_script(tmp_path: Path, *, inflate_by: int = 0) -> Path:
+    """Copy the real script into ``tmp_path``, optionally inflating BASELINE.
+
+    With ``inflate_by > 0`` every tracked entry sits above its real count,
+    mimicking the simulated-baseline-above-real-counts setup the issue's
+    plan de validación calls for.
+    """
+    source = SCRIPT_PATH.read_text(encoding="utf-8")
+    if inflate_by:
+        source = re.sub(
+            r'"([A-Z]+\d+)": (\d+)',
+            lambda m: f'"{m.group(1)}": {int(m.group(2)) + inflate_by}',
+            source,
+        )
+    tmp_script = tmp_path / "check_ruff_ratchet.py"
+    tmp_script.write_text(source, encoding="utf-8")
+    return tmp_script
+
+
+def test_update_baseline_lowers_each_entry_to_measured_count(tmp_path: Path) -> None:
+    """A simulated baseline above real counts is lowered to exactly them.
+
+    Issue #1120 RED: with every entry inflated by 5 and the real counts as
+    ground truth, the update must persist exactly the measured counts and
+    report a non-empty diff mentioning every lowered rule.
+    """
+    tmp_script = _copy_script(tmp_path, inflate_by=5)
+    inflated = load_baseline(tmp_script)
+    real_counts = Counter({code: value - 5 for code, value in inflated.items()})
+
+    new_baseline, diff_lines = update_baseline(tmp_script, real_counts)
+
+    assert new_baseline == dict(real_counts)
+    assert diff_lines
+    for code in inflated:
+        assert any(code in line for line in diff_lines), code
+    assert load_baseline(tmp_script) == dict(real_counts)
+    # Idempotence: re-running the lock-in at the measured counts is a no-op.
+    assert update_baseline(tmp_script, real_counts) == (dict(real_counts), [])
+
+
+def test_update_baseline_refuses_to_raise_and_leaves_file_byte_identical(
+    tmp_path: Path,
+) -> None:
+    """A single raise aborts the whole update atomically.
+
+    Even when every other entry could be lowered, one raise must refuse
+    the update and leave the script byte-identical: shrink-only means the
+    lock-in can never raise a baseline entry.
+    """
+    tmp_script = _copy_script(tmp_path, inflate_by=5)
+    inflated = load_baseline(tmp_script)
+    counts = Counter({code: value - 5 for code, value in inflated.items()})
+    counts["C901"] = inflated["C901"] + 1
+    original = tmp_script.read_text(encoding="utf-8")
+
+    with pytest.raises(UpdateRefusedError) as exc_info:
+        update_baseline(tmp_script, counts)
+
+    assert "C901" in str(exc_info.value)
+    assert tmp_script.read_text(encoding="utf-8") == original
+
+
+def test_update_baseline_refuses_unknown_rule(tmp_path: Path) -> None:
+    """A measured rule missing from BASELINE refuses the update.
+
+    compare() fails loud on a rule that is not in BASELINE ("a new rule
+    must report zero"), so the lock-in must not silently persist a
+    baseline while the gate itself would be red.
+    """
+    tmp_script = _copy_script(tmp_path)
+    counts = Counter(load_baseline(tmp_script))
+    counts["XYZ999"] = 3
+    original = tmp_script.read_text(encoding="utf-8")
+
+    with pytest.raises(UpdateRefusedError) as exc_info:
+        update_baseline(tmp_script, counts)
+
+    assert "XYZ999" in str(exc_info.value)
+    assert tmp_script.read_text(encoding="utf-8") == original
+
+
+def test_update_baseline_removes_zero_count_entries(tmp_path: Path) -> None:
+    """A rule whose measured count reaches zero is removed from BASELINE.
+
+    Issue #390 convention: no 0-valued entries, so a future violation
+    trips the unknown-rule branch instead of consuming a 0 quota.
+    """
+    tmp_script = _copy_script(tmp_path)
+    counts = Counter(load_baseline(tmp_script))
+    counts["ARG001"] = 0
+
+    new_baseline, diff_lines = update_baseline(tmp_script, counts)
+
+    assert "ARG001" not in new_baseline
+    assert any("ARG001" in line and "REMOVED" in line for line in diff_lines)
+    persisted = load_baseline(tmp_script)
+    assert "ARG001" not in persisted
+    assert persisted == new_baseline
+
+
+def test_update_baseline_preserves_comments_and_sibling_entries(tmp_path: Path) -> None:
+    """The rewrite touches only changed entries; comments stay verbatim.
+
+    Lowering ARG001 and removing a zero-count S603 (which shares a line
+    with N806 in the committed block) must keep the retirement notes and
+    every sibling entry byte-for-byte.
+    """
+    tmp_script = _copy_script(tmp_path)
+    counts = Counter(load_baseline(tmp_script))
+    counts["ARG001"] = BASELINE["ARG001"] - 3
+    counts["S603"] = 0
+
+    update_baseline(tmp_script, counts)
+
+    new_source = tmp_script.read_text(encoding="utf-8")
+    assert "# ERA001 fue retirado del baseline" in new_source
+    assert "# S603 fue retirado del baseline" in new_source
+    assert f'"ARG001": {BASELINE["ARG001"] - 3}' in new_source
+    assert '"S603"' not in re.sub(r"#.*", "", new_source)
+    # Removing S603 (which shares line 100 with N806 in the committed block)
+    # must not eat the newline: N806 keeps its own line and ARG002 stays on
+    # its original continuation line.
+    n806_lines = [line for line in new_source.splitlines() if '"N806"' in line]
+    assert len(n806_lines) == 1 and '"ARG002"' not in n806_lines[0]
+    assert n806_lines[0] == '    "N806": 1,', n806_lines[0]
+    arg002_lines = [line for line in new_source.splitlines() if '"ARG002"' in line]
+    assert len(arg002_lines) == 1 and '"N806"' not in arg002_lines[0]
+
+
+def test_main_update_baseline_flag_persists_lock_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--update-baseline`` wires the lock-in into ``main`` and exits 0."""
+    tmp_script = _copy_script(tmp_path, inflate_by=5)
+    inflated = load_baseline(tmp_script)
+    real_counts = Counter({code: value - 5 for code, value in inflated.items()})
+    monkeypatch.setattr(
+        sys.modules["check_ruff_ratchet"],
+        "run_ruff",
+        lambda *_args, **_kwargs: (real_counts, None),
+    )
+
+    exit_code = main(
+        ["--update-baseline", "--script", str(tmp_script), str(REPO_ROOT)]
+    )
+
+    assert exit_code == 0
+    assert load_baseline(tmp_script) == dict(real_counts)

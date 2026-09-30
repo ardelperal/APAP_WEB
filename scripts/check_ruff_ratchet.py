@@ -23,12 +23,28 @@ Unlike the other ratchets this one shells out to ``ruff`` (a declared dev
 dependency) rather than walking the AST itself: reimplementing 40 lint rules
 would be its own source of drift.
 
-Issue: #380
+Lock-in (issue #1120): once a count drops below BASELINE the check prints a
+``NOTE`` and stops. Running the script with ``--update-baseline`` rewrites
+the BASELINE constants in place to the measured counts so the improvement
+is locked in::
+
+    python scripts/check_ruff_ratchet.py --update-baseline
+
+The rewrite is shrink-only: any entry that would have to be raised — or any
+measured rule missing from BASELINE — aborts the whole update and leaves
+the file byte-identical. Comment lines in the BASELINE block are never
+touched, and rules that reach zero are removed from the dict entirely so a
+future violation trips the unknown-rule branch (issue #390 convention).
+
+Issue: #380 (ratchet), #1120 (lock-in).
 """
 
 from __future__ import annotations
 
+import argparse
+import ast
 import json
+import re
 import subprocess
 import sys
 from collections import Counter
@@ -281,6 +297,152 @@ def compare(counts: Counter[str]) -> tuple[list[str], list[str]]:
     return violations, notices
 
 
+# ---------------------------------------------------------------------------
+# Lock-in (issue #1120): rewrite BASELINE in place to the measured counts.
+# ---------------------------------------------------------------------------
+
+_ENTRY_PATTERN = re.compile(r'"(?P<code>[A-Z]+\d+)":\s*(?P<value>\d+)')
+
+
+class UpdateRefusedError(Exception):
+    """The lock-in would have to raise an entry or admit an unknown rule.
+
+    Raised before any write, so a refused update always leaves the script
+    byte-identical: the ratchet is shrink-only (issue #1120).
+    """
+
+
+def _baseline_dict_value(node: ast.AST) -> ast.Dict | None:
+    """Return the dict literal bound to ``BASELINE`` in ``node``, if any.
+
+    Handles both ``BASELINE: dict[str, int] = {...}`` (AnnAssign) and a
+    bare ``BASELINE = {...}`` (Assign); any other node yields ``None``.
+    """
+    if isinstance(node, ast.AnnAssign):
+        target = node.target
+        if isinstance(target, ast.Name) and target.id == "BASELINE":
+            return node.value if isinstance(node.value, ast.Dict) else None
+        return None
+    if isinstance(node, ast.Assign) and any(
+        isinstance(target, ast.Name) and target.id == "BASELINE"
+        for target in node.targets
+    ):
+        return node.value if isinstance(node.value, ast.Dict) else None
+    return None
+
+
+def load_baseline(script_path: Path) -> dict[str, int]:
+    """Parse the ``BASELINE`` dict literal out of ``script_path``."""
+    tree = ast.parse(script_path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        value = _baseline_dict_value(node)
+        if value is None:
+            continue
+        baseline: dict[str, int] = {}
+        for key, item in zip(value.keys, value.values, strict=True):
+            if not isinstance(key, ast.Constant) or not isinstance(item, ast.Constant):
+                raise TypeError(  # noqa: TRY003 — operator-facing diagnostic, single site
+                    "BASELINE entry must be a constant string/integer pair"
+                )
+            baseline[str(key.value)] = int(item.value)
+        return baseline
+    raise ValueError("BASELINE assignment not found in script")  # noqa: TRY003 — operator-facing diagnostic, single site
+
+
+def _rewrite_entry_line(line: str, new_baseline: dict[str, int]) -> str:
+    """Rewrite one BASELINE entry line: lower counts, drop zero entries.
+
+    Comment text is never part of an entry line rewrite: retirement notes
+    stay in the source as historical record.
+    """
+    removed = False
+    for code, target in new_baseline.items():
+        if target != 0:
+            continue
+        # Horizontal whitespace only ([ \t]): the removal must never eat a
+        # newline and join the entry's line with the next one.
+        stripped = re.sub(rf'"{code}":[ \t]*\d+,[ \t]*', "", line)
+        stripped = re.sub(rf',[ \t]*"{code}":[ \t]*\d+', "", stripped)
+        stripped = re.sub(rf'"{code}":[ \t]*\d+[ \t]*', "", stripped)
+        if stripped != line:
+            removed = True
+            line = stripped
+
+    def _lower(match: re.Match[str]) -> str:
+        target = new_baseline.get(match.group("code"))
+        if target is not None and 0 < target < int(match.group("value")):
+            return f'"{match.group("code")}": {target}'
+        return match.group(0)
+
+    line = _ENTRY_PATTERN.sub(_lower, line)
+    if removed:
+        line = re.sub(r"[ \t]+(\n?)$", r"\1", line)
+    return line
+
+
+def _apply_baseline_edits(source: str, new_baseline: dict[str, int]) -> str:
+    """Return ``source`` with the BASELINE block rewritten per ``new_baseline``.
+
+    Only entry lines inside the ``BASELINE: dict[str, int] = { ... }`` block
+    are rewritten; comments, blank lines and everything outside the block
+    are preserved verbatim.
+    """
+    lines = source.splitlines(keepends=True)
+    in_block = False
+    rewritten: list[str] = []
+    for line in lines:
+        if re.match(r"^BASELINE\s*(:|=)", line):
+            in_block = True
+        elif in_block and line.lstrip().startswith("}"):
+            in_block = False
+        if in_block and not line.lstrip().startswith("#") and _ENTRY_PATTERN.search(line):
+            line = _rewrite_entry_line(line, new_baseline)
+        rewritten.append(line)
+    return "".join(rewritten)
+
+
+def update_baseline(
+    script_path: Path,
+    counts: Counter[str],
+) -> tuple[dict[str, int], list[str]]:
+    """Rewrite the BASELINE block in ``script_path`` to lock in ``counts``.
+
+    Shrink-only: any tracked rule whose measured count exceeds its entry —
+    and any measured rule missing from BASELINE — raises
+    :class:`UpdateRefusedError` and leaves the file byte-identical. Rules
+    that reach zero are removed from the dict (issue #390 convention).
+
+    Returns ``(persisted_baseline, diff_lines)``: the dict now stored in
+    the file (zero-count rules absent) and a readable diff of the changes.
+    """
+    current = load_baseline(script_path)
+    unknown = sorted(set(counts) - set(current))
+    if unknown:
+        # noqa justification (TRY003 raise-vanilla-args): operator-facing
+        # diagnostic on a refusal path; a single-use exception subclass per
+        # message would add boilerplate without recovery logic (issue #389).
+        raise UpdateRefusedError(  # noqa: TRY003
+            f"refusing to update BASELINE: measured rule(s) not in BASELINE "
+            f"{unknown}: triage them first (a new rule must report zero)"
+        )
+    for code, old in current.items():
+        measured = counts.get(code, 0)
+        if measured > old:
+            raise UpdateRefusedError(  # noqa: TRY003 — see unknown-rule raise above
+                f"refusing to raise BASELINE[{code!r}] from {old} to {measured}: "
+                f"the ratchet is shrink-only"
+            )
+    new_baseline = {code: counts.get(code, 0) for code in current}
+    diff_lines = [
+        f"{code}: {current[code]} -> {'REMOVED' if value == 0 else value} (locked in)"
+        for code, value in sorted(new_baseline.items())
+        if value != current[code]
+    ]
+    source = script_path.read_text(encoding="utf-8")
+    script_path.write_text(_apply_baseline_edits(source, new_baseline), encoding="utf-8")
+    return {code: value for code, value in new_baseline.items() if value > 0}, diff_lines
+
+
 def _pin_output_encoding() -> None:
     """Pin stdout/stderr to UTF-8: output must not depend on the locale (issue #488)."""
     if hasattr(sys.stdout, "reconfigure"):
@@ -288,10 +450,68 @@ def _pin_output_encoding() -> None:
         sys.stderr.reconfigure(encoding="utf-8")
 
 
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """Build the CLI parser for the ratchet (issue #380, lock-in #1120)."""
+    parser = argparse.ArgumentParser(
+        prog="check_ruff_ratchet.py",
+        description=(
+            "Shrink-only ratchet for the extended ruff rulesets (issue #380). "
+            "Pass --update-baseline to lock in improvements (issue #1120)."
+        ),
+    )
+    parser.add_argument(
+        "root",
+        nargs="?",
+        default=None,
+        help="Repository root (default: parent of this script).",
+    )
+    parser.add_argument(
+        "--update-baseline",
+        action="store_true",
+        help=(
+            "Rewrite BASELINE in place to the measured counts (issue #1120). "
+            "Shrink-only: any raise or unknown rule aborts and leaves the "
+            "file unchanged."
+        ),
+    )
+    parser.add_argument(
+        "--script",
+        default=None,
+        help=(
+            "Script whose BASELINE block --update-baseline rewrites "
+            "(default: this script; exposed for testing only)."
+        ),
+    )
+    return parser
+
+
+def _run_update_mode(script_path: Path, counts: Counter[str]) -> int:
+    """Apply ``--update-baseline`` and print the outcome (issue #1120)."""
+    try:
+        _, diff_lines = update_baseline(script_path, counts)
+    except UpdateRefusedError as exc:
+        print(f"FAIL check_ruff_ratchet: {exc}")
+        return 1
+    if diff_lines:
+        print(
+            f"check_ruff_ratchet: BASELINE updated ({len(diff_lines)} change(s) "
+            f"in {script_path}):"
+        )
+        for line in diff_lines:
+            print(f"  {line}")
+    else:
+        print(
+            f"check_ruff_ratchet: BASELINE unchanged (nothing to lock in; "
+            f"{script_path} not modified)"
+        )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     _pin_output_encoding()
-    args = sys.argv[1:] if argv is None else argv
-    root = Path(args[0]).resolve() if args else Path(__file__).resolve().parents[1]
+    ns = _build_arg_parser().parse_args(sys.argv[1:] if argv is None else argv)
+    root = Path(ns.root).resolve() if ns.root else Path(__file__).resolve().parents[1]
+    script_path = Path(ns.script).resolve() if ns.script else Path(__file__).resolve()
 
     version_error = check_ruff_version()
     if version_error is not None:
@@ -302,6 +522,9 @@ def main(argv: list[str] | None = None) -> int:
     if error is not None:
         print(f"FAIL check_ruff_ratchet: {error}")
         return 1
+
+    if ns.update_baseline:
+        return _run_update_mode(script_path, counts)
 
     violations, notices = compare(counts)
 
