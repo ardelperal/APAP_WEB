@@ -1,32 +1,26 @@
 """Canonical local preflight: run exactly what the ci.yml ``lint`` job runs.
 
 Issue #1119 closed a Local-vs-CI parity gap: ``ruff check`` alone does not
-cover the extended rulesets (``S``, ``ERA``, ``ARG``, ``FAST``, ``N``,
-``C901``, ``PLR``, ``SIM``, ``RET``, ``TRY``, ``PTH``) that
-``scripts/check_ruff_ratchet.py`` applies in CI, and the only other
-eighteen gates (``check_rules``, ``check_docstring_balance``,
-``check_alantyle``, ``check_module_size``, ``check_route_size``,
-``check_layers``, ``check_test_classification``, ``check_slice_completeness``,
-``check_migration_boundaries``, ``check_docstring_coverage``,
-``check_complexity``, ``check_ruff_ratchet``, ``check_vulture_guard``,
-``check_jscpd``, ``check_mutation_sites``, ``check_import_cycles``,
-``check_workflows``, ``check_issue_specs forms``) were CI-only.
-Contributors running ``make verify`` ran most of them, but ``make verify``
-is also a hand-curated subset that can drift.
+cover the extended rulesets that ``scripts/check_ruff_ratchet.py`` applies
+in CI, and many other gates were CI-only. ``make verify`` is a hand-curated
+subset that can drift from the ``lint`` job.
 
 This script reads ``.github/workflows/ci.yml`` at runtime, extracts the
-``lint`` job's ``run:`` steps in order, and executes them sequentially
-against the local working tree. Adding a step to ci.yml is picked up
-automatically; hardcoding or dropping a step inside this file is detected
-by ``tests/test_preflight.py::test_preflight_runs_exactly_lint_job_run_steps``.
+``lint`` job's ``run:`` steps in order and executes them sequentially
+against the local working tree, each with ``bash -e`` like the GitHub
+runner does when a workflow sets no ``defaults.run.shell``. A step added
+to ci.yml is picked up automatically. It does not run pytest, mypy or the
+CI-only jobs.
 
 Usage::
 
-    python scripts/preflight.py
+    python scripts/preflight.py [--list]
 
 Exit code is 0 when every step passes, 1 when any step fails, 2 when the
-workflow file is missing or malformed.
+workflow is missing, malformed, has no ``lint`` job or holds a step that
+bash cannot run faithfully (a GitHub ``${{ }}`` expression).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -38,45 +32,42 @@ from pathlib import Path
 import yaml
 
 
+class WorkflowError(Exception):
+    """The workflow cannot be turned into a faithful list of lint steps."""
+
+
 def lint_steps_from_ci(workflow_path: Path) -> list[tuple[str, str]]:
     """Parse ci.yml and return the ``lint`` job's ``(step_name, run_command)`` tuples.
 
-    Setup-only steps (``uses:`` like ``actions/checkout``) are filtered out:
-    the preflight runs on a workstation where the repo is already checked
-    out and Python is already installed through ``uv sync``.
-
-    Mirrors the ``True`` -> ``"on"`` normalization that
-    ``tests/_workflow_yaml.load`` applies, so a YAML 1.1 boolean quirk
-    cannot make the parser disagree with the test's own walk.
+    Setup-only steps (``uses:``) are skipped: the repo is already checked
+    out and Python already installed on a workstation. Raises
+    ``WorkflowError`` for malformed YAML, a missing ``lint`` job or a
+    ``run:`` text with a GitHub expression, which bash cannot evaluate.
     """
-    doc = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
-    if not isinstance(doc, dict):
-        raise SystemExit(  # noqa: TRY003 — operator-facing diagnostic
-            f"preflight: {workflow_path} is not a YAML mapping "
-            f"(got {type(doc).__name__})"
-        )
-    if True in doc:
-        doc["on"] = doc.pop(True)
-
     try:
-        lint_job = doc["jobs"]["lint"]
-    except KeyError as exc:
-        raise SystemExit(  # noqa: TRY003 — operator-facing diagnostic
-            f"preflight: {workflow_path} has no 'lint' job; "
-            "is this the right workflow file?"
-        ) from exc
+        doc = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        message = f"{workflow_path} is not valid YAML: {exc}"
+        raise WorkflowError(message) from exc
+    jobs = doc.get("jobs") if isinstance(doc, dict) else None
+    lint_job = jobs.get("lint") if isinstance(jobs, dict) else None
+    if not isinstance(lint_job, dict):
+        message = f"{workflow_path} has no 'lint' job; is this the right workflow file?"
+        raise WorkflowError(message)
 
-    steps = lint_job.get("steps") or []
     result: list[tuple[str, str]] = []
-    for step in steps:
-        if not isinstance(step, dict):
-            continue
-        run = step.get("run")
-        if not run:
-            # ``uses:`` steps (checkout, setup-python) are CI-only.
+    for step in lint_job.get("steps") or []:
+        if not isinstance(step, dict) or not step.get("run"):
             continue
         name = str(step.get("name", "<unnamed>")).strip()
-        result.append((name, str(run)))
+        command = str(step["run"])
+        if "${{" in command:
+            message = (
+                f"step '{name}' uses a GitHub expression (${{{{ }}}}) that bash "
+                "cannot evaluate; preflight refuses to run it unfaithfully"
+            )
+            raise WorkflowError(message)
+        result.append((name, command))
     return result
 
 
@@ -108,13 +99,10 @@ def run(steps: list[tuple[str, str]], root: Path) -> int:
     env["PATH"] = python_bin_dir + os.pathsep + env.get("PATH", "")
     for index, (name, command) in enumerate(steps, start=1):
         print(f"[{index}/{total}] {name}")
-        # ``bash -c`` preserves the glob expansion (e.g.
-        # ``openspec/changes/*/specs/``) the way the GitHub-hosted runner
-        # does — same shell, same expansion, same exit-code semantics.
-        # ``command`` is parsed from a YAML file we control, not from user
-        # input, so ``bash -c`` is not a shell-injection surface here.
-        proc = subprocess.run(  # noqa: S602,S603 - ci.yml content; PATH-resolved binary
-            ["bash", "-c", command],  # noqa: S607 - PATH-resolved binary
+        # ``bash -e``: the GitHub runner default when ci.yml sets no
+        # ``defaults.run.shell``; a failing command aborts the step.
+        proc = subprocess.run(  # noqa: S603 - ci.yml content, not user input
+            ["bash", "-e", "-c", command],  # noqa: S607 - PATH-resolved binary
             cwd=str(root),
             env=env,
             check=False,
@@ -134,7 +122,15 @@ def run(steps: list[tuple[str, str]], root: Path) -> int:
     return 0
 
 
+def _pin_output_encoding() -> None:
+    """Pin stdout/stderr to UTF-8: output must not depend on the locale (issue #488)."""
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
+    _pin_output_encoding()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--workflow",
@@ -148,6 +144,11 @@ def main(argv: list[str] | None = None) -> int:
         default=Path(),
         help="Working directory to run the steps in (default: current directory)",
     )
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="Print the steps that would run, without running them",
+    )
     args = parser.parse_args(argv)
 
     workflow = args.workflow.resolve()
@@ -156,8 +157,16 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     root = args.root.resolve()
-    steps = lint_steps_from_ci(workflow)
+    try:
+        steps = lint_steps_from_ci(workflow)
+    except WorkflowError as exc:
+        print(f"preflight: {exc}", file=sys.stderr)
+        return 2
     print(f"preflight: {len(steps)} steps from {workflow}")
+    if args.list:
+        for name, _command in steps:
+            print(f"  - {name}")
+        return 0
     print(f"  root: {root}")
     print()
     return run(steps, root)

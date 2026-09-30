@@ -189,18 +189,18 @@ make verify
 
 ### Preflight canónico — `scripts/preflight.py` (issue #1119)
 
-Antes del push, corra `scripts/preflight.py`. Es el comando de pre-push con paridad CI: parsea el job `lint` de `.github/workflows/ci.yml` en runtime y ejecuta, en orden, cada uno de sus 19 steps con `run:`. El verde aquí equivale al verde de la mitad superior de `ci / required` y evita el patrón «ruff verde en local, CI rojo» documentado en la PR #1111.
+Antes del push, corra `scripts/preflight.py`: es la validación canónica de pre-push. Lee el job `lint` de `.github/workflows/ci.yml` en tiempo de ejecución y ejecuta, en orden, cada uno de sus steps con `run:`, con la misma semántica de shell que el runner de GitHub (`bash -e`). El verde aquí equivale al verde del job `lint` y evita el patrón «ruff verde en local, CI rojo» documentado en la PR #1111.
 
 ```bash
 uv sync --frozen --extra dev
 .venv/bin/python scripts/preflight.py
 ```
 
-Cada step se imprime con su nombre del job `lint` y un veredicto `PASS` o `FAIL <name> (exit <N>)`. El exit code agregado es 0 cuando todos pasan y 1 cuando alguno falla; el nombre del step ofensor aparece en la salida, lo que vuelve el fallo triable.
+Tarda varios minutos porque ejecuta todos los steps de lint, incluido `jscpd`, que necesita Node y `npx`. No ejecuta pytest, mypy ni los jobs exclusivos de CI (`typecheck`, `test`, `integration`, `e2e`): para esos use los comandos de la tabla siguiente. Con `--list` imprime los steps sin ejecutarlos.
 
-`scripts/preflight.py` lee `ci.yml` directamente: añadir un step al job `lint` lo recoge automáticamente; el test `tests/test_preflight.py::test_preflight_runs_exactly_lint_job_run_steps` detecta cualquier drift entre el set del preflight y el set real del job.
+Cada step se imprime con su nombre y un veredicto `PASS` o `FAIL <name> (exit <N>)`; un step rojo no detiene a los siguientes. El exit code agregado es 0 cuando todos pasan, 1 cuando alguno falla y 2 cuando el workflow falta, está mal formado, no tiene job `lint` o contiene una expresión `${{ }}` de GitHub que bash no puede evaluar.
 
-`make verify` y `scripts/preflight.py` se solapan a propósito sobre los gates del job `lint`; el preflight es la versión portable (solo Python, sin GNU make) que añade el contrato explícito de paridad CI verificado por test. Si el coste temporal del job `lint` completo es excesivo para el inner loop, use `make verify` como subset rápido.
+Añadir un step al job `lint` lo recoge automáticamente. `make verify` se solapa a propósito con el preflight; es un subconjunto más rápido para el ciclo interno, pero el preflight es la referencia.
 
 | Job de `ci.yml` | Comando local | Requisitos |
 |---|---|---|
