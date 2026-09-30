@@ -91,10 +91,23 @@ de código correcto sin defecto subyacente.
 
 | Gate | Issue | Script | Razón para el cambio |
 |---|---|---|---|
-| Mutation-site density ratchet | #968 | `scripts/check_mutation_sites.py` | El conteo AST de nodos no detecta defectos; obligaba a partir módulos sin razón de bug. Mantiene el ratchet shrink-only de la BASELINE, pero el crecimiento se registra como `NOTE`. |
+| Mutation-site density ratchet | #968 | `scripts/check_mutation_sites.py` | El conteo AST de nodos no detecta defectos; obligaba a partir módulos sin razón de bug. Mantiene el ratchet shrink-only de la BASELINE, pero el crecimiento se registra como `NOTE`. Enforcement dormant vía `.github/ci-gate-policy.json` (#1168). |
 | Docstring coverage floor | #970 | `scripts/check_docstring_coverage.py` | El porcentaje de docstrings es una señal de documentación, no de defectos; `interrogate` y similares se usan como aviso, no como puerta. El suelo del 73 % se mantiene documentado. |
-| Per-function CRAP score + baseline exactness | #969 | `scripts/check_crap.py` | La cobertura combinada (#929) no existe aún; el script solo mide cobertura unitaria, y el `check_baseline_exactness` penalizaba las mejoras. Se reevaluará cuando #929 esté mergeado. |
+| Per-function CRAP score + baseline exactness | #969 | `scripts/check_crap.py` | La cobertura combinada (#929) no existe aún; el script solo mide cobertura unitaria, y el `check_baseline_exactness` penalizaba las mejoras. Se reevaluará cuando #929 esté mergeado. Enforcement dormant vía `.github/ci-gate-policy.json` (#1168). |
 | Import-cycle baseline obsoleto | #971 | `scripts/check_import_cycles.py` (test) | Arreglar un ciclo rompía el job `test` hasta editar la BASELINE a mano. La entrada obsoleta ahora es `NOTE` (igual que el ratchet de ruff). |
+
+Desde #1168, el enforcement de `check_mutation_sites` y `check_crap` está
+gobernado además por `.github/ci-gate-policy.json`: ambos figuran como
+`dormant` — el paso de CI sigue **ejecutando** el gate y sus hallazgos
+siguen visibles en el log (nunca un skip silencioso ni un falso verde),
+pero un fallo no bloquea el job (exit 0). **Re-arm procedure**: cambiar una
+línea del policy (`"enforcement": "dormant"` → `"enforcing"` para el gate
+correspondiente) y pasarla por review; datos que justifiquen el re-arm
+(evidencia de defecto real o mejora del baseline) van en la issue o el PR.
+El schema del policy está pineado por `tests/test_ci_gate_policy.py` (claves
+permitidas, `enforcement ∈ {dormant, enforcing}`, razón no vacía para
+dormant, drift guard contra los steps reales de `ci.yml`). Policy ausente,
+inválida o con el gate no listado = enforcing (default-deny).
 
 Los gates que siguen siendo **bloqueantes** son los detallados en §19, §20,
 §23 y §24 más arriba: cobertura global al 85 %, linter APAP001/APAP003, E2E
