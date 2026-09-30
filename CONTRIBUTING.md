@@ -180,6 +180,21 @@ source .venv/bin/activate
 make verify
 ```
 
+### Preflight canónico — `scripts/preflight.py` (issue #1119)
+
+Antes del push, corra `scripts/preflight.py`. Es el comando de pre-push con paridad CI: parsea el job `lint` de `.github/workflows/ci.yml` en runtime y ejecuta, en orden, cada uno de sus 19 steps con `run:`. El verde aquí equivale al verde de la mitad superior de `ci / required` y evita el patrón «ruff verde en local, CI rojo» documentado en la PR #1111.
+
+```bash
+uv sync --frozen --extra dev
+.venv/bin/python scripts/preflight.py
+```
+
+Cada step se imprime con su nombre del job `lint` y un veredicto `PASS` o `FAIL <name> (exit <N>)`. El exit code agregado es 0 cuando todos pasan y 1 cuando alguno falla; el nombre del step ofensor aparece en la salida, lo que vuelve el fallo triable.
+
+`scripts/preflight.py` lee `ci.yml` directamente: añadir un step al job `lint` lo recoge automáticamente; el test `tests/test_preflight.py::test_preflight_runs_exactly_lint_job_run_steps` detecta cualquier drift entre el set del preflight y el set real del job.
+
+`make verify` y `scripts/preflight.py` se solapan a propósito sobre los gates del job `lint`; el preflight es la versión portable (solo Python, sin GNU make) que añade el contrato explícito de paridad CI verificado por test. Si el coste temporal del job `lint` completo es excesivo para el inner loop, use `make verify` como subset rápido.
+
 | Job de `ci.yml` | Comando local | Requisitos |
 |---|---|---|
 | `lint` | `make verify`; cada gate es además un target individual (`make lint`, `make check-rules`, …) | — |
