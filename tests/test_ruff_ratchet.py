@@ -299,48 +299,63 @@ def test_update_baseline_removes_zero_count_entries(tmp_path: Path) -> None:
     """A rule whose measured count reaches zero is removed from BASELINE.
 
     Issue #390 convention: no 0-valued entries, so a future violation
-    trips the unknown-rule branch instead of consuming a 0 quota.
+    trips the unknown-rule branch instead of consuming a 0 quota. The
+    victim is chosen dynamically so the test survives future lock-ins
+    that remove entries from the committed block.
     """
     tmp_script = _copy_script(tmp_path)
+    victim = next(iter(load_baseline(tmp_script)))
     counts = Counter(load_baseline(tmp_script))
-    counts["ARG001"] = 0
+    counts[victim] = 0
 
     new_baseline, diff_lines = update_baseline(tmp_script, counts)
 
-    assert "ARG001" not in new_baseline
-    assert any("ARG001" in line and "REMOVED" in line for line in diff_lines)
+    assert victim not in new_baseline
+    assert any(victim in line and "REMOVED" in line for line in diff_lines)
     persisted = load_baseline(tmp_script)
-    assert "ARG001" not in persisted
+    assert victim not in persisted
     assert persisted == new_baseline
+
+
+def _fold_first_two_entries(tmp_script: Path) -> tuple[str, str]:
+    """Fold the first two BASELINE entries onto one physical line.
+
+    Exercises the multi-entry removal path regardless of the committed
+    block's formatting, and returns the two rule codes.
+    """
+    source = tmp_script.read_text(encoding="utf-8")
+    matches = list(re.finditer(r"^(\s*)\"([A-Z]+\d+)\": (\d+),[ \t]*$", source, re.M))
+    first, second = matches[0], matches[1]
+    folded = (
+        f'{first.group(1)}"{first.group(2)}": {first.group(3)},'
+        f'    "{second.group(2)}": {second.group(3)},\n'
+    )
+    tmp_script.write_text(source[: first.start()] + folded + source[second.end() :], encoding="utf-8")
+    return first.group(2), second.group(2)
 
 
 def test_update_baseline_preserves_comments_and_sibling_entries(tmp_path: Path) -> None:
     """The rewrite touches only changed entries; comments stay verbatim.
 
-    Lowering ARG001 and removing a zero-count S603 (which shares a line
-    with N806 in the committed block) must keep the retirement notes and
-    every sibling entry byte-for-byte.
+    Removing a zero-count entry that was folded onto the same physical
+    line as a sibling must keep the retirement notes verbatim and leave
+    the sibling on its own line: no newline eaten, no trailing spaces.
     """
     tmp_script = _copy_script(tmp_path)
+    victim, sibling = _fold_first_two_entries(tmp_script)
     counts = Counter(load_baseline(tmp_script))
-    counts["ARG001"] = BASELINE["ARG001"] - 3
-    counts["S603"] = 0
+    counts[victim] = 0
 
     update_baseline(tmp_script, counts)
 
     new_source = tmp_script.read_text(encoding="utf-8")
     assert "# ERA001 fue retirado del baseline" in new_source
     assert "# S603 fue retirado del baseline" in new_source
-    assert f'"ARG001": {BASELINE["ARG001"] - 3}' in new_source
-    assert '"S603"' not in re.sub(r"#.*", "", new_source)
-    # Removing S603 (which shares line 100 with N806 in the committed block)
-    # must not eat the newline: N806 keeps its own line and ARG002 stays on
-    # its original continuation line.
-    n806_lines = [line for line in new_source.splitlines() if '"N806"' in line]
-    assert len(n806_lines) == 1 and '"ARG002"' not in n806_lines[0]
-    assert n806_lines[0] == '    "N806": 1,', n806_lines[0]
-    arg002_lines = [line for line in new_source.splitlines() if '"ARG002"' in line]
-    assert len(arg002_lines) == 1 and '"N806"' not in arg002_lines[0]
+    assert victim not in re.sub(r"#.*", "", new_source)
+    assert re.search(rf'^\s*"{sibling}": \d+,$', new_source, re.M), (
+        f"{sibling} must survive on its own line, without trailing spaces"
+    )
+    assert sibling in load_baseline(tmp_script)
 
 
 def test_main_update_baseline_flag_persists_lock_in(
