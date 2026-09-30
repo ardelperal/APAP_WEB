@@ -31,6 +31,9 @@ from pathlib import Path
 
 import yaml
 
+# Same code the module documents for an unusable workflow: the environment, not a lint step, is at fault.
+EXIT_ENVIRONMENT = 2
+
 
 class WorkflowError(Exception):
     """The workflow cannot be turned into a faithful list of lint steps."""
@@ -101,12 +104,23 @@ def run(steps: list[tuple[str, str]], root: Path) -> int:
         print(f"[{index}/{total}] {name}")
         # ``bash -e``: the GitHub runner default when ci.yml sets no
         # ``defaults.run.shell``; a failing command aborts the step.
-        proc = subprocess.run(  # noqa: S603 - ci.yml content, not user input
-            ["bash", "-e", "-c", command],  # noqa: S607 - PATH-resolved binary
-            cwd=str(root),
-            env=env,
-            check=False,
-        )
+        try:
+            proc = subprocess.run(  # noqa: S603 - ci.yml content, not user input
+                ["bash", "-e", "-c", command],  # noqa: S607 - PATH-resolved binary
+                cwd=str(root),
+                env=env,
+                check=False,
+            )
+        except OSError as error:
+            # The step never ran (bash missing from PATH, permission or resource
+            # error): an environment problem, not a red step. Say so and stop
+            # with the same exit code as an unusable workflow instead of a
+            # traceback that looks like a gate failure.
+            print(
+                f"preflight: could not start bash for step {name!r}: {error}",
+                file=sys.stderr,
+            )
+            return EXIT_ENVIRONMENT
         if proc.returncode == 0:
             print(f"PASS {name}")
         else:

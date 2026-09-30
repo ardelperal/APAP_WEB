@@ -194,6 +194,25 @@ def test_preflight_run_exits_zero_when_all_steps_pass(
     assert "preflight: PASSED" in captured.out
 
 
+def test_bash_that_cannot_start_is_an_environment_error_not_a_crash(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A spawn failure (bash missing from PATH) must exit 2 with a message, not a traceback."""
+
+    def _cannot_spawn(*_args: object, **_kwargs: object) -> None:
+        raise FileNotFoundError(2, "No such file or directory: 'bash'")
+
+    monkeypatch.setattr(preflight.subprocess, "run", _cannot_spawn)
+
+    exit_code = preflight.run([("any-step", "true")], root=REPO_ROOT)
+    captured = capsys.readouterr()
+
+    assert exit_code == preflight.EXIT_ENVIRONMENT == 2
+    assert "could not start bash for step 'any-step'" in captured.err
+    assert "PASS" not in captured.out
+    assert "preflight: PASSED" not in captured.out
+
+
 @pytest.mark.skipif(
     os.environ.get("RUN_PREFLIGHT_SMOKE") != "1",
     reason="opt-in heavy smoke (RUN_PREFLIGHT_SMOKE=1 to enable)",
