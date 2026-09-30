@@ -331,7 +331,14 @@ def test_update_baseline_preserves_comments_and_sibling_entries(tmp_path: Path) 
     assert "# S603 fue retirado del baseline" in new_source
     assert f'"ARG001": {BASELINE["ARG001"] - 3}' in new_source
     assert '"S603"' not in re.sub(r"#.*", "", new_source)
-    assert '"N806"' in new_source
+    # Removing S603 (which shares line 100 with N806 in the committed block)
+    # must not eat the newline: N806 keeps its own line and ARG002 stays on
+    # its original continuation line.
+    n806_lines = [line for line in new_source.splitlines() if '"N806"' in line]
+    assert len(n806_lines) == 1 and '"ARG002"' not in n806_lines[0]
+    assert n806_lines[0] == '    "N806": 1,', n806_lines[0]
+    arg002_lines = [line for line in new_source.splitlines() if '"ARG002"' in line]
+    assert len(arg002_lines) == 1 and '"N806"' not in arg002_lines[0]
 
 
 def test_update_baseline_is_idempotent_at_measured_counts(tmp_path: Path) -> None:

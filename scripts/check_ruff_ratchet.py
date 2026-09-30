@@ -355,12 +355,18 @@ def _rewrite_entry_line(line: str, new_baseline: dict[str, int]) -> str:
     Comment text is never part of an entry line rewrite: retirement notes
     stay in the source as historical record.
     """
+    removed = False
     for code, target in new_baseline.items():
         if target != 0:
             continue
-        line = re.sub(rf'"{code}":\s*\d+,\s*', "", line)
-        line = re.sub(rf',\s*"{code}":\s*\d+', "", line)
-        line = re.sub(rf'"{code}":\s*\d+', "", line)
+        # Horizontal whitespace only ([ \t]): the removal must never eat a
+        # newline and join the entry's line with the next one.
+        stripped = re.sub(rf'"{code}":[ \t]*\d+,[ \t]*', "", line)
+        stripped = re.sub(rf',[ \t]*"{code}":[ \t]*\d+', "", stripped)
+        stripped = re.sub(rf'"{code}":[ \t]*\d+[ \t]*', "", stripped)
+        if stripped != line:
+            removed = True
+            line = stripped
 
     def _lower(match: re.Match[str]) -> str:
         target = new_baseline.get(match.group("code"))
@@ -368,7 +374,10 @@ def _rewrite_entry_line(line: str, new_baseline: dict[str, int]) -> str:
             return f'"{match.group("code")}": {target}'
         return match.group(0)
 
-    return _ENTRY_PATTERN.sub(_lower, line)
+    line = _ENTRY_PATTERN.sub(_lower, line)
+    if removed:
+        line = re.sub(r"[ \t]+(\n?)$", r"\1", line)
+    return line
 
 
 def _apply_baseline_edits(source: str, new_baseline: dict[str, int]) -> str:
