@@ -22,6 +22,8 @@ import json
 import os
 import sys
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from types import MappingProxyType
 
 # Issue #895 fix round 1 (design D1, inverted): conservative allowlist of
 # the NON-UI surface, derived from the real tracked tree. A changed file is
@@ -104,6 +106,26 @@ ALL_JOBS = frozenset(
         "ui-detection",
     }
 )
+
+#: Issue #1118: DAG mirroring ci.yml ``needs:`` edges. Pinned by
+#: test_job_dependencies_match_ci_yml.
+JOB_DEPENDENCIES: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "pr-size": (),
+        "issue-spec": ("pr-size",),
+        "lint": ("pr-size",),
+        "security": ("pr-size", "lint"),
+        "security-deep": ("pr-size",),
+        "mutation": ("pr-size",),
+        "typecheck": ("pr-size",),
+        "test": ("pr-size", "lint"),
+        "integration": ("pr-size", "lint"),
+        "verify-fallback-ready": ("pr-size", "integration"),
+        "build": ("pr-size", "test", "integration", "verify-fallback-ready"),
+        "e2e": ("build", "ui-detection"),
+        "ui-detection": (),
+    }
+)
 SKIPS_BY_EVENT = {
     "pull_request": frozenset({"security-deep", "mutation", "e2e"}),
     "push": frozenset({"security-deep", "issue-spec", "mutation", "e2e"}),
@@ -176,37 +198,131 @@ def _pin_output_encoding() -> None:
 def check_results(
     needs: Mapping[str, object], event_name: str, ref: str = ""
 ) -> list[str]:
-    """Return policy violations for the serialized GitHub ``needs`` object."""
-    violations: list[str] = []
-    missing = sorted(ALL_JOBS - needs.keys())
-    if missing:
-        violations.append(f"missing jobs: {', '.join(missing)}")
+    """Return policy violations for the serialized GitHub ``needs`` object.
 
-    allowed_skips = SKIPS_BY_EVENT.get(event_name)
-    if allowed_skips is None:
-        violations.append(f"unsupported event: {event_name or '<empty>'}")
-        allowed_skips = frozenset()
+    Backward-compatible flat list over :func:`evaluate`. Root causes come
+    first, then cascade skips (issue #1118 attribution), then other
+    violations.
+    """
+    report = evaluate(needs, event_name, ref)
+    lines: list[str] = []
+    if report.unsupported_event is not None:
+        lines.append(f"unsupported event: {report.unsupported_event}")
+    for job, result in report.root_causes:
+        lines.append(f"{job}: result={result!r}")
+    for job, upstream in report.cascade_skips:
+        lines.append(f"{job}: result='skipped' (upstream: {upstream})")
+    lines.extend(report.other_violations)
+    for job in report.missing:
+        lines.append(f"missing jobs: {job}")
+    return lines
 
+
+@dataclass(frozen=True)
+class RequiredJobsReport:
+    """Structured evaluation of a CI needs payload (issue #1118).
+
+    Buckets the outcome for hierarchical output: missing jobs, root
+    causes, cascade skips (attributed to the closest failing
+    ancestor) and other policy violations (allowed-skip denials).
+    """
+
+    missing: tuple[str, ...]
+    root_causes: tuple[tuple[str, str], ...]
+    cascade_skips: tuple[tuple[str, str], ...]
+    other_violations: tuple[str, ...]
+    unsupported_event: str | None = None
+
+    @property
+    def is_clean(self) -> bool:
+        return not (
+            self.missing
+            or self.root_causes
+            or self.cascade_skips
+            or self.other_violations
+            or self.unsupported_event is not None
+        )
+
+
+def _failing_set(needs: Mapping[str, object]) -> set[str]:
+    """Jobs whose result is anything other than success or skipped."""
+    failing: set[str] = set()
+    for job, payload in needs.items():
+        if not isinstance(payload, Mapping):
+            failing.add(job)
+            continue
+        result = payload.get("result")
+        if result not in (None, "success", "skipped"):
+            failing.add(job)
+    return failing
+
+
+def _closest_failing_upstream(job: str, failing: set[str]) -> str | None:
+    """Return the closest failing ancestor of ``job`` (BFS through DAG)."""
+    queue: list[str] = list(JOB_DEPENDENCIES.get(job, ()))
+    seen: set[str] = set(queue)
+    while queue:
+        candidate = queue.pop(0)
+        if candidate in failing:
+            return candidate
+        for parent in JOB_DEPENDENCIES.get(candidate, ()):
+            if parent not in seen:
+                seen.add(parent)
+                queue.append(parent)
+    return None
+
+
+def evaluate(
+    needs: Mapping[str, object], event_name: str, ref: str = ""
+) -> RequiredJobsReport:
+    """Return the structured evaluation of the serialized ``needs`` object.
+
+    See :class:`RequiredJobsReport` for the bucket semantics.
+    """
+    present = ALL_JOBS & set(needs)
+    missing_jobs = sorted(ALL_JOBS - present)
+    failing = _failing_set(needs)
+
+    unsupported: str | None = None
+    allowed_skips: frozenset[str] = frozenset()
     is_tag_push = event_name == "push" and ref.startswith("refs/tags/")
-    if is_tag_push:
-        # Issue #766: a tag push is a release event, so e2e and mutation
-        # must still terminate SUCCESS there. Issue #1046: security-deep
-        # moved to a weekly schedule plus manual dispatch, so its skip is
-        # now an accepted outcome on a tag push.
+    if event_name not in SKIPS_BY_EVENT:
+        unsupported = event_name or "<empty>"
+    elif is_tag_push:
+        # Issue #766 + #1046: e2e/mutation must still terminate SUCCESS
+        # on a tag push; security-deep moved to weekly+manual so its
+        # skip is accepted.
         allowed_skips = frozenset({"issue-spec", "security-deep"})
+    else:
+        allowed_skips = SKIPS_BY_EVENT[event_name]
 
-    for job in sorted(ALL_JOBS & needs.keys()):
+    root_causes: list[tuple[str, str]] = []
+    cascade_skips: list[tuple[str, str]] = []
+    other_violations: list[str] = []
+
+    for job in sorted(present):
         payload = needs[job]
         if not isinstance(payload, Mapping):
-            violations.append(f"{job}: malformed result payload")
+            root_causes.append((job, "malformed"))
             continue
         result = payload.get("result")
         if result == "success":
             continue
-        if result == "skipped" and job in allowed_skips:
-            # Issue #895: a skipped e2e is only a policy pass when the run
-            # carries the no-UI-change marker. On release events (tag push,
-            # workflow_dispatch) the marker never exempts a skip.
+        if result != "skipped":
+            # failure / cancelled / timed_out → root cause.
+            root_causes.append((job, str(result)))
+            continue
+        upstream = _closest_failing_upstream(job, failing)
+        if upstream is not None:
+            # Issue #1118: cascade attribution wins over the allowed-skip
+            # and e2e-marker branches because the actual reason GitHub
+            # Actions skipped the job is the upstream failure.
+            cascade_skips.append((job, upstream))
+            continue
+        if job in allowed_skips:
+            # Issue #895: a skipped e2e on pull_request / branch push is
+            # only a policy pass when the run carries the no-UI-change
+            # marker. On release events the marker never exempts a skip.
             if (
                 job == "e2e"
                 and event_name in E2E_MARKER_EXEMPT_EVENTS
@@ -214,14 +330,44 @@ def check_results(
             ):
                 marker = _ui_changed_marker(needs)
                 if marker != "false":
-                    violations.append(
-                        f"e2e: result='skipped' without ui_changed='false' "
-                        f"(got {marker!r})"
+                    other_violations.append(
+                        f"{job}: result='skipped' without "
+                        f"ui_changed='false' (got {marker!r})"
                     )
-                    continue
             continue
-        violations.append(f"{job}: result={result!r}")
-    return violations
+        other_violations.append(f"{job}: result={result!r}")
+
+    return RequiredJobsReport(
+        missing=tuple(missing_jobs),
+        root_causes=tuple(root_causes),
+        cascade_skips=tuple(cascade_skips),
+        other_violations=tuple(other_violations),
+        unsupported_event=unsupported,
+    )
+
+
+def format_report(report: RequiredJobsReport) -> list[str]:
+    """Return the hierarchical output lines for ``report`` (issue #1118)."""
+    lines: list[str] = []
+    if report.unsupported_event is not None:
+        lines.append(f"UNSUPPORTED EVENT: {report.unsupported_event}")
+    if report.missing:
+        lines.append("MISSING JOBS:")
+        for job in report.missing:
+            lines.append(f"  - {job}")
+    if report.root_causes:
+        lines.append("ROOT CAUSE:")
+        for job, result in report.root_causes:
+            lines.append(f"  - {job}: result={result!r}")
+    if report.cascade_skips:
+        lines.append("CONSEQUENCES (cascade skipped):")
+        for job, upstream in report.cascade_skips:
+            lines.append(f"  - {job} (upstream: {upstream})")
+    if report.other_violations:
+        lines.append("VIOLATIONS:")
+        for line in report.other_violations:
+            lines.append(f"  - {line}")
+    return lines
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -250,14 +396,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("FAIL required jobs: CI_NEEDS_JSON must be an object", file=sys.stderr)
         return 1
 
-    violations = check_results(
+    report = evaluate(
         needs,
         os.environ.get("CI_EVENT_NAME", ""),
         os.environ.get("GITHUB_REF", ""),
     )
-    for violation in violations:
-        print(f"FAIL required jobs: {violation}", file=sys.stderr)
-    if violations:
+    for line in format_report(report):
+        print(f"FAIL required jobs: {line}", file=sys.stderr)
+    if not report.is_clean:
         return 1
     print("required jobs: OK")
     return 0
