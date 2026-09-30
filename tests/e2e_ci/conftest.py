@@ -111,7 +111,9 @@ def _seed_e2e_default_user() -> None:
     ensure_schema_and_seed(client, settings)
     email = settings.e2e_auth_default_email
     if get_user_by_email(client, email) is None:
-        add_authorized_user(client, email, "developer", added_by="e2e-ci-seed")
+        add_authorized_user(
+            client, email, "developer", added_by="00000000-0000-0000-0000-000000000000"
+        )
 
 
 @pytest.fixture
