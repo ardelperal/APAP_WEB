@@ -12,9 +12,11 @@ next request from the same browser context pass
 """
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Iterator
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -28,14 +30,62 @@ from app.core.config import (
     get_settings,
 )
 from app.core.e2e_auth import (
-    MOCK_USER_ID,
-    MOCK_USER_ROL,
     register_e2e_auth_routes,
 )
 from app.core.session import (
     read_session,
     session_cookie_name,
 )
+from tests.sql_executor_fake import HandlerSqlExecutor
+
+SECRET = "test-secret"
+SESSION_SECRET = "test-session-secret-for-mock"
+
+
+def _executor_with_user(user: dict[str, object] | None) -> HandlerSqlExecutor:
+    """Return an executor whose ``usuarios_autorizados`` holds exactly ``user``.
+
+    ``None`` models an empty table (or, equivalently for the login
+    contract, an email that is not authorized). Any non-usuarios query
+    returns no rows.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        rows: list[dict[str, object]] = []
+        if user is not None and "usuarios_autorizados" in body["query"]:
+            rows = [user]
+        return httpx.Response(200, json={"rows": rows})
+
+    return HandlerSqlExecutor(handler)
+
+
+def _e2e_settings(**overrides: object) -> Settings:
+    """Build an enabled Settings for the mock route with a usable session secret."""
+    base: dict[str, object] = {
+        "_env_file": None,
+        # The CI E2E profile runs with APAP_DEBUG=true (loopback HTTP),
+        # which mints a non-Secure cookie — what TestClient's cookie jar
+        # (http scheme) is able to replay on the probe requests.
+        "debug": True,
+        "e2e_auth_enabled": True,
+        "e2e_auth_secret": SECRET,
+        "session_secret": SESSION_SECRET,
+    }
+    base.update(overrides)
+    return Settings(**base)  # type: ignore[arg-type]
+
+
+def _build_app(settings: Settings, executor: object) -> FastAPI:
+    """Register the mock route on a bare app."""
+    import app.core.e2e_auth as e2e_module
+
+    e2e_module.get_settings = lambda: settings
+    app = FastAPI()
+    app.state.sql_executor = executor
+    register_e2e_auth_routes(app)
+
+    return app
 
 
 @pytest.fixture(autouse=True)
@@ -48,22 +98,23 @@ def _clean_auth_cache() -> None:
 
 @pytest.fixture(autouse=True)
 def _restore_e2e_get_settings() -> Iterator[None]:
-    """Restore the ``e2e_auth.get_settings`` test seam after every test.
+    """Restore the settings test seams after every test.
 
-    Several tests below replace ``e2e_module.get_settings`` with a lambda
-    and never restore it, so the replacement leaked into any later test
-    that reads the real settings (issue #904: the composition-level 404
-    test saw the flag enabled because of this leak).
+    Several tests below replace ``e2e_module.get_settings`` (and, for the
+    ``require_authorized_user`` probe route, the auth-DI module's
+    ``get_settings``) with a lambda and never restore it, so the
+    replacement leaked into any later test that reads the real settings
+    (issue #904: the composition-level 404 test saw the flag enabled
+    because of this leak).
     """
+    import app.core.di.auth_dependencies_session_di as di_module
     import app.core.e2e_auth as e2e_module
 
-    original = e2e_module.get_settings
+    original_e2e = e2e_module.get_settings
+    original_di = di_module.get_settings
     yield
-    e2e_module.get_settings = original
-
-
-def _build_app_disabled() -> FastAPI:
-    """Build a FastAPI app with the mock route NOT registered."""
+    e2e_module.get_settings = original_e2e
+    di_module.get_settings = original_di
 
 
 def _build_app_disabled() -> FastAPI:
@@ -170,15 +221,13 @@ def test_route_rejects_wrong_secret_header(
     assert response.status_code == 401
 
 
-def test_happy_path_mints_session_and_prepopulates_cache(
+def test_happy_path_mints_session_with_the_db_role(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Valid secret + email mints a session cookie AND pre-populates the cache.
+    """Valid secret + allowlisted email mints a session carrying the DB role.
 
-    The two halves of the contract: the cookie has the OAuth-shaped
-    payload (so the same middleware paths accept it), and the
-    in-process auth cache is warm so the very next request from the
-    test client is authorised without a DB round-trip.
+    Minimal variant: the full rewrite (cookie/CSRF/probe assertions) lands
+    in the contract-test branch; this keeps the happy path pinned here.
     """
     import app.core.e2e_auth as e2e_module
 
@@ -188,58 +237,49 @@ def test_happy_path_mints_session_and_prepopulates_cache(
         session_secret="test-session-secret-for-mock",
     )
     app = FastAPI()
+    app.state.sql_executor = _executor_with_user(
+        {"id": "u-vol-1", "email": "vol@apap.local", "rol": "reader", "activo": True}
+    )
     register_e2e_auth_routes(app)
     client = TestClient(app)
 
     response = client.get(
-        "/e2e/login?email=test@apap.local",
+        "/e2e/login?email=vol@apap.local",
         headers={"X-E2E-Secret": "test-secret"},
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["authenticated"] is True
-    assert payload["email"] == "test@apap.local"
-    assert payload["user_id"] == MOCK_USER_ID
-    assert payload["rol"] == MOCK_USER_ROL
+    assert payload["email"] == "vol@apap.local"
+    assert payload["user_id"] == "u-vol-1"
+    assert payload["rol"] == "reader"
     assert len(payload["csrf_token"]) >= 32
 
-    # Cookie set with the production-compatible shape.
     cookie_name = session_cookie_name()
     assert cookie_name in response.cookies
-    signed = response.cookies[cookie_name]
-    decoded = read_session(signed, secret="test-session-secret-for-mock")
+    decoded = read_session(
+        response.cookies[cookie_name], secret="test-session-secret-for-mock"
+    )
     assert decoded is not None
-    assert decoded["email"] == "test@apap.local"
-    assert decoded["rol"] == MOCK_USER_ROL
-    assert decoded["user_id"] == MOCK_USER_ID
+    assert decoded["email"] == "vol@apap.local"
+    assert decoded["rol"] == "reader"
+    assert decoded["user_id"] == "u-vol-1"
     assert decoded["is_authorized"] is True
-    assert decoded["csrf_token"] == payload["csrf_token"]
-
-    # Auth cache pre-populated for the email — the very next
-    # request from the test client is authorised.
-    cached = get_cached_auth("test@apap.local", ttl_seconds=300)
-    assert cached is not None
-    assert cached.is_authorized is True
-    assert cached.rol == MOCK_USER_ROL
 
 
 def test_debug_e2e_cookie_can_be_sent_over_loopback_http() -> None:
     """The CI-only debug app must not mint a Secure cookie for its HTTP URL."""
-    import app.core.e2e_auth as e2e_module
-
-    e2e_module.get_settings = lambda: Settings(
-        debug=True,
-        e2e_auth_enabled=True,
-        e2e_auth_secret="test-secret",
-        session_secret="test-session-secret-for-mock",
+    app = _build_app(
+        _e2e_settings(e2e_auth_default_email="e2e@apap.local"),
+        _executor_with_user(
+            {"id": "u-e2e-default", "email": "e2e@apap.local", "rol": "developer", "activo": True}
+        ),
     )
-    app = FastAPI()
-    register_e2e_auth_routes(app)
 
     response = TestClient(app).get(
         "/e2e/login",
-        headers={"X-E2E-Secret": "test-secret"},
+        headers={"X-E2E-Secret": SECRET},
     )
 
     assert response.status_code == 200
@@ -259,6 +299,9 @@ def test_default_email_applies_when_query_param_omitted(
         session_secret="test-session-secret-for-mock",
     )
     app = FastAPI()
+    app.state.sql_executor = _executor_with_user(
+        {"id": "u-default-1", "email": "default@apap.local", "rol": "reader", "activo": True}
+    )
     register_e2e_auth_routes(app)
     client = TestClient(app)
 
@@ -269,7 +312,10 @@ def test_default_email_applies_when_query_param_omitted(
 
     assert response.status_code == 200
     assert response.json()["email"] == "default@apap.local"
-    assert get_cached_auth("default@apap.local", ttl_seconds=300) is not None
+    assert response.json()["rol"] == "reader"
+    # Issue #1073: the login no longer seeds the cache; the first
+    # authorized request revalidates against the DB instead.
+    assert get_cached_auth("default@apap.local", ttl_seconds=300) is None
 
 
 def test_empty_email_with_no_default_returns_400(
@@ -308,15 +354,13 @@ def test_audit_log_emitted_on_success(
     mandates those values in the audit trail (``target_email``/
     ``client_ip``).
     """
-    import app.core.e2e_auth as e2e_module
-
-    e2e_module.get_settings = lambda: Settings(  # type: ignore[assignment]
-        e2e_auth_enabled=True,
-        e2e_auth_secret="test-secret-value",
-        session_secret="test-session-secret-for-mock",
-    )
-    app = FastAPI()
-    register_e2e_auth_routes(app)
+    user = {
+        "id": "u-audit-1",
+        "email": "audit@apap.local",
+        "rol": "reader",
+        "activo": True,
+    }
+    app = _build_app(_e2e_settings(e2e_auth_secret="test-secret-value"), _executor_with_user(user))
     client = TestClient(app)
 
     with caplog.at_level(logging.INFO, logger="app"):
@@ -351,17 +395,20 @@ def test_audit_client_ip_is_rightmost_proxy_appended_entry(
     proxy-appended X-Forwarded-For entry — the same resolution the rate-limit
     buckets use (via ``_extract_identity``) — not a client-supplied leftmost
     entry."""
-    import app.core.e2e_auth as e2e_module
-
-    e2e_module.get_settings = lambda: Settings(  # type: ignore[assignment]
-        e2e_auth_enabled=True,
-        e2e_auth_secret="test-secret-value",
-        session_secret="test-session-secret-for-mock",
-        trust_xff=True,
-        trusted_proxies=["10.0.0.0/8"],
+    user = {
+        "id": "u-audit-1",
+        "email": "audit@apap.local",
+        "rol": "reader",
+        "activo": True,
+    }
+    app = _build_app(
+        _e2e_settings(
+            e2e_auth_secret="test-secret-value",
+            trust_xff=True,
+            trusted_proxies=["10.0.0.0/8"],
+        ),
+        _executor_with_user(user),
     )
-    app = FastAPI()
-    register_e2e_auth_routes(app)
     # Parseable, trusted direct peer (TestClient's default "testclient" peer
     # would disable the XFF walk — see tests/test_trusted_proxies.py).
     client = TestClient(app, client=("10.0.0.1", 50000))

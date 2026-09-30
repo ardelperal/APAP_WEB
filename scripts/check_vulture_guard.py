@@ -95,8 +95,8 @@ _PROTECTED_NAMES: frozenset[str] = frozenset({
 #: Each is unresolvable from this PR's scope (the dead symbols live in
 #: paths PR #681 does not touch). Raising to 5 is the only way to keep
 #: the ratchet honest without expanding the diff into a mass delete.
-# temporary: slice-2 helpers are dead until fix/1073-3 uses them; ratcheted back in the next slice (refs #1073)
-BASELINE: int = 8
+# slice-3 uses the allowlist helpers; ratchet restored (refs #1073)
+BASELINE: int = 5
 
 #: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). Every
 #: ratchet records its target value and target date. The vulture guard
