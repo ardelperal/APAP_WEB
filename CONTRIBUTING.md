@@ -37,7 +37,7 @@ Todo cambio humano en `APAP_WEB` sigue este ciclo. Si contribuye una IA, lea ant
 7. **Valide localmente.** Ejecute los comandos aplicables antes del push.
 8. **Abra un PR honesto.** Incluya referencia de cierre, validación real y un diff ≤ 400 líneas. El mantenedor comprueba manualmente que lleva exactamente un label `type:*`.
 9. **Espere CI verde.** Los checks requeridos de `main` son `branch-name`, `required` (rollup de `ci.yml`) y `pr-size / pr-size`.
-10. **Integre con `--no-ff`.** Solo `Maintain` o `Admin` pueden mergear. Mientras el equipo sea unipersonal se exigen cero aprobaciones humanas.
+10. **Integre con `--no-ff`.** Solo `Maintain` o `Admin` pueden mergear (política; la restricción de roles no está aplicada desde el issue #892). Mientras el equipo sea unipersonal se exigen cero aprobaciones humanas.
 
 Las secciones obligatorias son `Problema y contexto`, `Evidencia verificable`,
 `Alcance y no objetivos`, `Criterios de aceptación`, `Plan de validación` y
@@ -196,7 +196,7 @@ uv sync --frozen --extra dev
 .venv/bin/python scripts/preflight.py
 ```
 
-Tarda varios minutos porque ejecuta todos los steps de lint, incluido `jscpd`, que necesita Node y `npx`. No ejecuta pytest, mypy ni los jobs exclusivos de CI (`typecheck`, `test`, `integration`, `e2e`): para esos use los comandos de la tabla siguiente. Con `--list` imprime los steps sin ejecutarlos.
+Tarda en torno a 30 segundos ejecutando los 19 steps `run:` del job `lint` de `ci.yml`, incluido `jscpd` (`scripts/check_jscpd.py`, solo biblioteca estándar de Python: no necesita Node ni `npx`). No ejecuta pytest, mypy ni los jobs exclusivos de CI (`typecheck`, `test`, `integration`, `e2e`): para esos use los comandos de la tabla siguiente. Con `--list` imprime los steps sin ejecutarlos.
 
 Cada step se imprime con su nombre y un veredicto `PASS` o `FAIL <name> (exit <N>)`; un step rojo no detiene a los siguientes. El exit code agregado es 0 cuando todos pasan, 1 cuando alguno falla y 2 cuando el workflow falta, está mal formado, no tiene job `lint` o contiene una expresión `${{ }}` de GitHub que bash no puede evaluar.
 
@@ -232,12 +232,17 @@ Las reglas de cada gate viven en `scripts/` y están pinneadas por tests bajo `t
 
 ## Control del merge
 
-`main` exige PR, checks verdes y conversaciones resueltas. Solo los roles
-`Maintain` y `Admin` pueden mergear; `Write` puede contribuir y revisar, pero no
-actualizar la rama protegida.
+`main` exige PR y checks verdes; la exigencia de conversaciones resueltas está
+desactivada en la protección (issue #972; ver `.github/branch-protection.md`).
+La política de roles es que solo `Maintain` y `Admin` puedan mergear; `Write` puede
+contribuir y revisar. La restricción de roles no está aplicada: el ruleset que
+la imponía se desactivó en el issue #892 y la cobertura es la auditoría
+post-hoc de `.github/workflows/main-audit.yml` (ver `.github/branch-protection.md`).
 
 No se exige una segunda aprobación humana mientras exista un único mantenedor.
-Esto no permite omitir CI, hacer push directo ni usar force-push.
+Esto no permite omitir CI ni usar force-push; sobre el push directo rige la
+norma de §16 de `docs/codebase/merge-workflow.md` (detección post-hoc en
+`main-audit.yml`).
 
 El merge conserva `--no-ff` y la rama remota. Consulte
 [`docs/codebase/merge-workflow.md`](docs/codebase/merge-workflow.md) y
@@ -258,9 +263,10 @@ etapa, antes de que la encuentre a mitad del camino. El orden es el orden real
 de ejecución.
 
 1. **Issue aprobada y con spec completa.** El gate `issue-spec` valida el cuerpo
-   de la issue enlazada, no el de la PR: debe declarar las secciones «Problema y
-   contexto», «Evidencia verificable», «Alcance y no objetivos», «Plan de
-   validación» y «Dependencias y riesgos», tener `status:approved`, y el número
+   de la issue enlazada, no el de la PR: debe declarar las seis secciones exigidas por `REQUIRED_SECTIONS` en `scripts/check_issue_specs.py` — «Problema y
+   contexto», «Evidencia verificable», «Alcance y no objetivos», «Criterios de
+   aceptación», «Plan de validación» y «Dependencias y riesgos» —, tener
+   `status:approved`, y el número
    de la issue debe ir en la rama (`<tipo>/<nº>-<slug>`); el gate no lee el
    texto de la PR. Una PR única o el tramo final cierra la issue con
    `Closes #N`, y los tramos intermedios llevan la etiqueta `chain:partial`
@@ -314,7 +320,7 @@ de ejecución.
 - [ ] El mantenedor confirmó manualmente un único `type:*` en el PR.
 - [ ] `make verify` y las pruebas específicas están en verde.
 - [ ] El diff no supera 400 líneas o justifica `size-exception-reason: <motivo>` en el cuerpo (el label `size:exception` es informativo; tras editar el cuerpo de un PR abierto, relance el job fallido de `ci`).
-- [ ] Todos los checks y conversaciones están resueltos antes del merge.
+- [ ] Todos los checks están verdes antes del merge; la exigencia de conversaciones resueltas está desactivada (issue #972), aunque resolverlas sigue siendo la práctica recomendada.
 
 ## Navegación
 
