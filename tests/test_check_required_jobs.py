@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 from scripts.check_required_jobs import (
     ALL_JOBS,
     GATE_SOURCE_FILES,
+    JOB_DEPENDENCIES,
     NON_UI_PATH_PREFIXES,
+    RequiredJobsReport,
     check_results,
+    evaluate,
+    format_report,
     ui_changed_for_paths,
 )
 
@@ -406,3 +411,184 @@ def test_skipped_pr_size_fails_closed_on_every_event() -> None:
     assert check_results(needs, "pull_request") == ["pr-size: result='skipped'"]
     assert check_results(needs, "push") == ["pr-size: result='skipped'"]
     assert check_results(needs, "workflow_dispatch") == ["pr-size: result='skipped'"]
+
+
+# --- issue #1118: surface root cause vs cascade skip ----------------------
+
+
+def test_job_dependencies_match_ci_yml() -> None:
+    """Issue #1118: ``JOB_DEPENDENCIES`` must mirror ci.yml ``needs:`` edges.
+
+    Cascade attribution walks this DAG; a drift makes the output point at
+    the wrong upstream. Pinned by parsing the workflow YAML directly.
+    """
+    import yaml
+
+    workflow_path = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+    with workflow_path.open(encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh)
+
+    expected: dict[str, tuple[str, ...]] = {}
+    for job_id, job_data in (doc.get("jobs") or {}).items():
+        if job_id not in ALL_JOBS:
+            # ``required`` aggregator is the consumer of this checker,
+            # not a tracked edge of the cascade DAG — skip it.
+            continue
+        needs = job_data.get("needs")
+        if needs is None:
+            expected[job_id] = ()
+        elif isinstance(needs, str):
+            expected[job_id] = (needs,)
+        else:
+            expected[job_id] = tuple(needs)
+
+    assert set(JOB_DEPENDENCIES) == expected.keys()
+    for job, edges in expected.items():
+        assert JOB_DEPENDENCIES[job] == edges, (
+            f"JOB_DEPENDENCIES drift for {job!r}: "
+            f"script={JOB_DEPENDENCIES[job]!r}, ci.yml={edges!r}"
+        )
+
+
+def test_evaluate_groups_failures_as_root_causes() -> None:
+    """Issue #1118: failures become ``root_causes``, not ``other_violations``."""
+    needs = _needs()
+    needs["lint"]["result"] = "failure"
+
+    report = evaluate(needs, "pull_request")
+
+    assert ("lint", "failure") in report.root_causes
+    assert not report.other_violations
+
+
+def test_evaluate_attributes_cascade_skips_to_closest_failing_upstream() -> None:
+    """Issue #1118: cascade-skipped jobs attribute to the closest failing
+    ancestor (BFS, fewest hops first)."""
+    needs = _needs()
+    needs["lint"]["result"] = "failure"
+    needs["build"]["result"] = "skipped"
+    needs["e2e"]["result"] = "skipped"
+
+    report = evaluate(needs, "pull_request")
+    cascade = dict(report.cascade_skips)
+
+    assert cascade.get("build") == "lint"
+    assert cascade.get("e2e") == "lint"
+    assert not report.other_violations
+
+
+def test_evaluate_does_not_invoke_cascade_without_failing_upstream() -> None:
+    """Issue #1118: a skipped job without a failing upstream stays a violation.
+
+    Regression guard: an allowed-skip denial (e.g. e2e on a release event)
+    must still surface; cascade attribution must not silently swallow it.
+    """
+    needs = _needs()
+    needs["e2e"]["result"] = "skipped"
+
+    report = evaluate(needs, "workflow_dispatch")
+
+    assert not report.cascade_skips
+    assert any("e2e" in line for line in report.other_violations)
+
+
+def test_format_report_root_cause_then_consequences_no_json() -> None:
+    """Issue #1118: hierarchical output — ROOT CAUSE first, then CONSEQUENCES,
+    no raw JSON, unsupported event and missing jobs get their own sections."""
+    needs = _needs()
+    needs["lint"]["result"] = "failure"
+    needs["build"]["result"] = "skipped"
+    needs["e2e"]["result"] = "skipped"
+    report = evaluate(needs, "pull_request")
+    lines = format_report(report)
+    text = "\n".join(lines)
+
+    root_idx = next(i for i, line in enumerate(lines) if "ROOT CAUSE" in line)
+    cascade_idx = next(i for i, line in enumerate(lines) if "CONSEQUENCES" in line)
+    assert root_idx < cascade_idx, (
+        f"ROOT CAUSE must precede CONSEQUENCES; lines={lines!r}"
+    )
+    assert any("lint: result='failure'" in line for line in lines)
+    assert any("build (upstream: lint)" in line for line in lines)
+    assert any("e2e (upstream: lint)" in line for line in lines)
+    # No raw JSON payload (issue #1118 explicit constraint).
+    assert "{" not in text and "}" not in text
+    assert '"result"' not in text and '"skipped"' not in text
+
+    # The other top-level sections render correctly when populated.
+    unsupported_only = format_report(
+        RequiredJobsReport(
+            missing=(), root_causes=(), cascade_skips=(),
+            other_violations=(), unsupported_event="schedule",
+        )
+    )
+    assert any("UNSUPPORTED EVENT" in line and "schedule" in line for line in unsupported_only)
+
+    missing_only = format_report(
+        RequiredJobsReport(
+            missing=("ui-detection",), root_causes=(), cascade_skips=(),
+            other_violations=(), unsupported_event=None,
+        )
+    )
+    assert any("MISSING JOBS" in line for line in missing_only)
+    assert any("ui-detection" in line for line in missing_only)
+
+
+def _run_check_required_jobs(
+    needs: dict, *, event: str = "pull_request", ref: str = "refs/heads/feature"
+) -> subprocess.CompletedProcess[str]:
+    """Run ``scripts/check_required_jobs.py`` against a synthetic needs payload."""
+    import json
+    import os
+    import sys
+
+    env = {
+        **os.environ,
+        "CI_NEEDS_JSON": json.dumps(needs),
+        "CI_EVENT_NAME": event,
+        "GITHUB_REF": ref,
+    }
+    return subprocess.run(
+        [sys.executable, "scripts/check_required_jobs.py"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_check_required_jobs_full_flow_1_failure_2_skips() -> None:
+    """Issue #1118: end-to-end against the canonical fixture (1 failure +
+    2 cascade skips). Exit code fail-loud, no raw JSON in the output."""
+    needs = _needs()
+    needs["lint"]["result"] = "failure"
+    needs["build"]["result"] = "skipped"
+    needs["e2e"]["result"] = "skipped"
+
+    result = _run_check_required_jobs(needs)
+    output = result.stderr
+
+    assert result.returncode == 1, (
+        f"exit code must be fail-loud; got {result.returncode}, stderr={output!r}"
+    )
+    root_lines = [line for line in output.splitlines() if "ROOT CAUSE" in line]
+    assert len(root_lines) == 1
+    assert any("lint: result='failure'" in line for line in output.splitlines())
+    cascade_lines = [line for line in output.splitlines() if "CONSEQUENCES" in line]
+    assert len(cascade_lines) == 1
+    assert any("build (upstream: lint)" in line for line in output.splitlines())
+    assert any("e2e (upstream: lint)" in line for line in output.splitlines())
+    assert "{" not in output and "}" not in output
+    assert '"result"' not in output and '"skipped"' not in output
+
+
+def test_check_required_jobs_full_flow_happy_path_stays_clean() -> None:
+    """Issue #1118 regression: a fully green needs payload exits 0 with
+    only the OK marker and no FAIL sections."""
+    result = _run_check_required_jobs(_needs())
+
+    assert result.returncode == 0
+    assert "required jobs: OK" in result.stdout
+    assert "ROOT CAUSE" not in result.stderr
+    assert "CONSEQUENCES" not in result.stderr
