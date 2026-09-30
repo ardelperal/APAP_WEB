@@ -250,6 +250,8 @@ def test_update_baseline_lowers_each_entry_to_measured_count(tmp_path: Path) -> 
     for code in inflated:
         assert any(code in line for line in diff_lines), code
     assert load_baseline(tmp_script) == dict(real_counts)
+    # Idempotence: re-running the lock-in at the measured counts is a no-op.
+    assert update_baseline(tmp_script, real_counts) == (dict(real_counts), [])
 
 
 def test_update_baseline_refuses_to_raise_and_leaves_file_byte_identical(
@@ -339,17 +341,6 @@ def test_update_baseline_preserves_comments_and_sibling_entries(tmp_path: Path) 
     assert n806_lines[0] == '    "N806": 1,', n806_lines[0]
     arg002_lines = [line for line in new_source.splitlines() if '"ARG002"' in line]
     assert len(arg002_lines) == 1 and '"N806"' not in arg002_lines[0]
-
-
-def test_update_baseline_is_idempotent_at_measured_counts(tmp_path: Path) -> None:
-    """Re-running the lock-in at the measured counts reports no changes."""
-    tmp_script = _copy_script(tmp_path)
-    counts = Counter(load_baseline(tmp_script))
-
-    new_baseline, diff_lines = update_baseline(tmp_script, counts)
-
-    assert new_baseline == dict(counts)
-    assert diff_lines == []
 
 
 def test_main_update_baseline_flag_persists_lock_in(
