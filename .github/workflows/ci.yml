@@ -456,7 +456,11 @@ jobs:
       - name: Run mutation-sites count ratchet (quality-gates-expansion)
         # REQ-QG-MSITES-1: cheap per-file AST proxy before the release/manual
         # cosmic-ray phase. The shrink-only baseline may only decrease.
-        run: python scripts/check_mutation_sites.py
+        # Issue #1168: enforcement is declared in .github/ci-gate-policy.json —
+        # dormant runs the gate, keeps its findings visible in the log and
+        # exits 0; enforcing, an unlisted gate or a missing/invalid policy
+        # fails the step (default-deny, never a silent skip).
+        run: python scripts/preflight.py run-gate check_mutation_sites -- python scripts/check_mutation_sites.py
 
       - name: Run import-cycle detector (AGENTS.md §26, issue #443)
         # Issue #443 — removing this step is a blocked change. Tarjan
@@ -1079,7 +1083,11 @@ jobs:
         # REQ-QG-CRAP-1: reads the coverage.json produced by the pytest
         # step above. This MUST stay in the test job: lint has an
         # independent checkout and cannot consume per-PR coverage.
-        run: python scripts/check_crap.py
+        # Issue #1168: enforcement is declared in .github/ci-gate-policy.json —
+        # dormant runs the gate, keeps its findings visible in the log and
+        # exits 0; enforcing, an unlisted gate or a missing/invalid policy
+        # fails the step (default-deny, never a silent skip).
+        run: python scripts/preflight.py run-gate check_crap -- python scripts/check_crap.py
 
   integration:
     name: integration
