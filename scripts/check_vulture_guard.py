@@ -39,6 +39,7 @@ Issue: #392
 from __future__ import annotations
 
 import ast
+import importlib.util
 import re
 import subprocess
 import sys
@@ -272,8 +273,46 @@ def _decorated(defs: dict[int, tuple[str, list[str]]], def_lineno: int) -> bool:
     return bool(info[1])
 
 
+#: Maximum stderr characters quoted in an unreliable-run error message.
+_STDERR_EXCERPT_LIMIT = 300
+
+#: Exit codes vulture uses when it really ran (0 clean, 1 legacy/invalid, 3 dead code).
+_VULTURE_EXIT_CODES = (0, 1, 3)
+
+_FIX_HINT = "install the dev extra (`uv sync --extra dev`) or run through `uv run`"
+
+
+def _vulture_available() -> bool:
+    """Return True when the interpreter that will run vulture can import it."""
+    return importlib.util.find_spec("vulture") is not None
+
+
+def _unreliable_run_error(proc: subprocess.CompletedProcess[str], findings: bool) -> str | None:
+    """Return an error message when ``proc`` proves vulture did not really run.
+
+    vulture exits 0 for "nothing found" and signals "dead code found" with 3
+    (2.16; older releases used 1). It also exits 1 for invalid input, and
+    ``python -m vulture`` with the module missing exits 1 too (issue #1142).
+    A non-zero exit without any interpretable finding is therefore a failed
+    run, and any code outside {0, 1, 3} is an unexpected failure.
+    """
+    stderr = (proc.stderr or "").strip()[:_STDERR_EXCERPT_LIMIT]
+    detail = f": {stderr}" if stderr else ""
+    if proc.returncode not in _VULTURE_EXIT_CODES:
+        return f"vulture failed with exit code {proc.returncode}{detail}; {_FIX_HINT}"
+    if proc.returncode != 0 and not findings:
+        return f"vulture exited {proc.returncode} without interpretable findings{detail}; {_FIX_HINT}"
+    return None
+
+
 def _run_vulture(root: Path) -> tuple[list[tuple[str, int, str]], str | None]:
-    """Run vulture over REPORT_SCOPE and return (findings, error)."""
+    """Run vulture over REPORT_SCOPE and return (findings, error).
+
+    ``error`` is set whenever vulture did not really run, so the caller never
+    treats a missing module as a clean measurement.
+    """
+    if not _vulture_available():
+        return [], f"vulture is not importable by {sys.executable}; {_FIX_HINT}"
     targets = [str(root / part) for part in REPORT_SCOPE if (root / part).is_dir()]
     cmd = [sys.executable, "-m", "vulture", *targets]
     try:
@@ -283,9 +322,11 @@ def _run_vulture(root: Path) -> tuple[list[tuple[str, int, str]], str | None]:
     except OSError as exc:
         return [], f"cannot run vulture ({exc})"
 
-    # vulture exits 0 when nothing is found, 1 when dead code is found.
-    # Treat both as normal; only an OSError is a real failure.
-    return parse_vulture_output(proc.stdout), None
+    findings = parse_vulture_output(proc.stdout)
+    error = _unreliable_run_error(proc, bool(findings))
+    if error is not None:
+        return [], error
+    return findings, None
 
 
 def _pin_output_encoding() -> None:
