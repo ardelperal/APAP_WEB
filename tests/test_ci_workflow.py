@@ -854,6 +854,83 @@ def test_ci_workflow_lint_job_runs_alantyle_lint() -> None:
     )
 
 
+#: actionlint config file declaring the self-hosted runner labels (issue #1154).
+ACTIONLINT_CONFIG_PATH = REPO_ROOT / ".github" / "actionlint.yaml"
+
+
+def test_ci_workflow_lint_job_runs_actionlint() -> None:
+    """Issue #1154: the CI ``lint`` job must gate on actionlint over all workflows.
+
+    actionlint validates the workflow schema (e.g. it caught the
+    nonexistent ``services.minio.command`` key), runs shellcheck over the
+    embedded scripts and validates ``runs-on`` labels against declared
+    self-hosted labels. Without it, a schema-invalid workflow lands on
+    main with a green build.
+
+    The binary is pinned: the step refuses to run an unversioned download
+    and verifies the release tarball checksum, so the gate cannot drift
+    with a silent upstream release.
+
+    Removing this step is a blocked change (AGENTS.md rule 20 parity:
+    every lint gate has a pin).
+    """
+    lint_runs = _workflow_yaml.runs_text(_job(WORKFLOW_PATH, "lint"))
+
+    assert "actionlint" in lint_runs, (
+        "the lint job must run actionlint over the workflows (issue #1154)"
+    )
+    # The binary must be pinned and the download must be checksum-verified,
+    # so a compromised or drifting release cannot silently change the gate.
+    assert 'version="1.7.12"' in lint_runs, (
+        "the actionlint step must pin the binary version (1.7.12, issue #1154)"
+    )
+    assert "sha256sum --check" in lint_runs, (
+        "the actionlint download must verify the pinned SHA256 checksum "
+        "so the CI gate is deterministic (issue #1154)"
+    )
+    # Findings that are declared, not fixed, must stay declared in the step
+    # itself (never dropped silently). The minio ignore is removed when PR
+    # #900 merges; the SC2129/SC2086 ignores are removed when deploy.yml
+    # scripts get their mechanical fix.
+    for declared_ignore in (
+        'unexpected key "command" for "services" section',
+        "shellcheck reported issue in this script: SC2129",
+        "shellcheck reported issue in this script: SC2086",
+    ):
+        assert declared_ignore in lint_runs, (
+            f"the actionlint step must keep the declared ignore {declared_ignore!r} "
+            "with its rationale comment (issue #1154)"
+        )
+
+
+def test_actionlint_config_declares_self_hosted_runner_labels() -> None:
+    """Issue #1154: every custom runner label of deploy.yml must be declared.
+
+    actionlint warns on unknown ``runs-on`` labels; the self-hosted fleet
+    labels live only in deploy.yml, so .github/actionlint.yaml must declare
+    them or the lint job would fail on legitimate labels.
+    """
+    assert ACTIONLINT_CONFIG_PATH.is_file(), (
+        ".github/actionlint.yaml must exist and declare the self-hosted "
+        "runner labels (issue #1154)"
+    )
+    config = _workflow_yaml.load(ACTIONLINT_CONFIG_PATH)
+    declared = config.get("self-hosted-runner", {}).get("labels", [])
+    assert isinstance(declared, list) and declared, (
+        ".github/actionlint.yaml must hold a self-hosted-runner.labels list"
+    )
+
+    deploy_runs_on = _job(DEPLOY_WORKFLOW_PATH, "deploy").get("runs-on")
+    assert isinstance(deploy_runs_on, list) and deploy_runs_on, (
+        "deploy.yml deploy job must keep its runs-on label list"
+    )
+    missing = [label for label in deploy_runs_on if label not in declared]
+    assert not missing, (
+        f".github/actionlint.yaml must declare the runner labels used by "
+        f"deploy.yml: {missing}"
+    )
+
+
 def test_ci_workflow_lint_job_runs_jscpd_gate() -> None:
     lint_runs = _workflow_yaml.runs_text(_job(WORKFLOW_PATH, "lint"))
 
