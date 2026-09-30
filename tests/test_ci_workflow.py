@@ -1308,20 +1308,14 @@ def test_ci_workflow_branch_name_step_is_wired() -> None:
 
 
 def test_ci_workflow_pr_size_job_is_wired() -> None:
-    """The PR size gate must be wired in pr-size.yml (issue #442).
+    """The PR size gate must be wired in pr-size.yml (issue #442, #1121).
 
     AGENTS.md §15.1 declares ``review_budget_lines: 400`` as a soft budget
     enforced by PR review. Issue #442 promotes it to a CI gate so a 500-line
-    PR cannot land on main without an explicit ``size:exception`` label.
-    The wiring lives in a dedicated ``.github/workflows/pr-size.yml`` (one
-    job, ``pull_request`` only) rather than in ``ci.yml`` because the gate
-    needs the diff against the merge-base plus the labels payload — neither
-    is available to the lint/test/typecheck jobs without bloating them.
-
-    The workflow MUST invoke ``scripts/check_pr_size.py`` and read the
-    ``size:exception`` label; the script is the unit-tested entry point and
-    the label is the only acceptable override (AGENTS.md §15.6). Removing
-    either reference from the workflow is a blocked change (issue #442).
+    PR cannot land on main without an explicit override. Issue #1121
+    moved the override from the ``size:exception`` label to the PR
+    body's ``size-exception-reason: <motivo>`` field; removing the
+    body-field reference would silently bypass the parser.
     """
     pr_size_doc = _doc(PR_SIZE_WORKFLOW_PATH)
     pr_size_runs = "\n".join(
@@ -1334,9 +1328,10 @@ def test_ci_workflow_pr_size_job_is_wired() -> None:
         "AGENTS.md §15.1) — the script is the unit-tested gate; inlining "
         "the budget logic in the workflow would silently bypass tests/test_pr_size.py"
     )
-    assert "size:exception" in pr_size_runs, (
-        "pr-size.yml must read the 'size:exception' label (AGENTS.md §15.6) — "
-        "it is the only acceptable override for the 400-line budget"
+    assert 'check_pr_size.py "$TOTAL" "$PR_BODY"' in pr_size_runs, (
+        "pr-size.yml must hand the live PR body (which carries "
+        "`size-exception-reason`) to the gate (issue #1121); dropping it "
+        "makes the override invisible"
     )
 
 
@@ -1405,26 +1400,31 @@ def test_pr_size_concurrency_group_is_trigger_scoped() -> None:
     )
 
 
-_PR_SIZE_LABELS_URL_RE = re.compile(
-    r"https://api\.github\.com/repos/\$\{GITHUB_REPOSITORY\}"
-    r"/issues/\$\{PR_NUMBER\}/labels\b"
+_PR_SIZE_BODY_URL_RE = re.compile(
+    r"https://api\.github\.com/repos/\$\{GITHUB_REPOSITORY\}/issues/\$\{PR_NUMBER\}"
+    r"(?!/labels\b)"
 )
 
 
 def _pr_size_fetch_step_run() -> str:
-    """The ``run:`` body of pr-size.yml's live-labels fetch step."""
+    """The ``run:`` body of pr-size.yml's live-PR-body fetch step (issue #1121).
+
+    The previous version matched `/labels?per_page=100`; that endpoint is
+    gone now — the override moved from the label to the PR body
+    (``/issues/${PR_NUMBER}``; PRs are issues in GitHub's data model).
+    """
     pr_size_job = next(iter((_doc(PR_SIZE_WORKFLOW_PATH).get("jobs") or {}).values()))
     return next(
         str(step.get("run", ""))
         for step in _workflow_yaml.steps(pr_size_job)
-        if _PR_SIZE_LABELS_URL_RE.search(str(step.get("run", "")))
+        if _PR_SIZE_BODY_URL_RE.search(str(step.get("run", "")))
     )
 
 
 def test_pr_size_exception_label_read_from_live_api_not_event_payload() -> None:
-    """HAS_EXCEPTION must come from a live GitHub API read, not the static
-    event payload, so labels added after PR creation or replayed by
-    `gh run rerun` are still seen (issue #926).
+    """The override must come from a live PR-body read via the GitHub API,
+    not the static ``github.event.pull_request.body`` payload, so an edit
+    to the body (or a rerun of a stale payload) is picked up (issue #1121).
     """
     pr_size_jobs_text = "\n".join(
         _workflow_yaml.job_text(entry)
@@ -1432,18 +1432,18 @@ def test_pr_size_exception_label_read_from_live_api_not_event_payload() -> None:
     )
     fetch_run = _pr_size_fetch_step_run()
 
-    assert "github.event.pull_request.labels" not in pr_size_jobs_text, (
-        "pr-size.yml must not derive the size:exception flag from the "
-        "static event payload (issue #926) — labels added after the "
-        "triggering event, or a rerun of a stale payload, go unseen."
+    assert "github.event.pull_request.body" not in pr_size_jobs_text, (
+        "pr-size.yml must not derive the override from the static "
+        "event payload's body field (issue #1121) — edits to the body "
+        "between events, or a rerun of a stale payload, would go unseen."
     )
     # Issue #533: the runner backing this job does not provide the `gh`
     # CLI, so the live fetch must go through curl + jq (deploy.yml's
     # existing pattern), not `gh api`.
-    assert _PR_SIZE_LABELS_URL_RE.search(fetch_run), (
-        "pr-size.yml must fetch the PR's live labels from the GitHub REST "
+    assert _PR_SIZE_BODY_URL_RE.search(fetch_run), (
+        "pr-size.yml must fetch the PR's live body from the GitHub REST "
         "API (curl + jq, per issue #533 — this runner has no `gh` CLI) "
-        "instead of the event payload (issue #926)."
+        "instead of the event payload (issue #1121)."
     )
     assert "gh api" not in pr_size_jobs_text, (
         "pr-size.yml's runner does not provide the `gh` CLI (issue #533); "
@@ -1452,23 +1452,21 @@ def test_pr_size_exception_label_read_from_live_api_not_event_payload() -> None:
 
     workflow_perms = _workflow_yaml.permissions(_doc(PR_SIZE_WORKFLOW_PATH))
     assert workflow_perms.get("issues") == "read", (
-        "reading labels via the GitHub API needs `issues: read` at the "
-        "workflow level (issue #926), alongside the existing "
-        "`contents: read` (issue #682)."
+        "reading the PR body via the issues REST API needs "
+        "`issues: read` at the workflow level (issue #1121), alongside "
+        "the existing `contents: read` (issue #682)."
     )
 
 
 def test_pr_size_exception_label_fetch_fails_closed() -> None:
-    """A failed label fetch must fail the job, not silently pass the gate
-    as if no exception label were present (issue #926).
+    """A failed body fetch must fail the job, not silently pass the gate
+    as if the override were absent (issue #1121, replaces issue #926).
     """
     fetch_run = _pr_size_fetch_step_run()
-    # The step containing the API call must exit non-zero on failure
-    # inside its own run: body.
     assert "exit 1" in fetch_run, (
-        "the label-fetch step must exit non-zero when the GitHub API call "
+        "the body-fetch step must exit non-zero when the GitHub API call "
         "fails, so the gate fails closed instead of treating a fetch "
-        "failure as 'no size:exception label' (issue #926)."
+        "failure as 'no override' (issue #1121)."
     )
 
 
@@ -2891,3 +2889,57 @@ def test_workflow_structure_is_independent_of_comments_and_indentation(
         str(step.get("name", "<unnamed>"))
         for step in _workflow_yaml.steps(doctored_e2e)
     ] == original["e2e_steps"]
+
+
+# --- issue #1121: the PR body is untrusted input ---------------------------
+
+
+def _pr_size_enforce_step() -> dict[str, object]:
+    """The single step of pr-size.yml that invokes the budget script."""
+    job = next(iter((_doc(PR_SIZE_WORKFLOW_PATH).get("jobs") or {}).values()))
+    steps = [
+        step
+        for step in _workflow_yaml.steps(job)
+        if "scripts/check_pr_size.py" in str(step.get("run", ""))
+    ]
+    assert len(steps) == 1, "exactly one step must invoke scripts/check_pr_size.py"
+    return steps[0]
+
+
+def test_pr_size_body_never_travels_through_github_output() -> None:
+    """The author-controlled PR body must not be written to ``$GITHUB_OUTPUT``
+    (a body line equal to the delimiter injects step outputs) nor read back
+    through a ``steps.*.outputs.body`` expression (issue #1121)."""
+    text = "\n".join(
+        _workflow_yaml.job_text(entry)
+        for entry in (_doc(PR_SIZE_WORKFLOW_PATH).get("jobs") or {}).values()
+    )
+
+    assert "steps.body.outputs" not in text
+    assert "body<<" not in text
+    assert "BODY" not in "".join(
+        line for line in text.splitlines() if "GITHUB_OUTPUT" in line
+    ), "no GITHUB_OUTPUT write may carry the PR body (issue #1121)"
+
+
+def test_pr_size_fetches_and_enforces_in_one_step() -> None:
+    """The body is fetched and enforced inside the same step, handed to the
+    script through the process environment (issue #1121)."""
+    step = _pr_size_enforce_step()
+    run = str(step.get("run", ""))
+
+    assert _PR_SIZE_BODY_URL_RE.search(run), "the enforcing step must fetch the body"
+    assert 'check_pr_size.py "$TOTAL" "$PR_BODY"' in run
+    assert "exit 1" in run, "a non-200 answer must fail closed in the same step"
+    assert '"$code" != "200"' in run
+
+
+def test_pr_size_ci_does_not_retrigger_on_edited() -> None:
+    """Editing a PR body does not refresh the check: ci.yml keeps the default
+    pull_request types on purpose (re-running would repeat the whole CI); the
+    docs tell authors to re-run the failed job, which re-reads the live body."""
+    triggers = _triggers(WORKFLOW_PATH)
+    pull_request = triggers.get("pull_request")
+    types = pull_request.get("types") if isinstance(pull_request, dict) else None
+
+    assert not types or "edited" not in types
