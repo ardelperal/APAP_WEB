@@ -238,3 +238,101 @@ class TestCiWiring:
         )
         assert proc.returncode == 0, proc.stdout + proc.stderr
         assert "check_vulture_guard: OK" in proc.stdout
+
+
+class _FakeProc:
+    def __init__(self, returncode: int, stdout: str = "", stderr: str = "") -> None:
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+_FINDING = "app/x.py:3: unused function 'gone' (60% confidence)\n"
+_MISSING = "/usr/bin/python3: No module named vulture\n"
+
+
+class TestFailLoudWhenVultureDidNotRun:
+    """Issue #1142: exit 1 is ambiguous ("dead code" vs "module missing")."""
+
+    @staticmethod
+    def _stub(monkeypatch: pytest.MonkeyPatch, proc: _FakeProc) -> None:
+        monkeypatch.setattr(guard, "_vulture_available", lambda: True)
+        monkeypatch.setattr(guard.subprocess, "run", lambda *_a, **_k: proc)
+
+    def test_module_missing_is_an_error_naming_the_fix(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def _boom(*_a: object, **_k: object) -> _FakeProc:
+            raise AssertionError("must not run without the module")
+
+        monkeypatch.setattr(guard, "_vulture_available", lambda: False)
+        monkeypatch.setattr(guard.subprocess, "run", _boom)
+        findings, error = guard._run_vulture(REPO_ROOT)
+        assert findings == []
+        assert error is not None
+        assert "uv sync --extra dev" in error
+        assert "uv run" in error
+
+    def test_exit_1_with_stderr_and_no_findings_is_an_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._stub(monkeypatch, _FakeProc(1, "", _MISSING))
+        findings, error = guard._run_vulture(REPO_ROOT)
+        assert findings == []
+        assert error is not None
+        assert "No module named vulture" in error
+
+    def test_exit_1_with_findings_is_reliable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._stub(monkeypatch, _FakeProc(1, _FINDING))
+        findings, error = guard._run_vulture(REPO_ROOT)
+        assert error is None
+        assert findings == [("app/x.py", 3, "gone")]
+
+    def test_exit_3_with_findings_is_reliable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """vulture 2.16 reports dead code with exit 3, not 1."""
+        self._stub(monkeypatch, _FakeProc(3, _FINDING))
+        findings, error = guard._run_vulture(REPO_ROOT)
+        assert error is None
+        assert findings == [("app/x.py", 3, "gone")]
+
+    def test_exit_3_without_findings_is_an_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._stub(monkeypatch, _FakeProc(3, "garbled\n"))
+        _findings, error = guard._run_vulture(REPO_ROOT)
+        assert error is not None
+
+    def test_exit_0_without_findings_is_clean(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._stub(monkeypatch, _FakeProc(0))
+        assert guard._run_vulture(REPO_ROOT) == ([], None)
+
+    def test_unexpected_exit_code_is_an_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._stub(monkeypatch, _FakeProc(2, "", "usage error\n"))
+        findings, error = guard._run_vulture(REPO_ROOT)
+        assert findings == []
+        assert error is not None
+        assert "exit code 2" in error
+
+    def test_stderr_excerpt_is_bounded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._stub(monkeypatch, _FakeProc(1, "", "x" * 5000))
+        _findings, error = guard._run_vulture(REPO_ROOT)
+        assert error is not None
+        assert len(error) < 1000
+
+    def test_unreliable_run_exits_non_zero_without_the_baseline_note(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        self._stub(monkeypatch, _FakeProc(1, "", _MISSING))
+        assert guard.main([str(REPO_ROOT)]) == 1
+        out = capsys.readouterr().out
+        assert "FAIL check_vulture_guard" in out
+        assert "update BASELINE" not in out
+        assert "NOTE" not in out
