@@ -187,6 +187,21 @@ source .venv/bin/activate
 make verify
 ```
 
+### Preflight canónico — `scripts/preflight.py` (issue #1119)
+
+Antes del push, corra `scripts/preflight.py`: es la validación canónica de pre-push. Lee el job `lint` de `.github/workflows/ci.yml` en tiempo de ejecución y ejecuta, en orden, cada uno de sus steps con `run:`, con la misma semántica de shell que el runner de GitHub (`bash -e`). El verde aquí equivale al verde del job `lint` y evita el patrón «ruff verde en local, CI rojo» documentado en la PR #1111.
+
+```bash
+uv sync --frozen --extra dev
+.venv/bin/python scripts/preflight.py
+```
+
+Tarda varios minutos porque ejecuta todos los steps de lint, incluido `jscpd`, que necesita Node y `npx`. No ejecuta pytest, mypy ni los jobs exclusivos de CI (`typecheck`, `test`, `integration`, `e2e`): para esos use los comandos de la tabla siguiente. Con `--list` imprime los steps sin ejecutarlos.
+
+Cada step se imprime con su nombre y un veredicto `PASS` o `FAIL <name> (exit <N>)`; un step rojo no detiene a los siguientes. El exit code agregado es 0 cuando todos pasan, 1 cuando alguno falla y 2 cuando el workflow falta, está mal formado, no tiene job `lint` o contiene una expresión `${{ }}` de GitHub que bash no puede evaluar.
+
+Añadir un step al job `lint` lo recoge automáticamente. `make verify` se solapa a propósito con el preflight; es un subconjunto más rápido para el ciclo interno, pero el preflight es la referencia.
+
 | Job de `ci.yml` | Comando local | Requisitos |
 |---|---|---|
 | `lint` | `make verify`; cada gate es además un target individual (`make lint`, `make check-rules`, …) | — |
