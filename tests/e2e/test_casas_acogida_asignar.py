@@ -2,8 +2,9 @@
 
 Pins the foster assignment gate contract end-to-end via Playwright + the
 OAuth mock landed in ``tests/e2e/test_admin_authenticated.py``. The
-``authenticated_session`` fixture mints a developer session (the mock's
-default rol — see ``app/core/e2e_auth.py::MOCK_USER_ROL``) which
+``authenticated_session`` fixture mints a session whose role is read
+from the seeded ``usuarios_autorizados`` row (issue #1073 — the DB is
+the single allowlist; the CI seed grants the developer role) which
 satisfies every gate the assignment routes install: ``require_writer_user``
 on POST ``/asignar``, ``require_developer_user`` on GET ``/overrides``.
 The fixture returns a ``(Page, csrf_token)`` tuple so the csrf_token

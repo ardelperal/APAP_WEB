@@ -23,9 +23,10 @@ Three tests:
   rendered (form for adding users + table of existing users).
 - ``test_session_cookie_persists_across_requests`` — the
   cookie contract. After authentication, multiple ``GET /admin``
-  requests succeed without re-authenticating; the mock's
-  pre-populated auth cache keeps the middleware happy across
-  requests without a DB round-trip.
+  requests succeed without re-authenticating; the first authorized
+  request revalidates against ``usuarios_autorizados`` and
+  ``require_authorized_user`` (the single cache writer) then serves
+  the following requests from the in-process cache (issue #1073).
 
 The fixture skips gracefully when ``Settings.e2e_auth_enabled`` is
 False (i.e. production / local dev without the env var set). The
@@ -190,8 +191,11 @@ def test_session_cookie_persists_across_requests(
 ) -> None:
     """After the mock sets the cookie, every subsequent request carries it.
 
-    The mock pre-populates the in-process auth cache so the
-    middleware accepts the cookie without a DB round-trip. This
+    The mock does NOT seed the auth cache (issue #1073): the first
+    authorized request revalidates against ``usuarios_autorizados``
+    and ``require_authorized_user`` — the single cache writer — fills
+    it, so the middleware accepts the cookie without further DB
+    round-trips. This
     test pins that contract by issuing three consecutive
     authenticated requests and asserting each one passes the auth
     gate — a regression that drops the cookie or skips the cache
