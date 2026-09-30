@@ -79,8 +79,8 @@ RUFF_VERSION: str = "0.15.21"
 #: preserved — this update is a one-shot calibration, not a baseline raise.
 #: The count of violations in the codebase is UNCHANGED by this commit.
 BASELINE: dict[str, int] = {
-    "ARG001": 31,
-    "C901": 19,
+    "ARG001": 28,
+    "C901": 18,
     # ERA001 fue retirado del baseline al completarse el triaje del issue #390
     # (4 -> 0 con los 4 sitios de ``app/`` y ``scripts/`` en este PR). Todos
     # resultaron categoria (a): comentarios de seccion / branch label que ruff
@@ -97,15 +97,15 @@ BASELINE: dict[str, int] = {
     # firma pública. Se ELIMINA la entrada por la misma razón que ERA001:
     # un ARG002 nuevo debe caer en la rama de regla desconocida y fallar.
     "N803": 10,
-    "N806": 1,        "S603": 2,
+    "N806": 1,
         "ARG002": 4,
         "FAST002": 3,
         "PLR5501": 1,
 
     "N815": 2,
     "N818": 3,
-    "PLR0911": 12,  # +1 by issue #690 (check_web_to_legacy_check_only adds a PENDING return path)  # was: +1 by PR #630 (scheduling.py adds too-many-returns)  # locked in 2026-08-24: one too-many-returns site refactored away
-    "PLR0912": 12,  # +1 by issue #690 (check_web_to_legacy_check_only adds a PENDING branch)  # was: bumped 8 -> 9 by Slice 3 (scripts/_ratchet_deadline.py adds 1 too-many-branches)
+    "PLR0911": 11,  # +1 by issue #690 (check_web_to_legacy_check_only adds a PENDING return path)  # was: +1 by PR #630 (scheduling.py adds too-many-returns)  # locked in 2026-08-24: one too-many-returns site refactored away
+    "PLR0912": 9,  # +1 by issue #690 (check_web_to_legacy_check_only adds a PENDING branch)  # was: bumped 8 -> 9 by Slice 3 (scripts/_ratchet_deadline.py adds 1 too-many-branches)
     "PLR0913": 47,  # baseline was 43; violations introduced by LIFECYCLE-03 (491b279) before current epic round; calibrate to actual count
     "PLR0915": 2,  # VOL-04 added new site
     # PLR0915 fue retirado del baseline al completarse el triaje del issue #390
@@ -148,7 +148,7 @@ BASELINE: dict[str, int] = {
     # quedó al nivel del if padre (el return de la rama allowed hace que
     # el flujo caiga al resto solo cuando el bucket está lleno). Se
     # ELIMINA la entrada.
-    "S101": 6,  # +1 by PR #630 (periodicity.py assert)
+    "S101": 4,  # +1 by PR #630 (periodicity.py assert)
     "S105": 6,
     "S110": 6,  # +1 by PR #630 (service.py:67 try-except-pass)
     # S112 fue retirado del baseline al completarse el triaje del issue #390
@@ -174,8 +174,8 @@ BASELINE: dict[str, int] = {
     # debe parar el CI, no consumir una cuota.
     "SIM102": 5,
     "SIM103": 3,
-    "SIM105": 15,  # +1 by PR #630 (service.py:65 try-except-pass)
-    "SIM108": 6,  # +1 by PR #630 (periodicity.py ternary)
+    "SIM105": 14,  # +1 by PR #630 (service.py:65 try-except-pass)
+    "SIM108": 4,  # +1 by PR #630 (periodicity.py ternary)
     "SIM114": 4,
     # SIM118 fue retirado del baseline al completarse el triaje del issue #390
     # (1 -> 0). Sitio: ``_next_estado`` en
