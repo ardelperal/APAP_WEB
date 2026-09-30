@@ -17,6 +17,12 @@ Routes covered:
 
 Tests are auto-skipped by the parent conftest when chromium is missing.
 A preflight additionally skips when /login returns 503 (OAuth not configured).
+
+Redirect assertions use Playwright's FINAL-response semantics: ``page.goto``
+returns the last response of the chain (200 @ /login), so the server-side
+302 itself is verified via ``response.request.redirected_from`` (issue
+#1153). ``/auth/google`` uses ``max_redirects=0`` so the first response
+(302 or 503) is observed instead of the followed redirect to Google.
 """
 
 from __future__ import annotations
@@ -39,50 +45,74 @@ def _skip_if_oauth_not_configured(page: Page, base_url: str) -> None:
 
 
 def test_root_redirects_anonymous_to_login(page: Page, base_url: str) -> None:
-    """GET / without session redirects to /login (302).
+    """GET / without session ends on a rendered /login via a server redirect.
 
     Consolidates the redirect sentinel from test_landing.py so all
-    public-redirect coverage lives in one place.
+    public-redirect coverage lives in one place. ``page.goto`` returns
+    the FINAL response of the chain (issue #1153): the 302 itself is
+    pinned through ``response.request.redirected_from``.
     """
     _skip_if_oauth_not_configured(page, base_url)
     response = page.goto(f"{base_url}/", wait_until="domcontentloaded")
     assert response is not None
-    assert response.status == 302
+    assert response.status == 200, (
+        f"/ should land on a rendered /login (final response of the "
+        f"redirect chain), got {response.status} @ {response.url}"
+    )
     assert page.url.endswith("/login"), (
         f"/ without session should redirect to /login, got: {page.url}"
+    )
+    assert response.request.redirected_from is not None, (
+        "/ must reach /login through a server redirect, not a client-side bounce"
     )
 
 
 def test_animales_redirects_to_login_without_session(
     page: Page, base_url: str
 ) -> None:
-    """GET /animales without a session redirects to /login (302).
+    """GET /animales without a session ends on a rendered /login (302 chain).
 
-    Pins the auth-guard behaviour at the browser level.
+    Pins the auth-guard behaviour at the browser level. Final-response
+    semantics per issue #1153.
     """
     _skip_if_oauth_not_configured(page, base_url)
     response = page.goto(f"{base_url}/animales", wait_until="domcontentloaded")
     assert response is not None
-    assert response.status == 302
+    assert response.status == 200, (
+        f"/animales should land on a rendered /login (final response of "
+        f"the redirect chain), got {response.status} @ {response.url}"
+    )
     assert page.url.endswith("/login"), (
         f"/animales without session should redirect to /login, got: {page.url}"
+    )
+    assert response.request.redirected_from is not None, (
+        "/animales must reach /login through a server redirect, not a "
+        "client-side bounce"
     )
 
 
 def test_logout_clears_session_and_redirects_to_root(
     page: Page, base_url: str
 ) -> None:
-    """GET /logout clears the session cookie and redirects to / (302).
+    """GET /logout clears the session cookie and redirects away via 302.
 
     Issue #124: the logout handler clears the session cookie and redirects
     to /. This test verifies the redirect chain at browser level.
+    Final-response semantics per issue #1153.
     """
     _skip_if_oauth_not_configured(page, base_url)
     response = page.goto(f"{base_url}/logout", wait_until="domcontentloaded")
     assert response is not None
-    assert response.status == 302
+    assert response.status == 200, (
+        f"/logout should land on a rendered page (final response of the "
+        f"redirect chain), got {response.status} @ {response.url}"
+    )
     assert page.url.endswith("/") or page.url.endswith("/login"), (
         f"/logout should redirect to / or /login, got: {page.url}"
+    )
+    assert response.request.redirected_from is not None, (
+        "/logout must reach its target through a server redirect, not a "
+        "client-side bounce"
     )
 
 
@@ -93,11 +123,13 @@ def test_auth_google_returns_503_when_oauth_not_configured(
 
     The route is public but requires LocalBackend + Google OAuth credentials.
     Without them it returns a descriptive error, which the test suite
-    uses as a preflight skip signal.
+    uses as a preflight skip signal. ``max_redirects=0`` stops Playwright
+    from following the configured-branch 302 to Google so the first
+    response is the one asserted (issue #1153).
     """
-    response = page.request.get(f"{base_url}/auth/google")
-    # Accept either 503 (OAuth not configured) or 302 (OAuth configured,
-    # redirects to Google). 503 is the CI/dev unconfigured state.
+    response = page.request.get(f"{base_url}/auth/google", max_redirects=0)
+    # First response only: 503 (OAuth not configured, the CI/dev state)
+    # or 302 (OAuth configured, redirects to Google).
     assert response.status in {302, 503}, (
         f"/auth/google should return 302 or 503, got {response.status}"
     )

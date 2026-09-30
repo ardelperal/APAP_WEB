@@ -38,7 +38,7 @@ def _button(page: Page) -> dict:
     return page.evaluate(
         "() => { const b = document.getElementById('nav-burger-toggle');"
         "  if (!b) return null;"
-        "  return {display: getComputedStyle(b).display, expanded: b.getAttribute('aria-expanded'), controls: b.getAttribute('aria-controls')};"
+        "  return {display: getComputedStyle(b).display, expanded: b.getAttribute('aria-expanded'), controls: b.getAttribute('aria-controls'), rendered: b.getClientRects().length > 0};"
         "}"
     )
 
@@ -92,8 +92,13 @@ def test_burger_button_is_visible_on_mobile_and_hidden_on_desktop(
     page.reload(wait_until="domcontentloaded")
     desktop_button = _button(page)
     assert desktop_button is not None
-    assert desktop_button["display"] == "none", (
-        f"burger button must be hidden at desktop viewport, got display={desktop_button['display']!r}"
+    # The burger hides at md+ via its ``md:hidden`` container (issue
+    # #868): the button's own computed display stays ``flex``, so the
+    # observable contract is effective rendering — zero client rects
+    # when the ancestor is display:none (issue #1153).
+    assert desktop_button["rendered"] is False, (
+        f"burger button must be hidden at desktop viewport, got "
+        f"display={desktop_button['display']!r}, rendered={desktop_button['rendered']!r}"
     )
 
 
