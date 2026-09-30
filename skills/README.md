@@ -24,6 +24,7 @@ una de esas skills, está en este directorio, no en la máquina del operador.
 | Skill | Cuándo cargarla |
 |---|---|
 | `apap-testing-strategy` | Decidir tipo de test (unit/integration/e2e/migration), auditar gaps, refactorizar mocks a integration real. Basada en el audit 2026-08-31. Complementaria a `apap-testing`. |
+| `ci-pattern` | Adoptar o auditar el patrón de CI del repo (gates deterministas, preflight, ratchets, evidencia por SHA, cadena de PRs, protocolo de fricciones) en otro repositorio. |
 
 ## Cómo se carga
 
