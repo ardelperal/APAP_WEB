@@ -67,7 +67,9 @@ def _nav_links(page: Page) -> list[dict]:
     be ``None``), ``height`` (``getBoundingClientRect().height`` of the
     anchor), and, when the anchor contains a ``<span>`` label,
     ``span_height`` and ``span_line_height`` in px for the line-count
-    assertion.
+    assertion, and ``rendered`` (zero client rects means the anchor is
+    inside a collapsed group's ``hidden`` ``<ul>`` and cannot be
+    measured).
     """
     return page.evaluate(
         "() => Array.from(document"
@@ -82,7 +84,8 @@ def _nav_links(page: Page) -> list[dict]:
         "    title: a.getAttribute('title'),"
         "    height: r.height,"
         "    span_height: span ? span.getBoundingClientRect().height : null,"
-        "    span_line_height: cs ? parseFloat(cs.lineHeight) : null"
+        "    span_line_height: cs ? parseFloat(cs.lineHeight) : null,"
+        "    rendered: a.getClientRects().length > 0"
         "  };"
         "})"
     )
@@ -91,7 +94,7 @@ def _nav_links(page: Page) -> list[dict]:
 def test_every_nav_link_fits_on_one_line_at_desktop(
     page: Page, base_url: str
 ) -> None:
-    """Every ``<span>`` label in ``<nav id='nav-main'>`` renders exactly one text line.
+    """Every RENDERED ``<span>`` label in ``<nav id='nav-main'>`` fits one text line.
 
     The primary assertion measures text lines, not the anchor box:
     ``round(span_height / line_height) === 1``. The original ``<= 30``
@@ -100,6 +103,11 @@ def test_every_nav_link_fits_on_one_line_at_desktop(
     ``md:py-2`` top + 8px bottom padding), so it never held in a real
     browser. Before the rename, the three offending items wrapped to
     2-3 text lines here; after the rename, every label must be one.
+
+    Collapsed rail groups (#868) render their children inside a
+    ``hidden`` ``<ul>``, so those anchors have zero-size boxes and
+    cannot be measured; only anchors actually rendered on screen are
+    measured, and at least one must be (issue #1153).
     """
     _preflight_login_available(page, base_url)
     page.set_viewport_size(DESKTOP_VIEWPORT)
@@ -107,8 +115,13 @@ def test_every_nav_link_fits_on_one_line_at_desktop(
 
     links = _nav_links(page)
     assert links, "the rail must contain at least one registry anchor"
+    rendered = [link for link in links if link["rendered"]]
+    assert rendered, (
+        "at least one rail anchor must be rendered: collapsed groups yield "
+        "zero-size child anchors that cannot be measured"
+    )
 
-    for link in links:
+    for link in rendered:
         if link["span_height"] is None:
             continue
         line_height = link["span_line_height"]

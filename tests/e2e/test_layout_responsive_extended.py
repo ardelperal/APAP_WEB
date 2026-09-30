@@ -117,7 +117,15 @@ def test_no_horizontal_scroll_at_full_hd(page: Page, base_url: str) -> None:
 
 
 def test_nav_is_single_row_at_full_hd(page: Page, base_url: str) -> None:
-    """At 1920px the nav renders as a single row (not stacked)."""
+    """At 1920px the nav is a bounded single row or the #868 rail.
+
+    The deployed chrome (#868) renders ``#nav-main`` as a vertical
+    268px rail spanning the viewport height, so the old single-row-only
+    assertion can never hold against a deployed revision (issue
+    #1153). The sentinel branches on the measured box: rail chrome
+    must stay within its 268px budget and the viewport; a horizontal
+    top nav must still be a single row.
+    """
     _skip_if_login_unavailable(page, base_url)
     page.set_viewport_size(FULL_HD_VIEWPORT)
     page.goto(f"{base_url}{PUBLIC_ROUTE}", wait_until="domcontentloaded")
@@ -126,7 +134,17 @@ def test_nav_is_single_row_at_full_hd(page: Page, base_url: str) -> None:
     nav.wait_for(state="visible")
     bbox = nav.bounding_box()
     assert bbox is not None
-    # Single-row nav is < 80px tall; stacked layout would be 120+px.
-    assert bbox["height"] < 80, (
-        f"nav appears stacked at 1920px: height={bbox['height']:.0f}px"
+    if bbox["height"] > bbox["width"]:
+        # Rail chrome (#868): vertical column with a bounded width.
+        assert bbox["width"] <= 268 + LAYOUT_TOLERANCE_PX, (
+            f"nav rail is wider than its 268px budget: "
+            f"width={bbox['width']:.0f}px"
+        )
+    else:
+        # Single-row nav is < 80px tall; stacked layout would be 120+px.
+        assert bbox["height"] < 80, (
+            f"nav appears stacked at 1920px: height={bbox['height']:.0f}px"
+        )
+    assert bbox["x"] + bbox["width"] <= FULL_HD_VIEWPORT["width"] + LAYOUT_TOLERANCE_PX, (
+        f"nav overflows 1920px viewport: bbox={bbox}"
     )

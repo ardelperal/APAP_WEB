@@ -35,6 +35,32 @@ def _skip_if_oauth_not_configured(page: Page, base_url: str) -> None:
         )
 
 
+def _assert_bounced_to_login(page: Page, response, origin: str) -> None:
+    """Assert an anonymous navigation was redirected to a rendered /login.
+
+    Playwright's ``page.goto`` returns the FINAL response of the
+    redirect chain, so a server-side 302 to /login surfaces as a 200
+    response whose URL is /login — ``response.status == 302`` is
+    unobservable for server redirects (issue #1153). The redirect must
+    still have happened at the HTTP level: the final request carries a
+    ``redirected_from`` predecessor. A client-side (JS) bounce would
+    not, so this assertion pins the server-redirect contract (rule 7:
+    redirects are ``RedirectResponse``, not exceptions).
+    """
+    assert response is not None
+    assert response.status == 200, (
+        f"{origin} should land on a rendered /login (final response of "
+        f"the redirect chain), got {response.status} @ {response.url}"
+    )
+    assert page.url.endswith("/login"), (
+        f"{origin} without session should redirect to /login, got: {page.url}"
+    )
+    assert response.request.redirected_from is not None, (
+        f"{origin} must reach /login through a server redirect, not a "
+        "client-side bounce"
+    )
+
+
 def test_landing_redirects_anonymous_users_to_login(
     page: Page, base_url: str
 ) -> None:
@@ -78,24 +104,57 @@ def test_login_applies_apap_blue_primary_color(page: Page, base_url: str) -> Non
     ), f"Hero background does not include an APAP blue: {bg_image!r}"
 
 
-def test_login_gmail_entry_is_visible(page: Page, base_url: str) -> None:
-    """The public login page exposes the explicit Gmail entry point."""
+def test_login_page_renders_the_configured_auth_entry_point(
+    page: Page, base_url: str
+) -> None:
+    """The login page renders the auth entry point matching the enabled flow.
+
+    Two deployed config branches exist (issue #1153):
+
+    - ``APAP_AUTH_ENABLE_MAGIC_LINK=true``: ``login.html`` renders the
+      magic-link form posting to ``/auth/magic/start`` (#1005).
+    - Flag off (OAuth configured): the template renders no form at all;
+      the InsForge-era "Entrar con Gmail" link was removed (#728) and
+      its absence is pinned by ``tests/test_auth_flow.py``.
+
+    Branching on the rendered DOM keeps the test meaningful under
+    either config; no branch is vacuous.
+    """
     _skip_if_oauth_not_configured(page, base_url)
     page.goto(f"{base_url}/login")
 
-    gmail_link = page.get_by_role("link", name="Entrar con Gmail")
-    gmail_link.wait_for(state="visible")
-    assert gmail_link.get_attribute("href") == "/auth/google"
+    magic_form = page.locator("#magic-link-form")
+    if magic_form.count() == 1:
+        assert magic_form.get_attribute("action") == "/auth/magic/start"
+        assert magic_form.get_attribute("method") == "post"
+        email_input = magic_form.locator('input[type="email"][name="email"]')
+        assert email_input.count() == 1
+        email_input.wait_for(state="visible")
+        submit = magic_form.locator('button[type="submit"]')
+        assert submit.count() == 1
+        assert submit.inner_text().strip() == "Enviar enlace"
+    else:
+        # Flag off: no form renders; the removed Gmail entry (#728)
+        # must not reappear.
+        assert page.get_by_role("link", name="Entrar con Gmail").count() == 0
+        assert page.locator('a[href="/auth/google"]').count() == 0
 
 
 def test_landing_navigation_links_visible(page: Page, base_url: str) -> None:
-    """After anonymous / navigation, the public header is still visible."""
+    """After anonymous / navigation, the rail nav still renders.
+
+    The anonymous chrome (sidebar rail, issue #868) shows the brand
+    block, the registry top-level labels and the session entry. The
+    old "Inicio" item no longer exists — the brand block replaced it
+    in ``NAV_ENTRIES`` — so the pinned labels are the current registry
+    contract (issue #1153).
+    """
     _skip_if_oauth_not_configured(page, base_url)
     page.goto(f"{base_url}/")
 
     nav = page.get_by_role("navigation")
     nav_text = nav.inner_text()
-    for label in ("Inicio", "Animales", "Voluntarios"):
+    for label in ("APAP", "Animales", "Voluntarios", "Iniciar sesión"):
         assert label in nav_text, f"Top nav is missing {label!r}: {nav_text!r}"
 
 
@@ -126,12 +185,22 @@ def test_landing_footer_uses_apap_primary_dark(page: Page, base_url: str) -> Non
 
 
 def test_healthz_returns_ok_json(page: Page, base_url: str) -> None:
-    """/healthz returns 200 with the standard liveness JSON. Always public."""
+    """The deployed liveness contract at /healthz holds. Always public.
+
+    The deployed handler (``app/main.py``) returns four keys:
+    ``status``/``app``/``revision``/``storage``. Pinning the exact dict
+    snapshot made the test fail on every contract addition (issue
+    #1153); the documented fields are asserted instead, mirroring the
+    contract shape of ``tests/e2e_ci/test_application_smoke.py``.
+    """
     response = page.goto(f"{base_url}/healthz")
     assert response is not None
     assert response.status == 200
     body = response.json()
-    assert body == {"status": "ok", "app": "APAP_WEB"}
+    assert body["status"] == "ok"
+    assert body["app"] == "APAP_WEB"
+    assert isinstance(body.get("revision"), str) and body["revision"]
+    assert body.get("storage") in {"up", "down", "unconfigured"}
 
 
 def test_unauthorized_redirects_to_login_for_anonymous(
@@ -145,11 +214,7 @@ def test_unauthorized_redirects_to_login_for_anonymous(
     """
     _skip_if_oauth_not_configured(page, base_url)
     response = page.goto(f"{base_url}/unauthorized", wait_until="domcontentloaded")
-    assert response is not None
-    assert response.status == 302
-    assert page.url.endswith("/login"), (
-        f"/unauthorized without session should redirect to /login, got: {page.url}"
-    )
+    _assert_bounced_to_login(page, response, "/unauthorized")
 
 
 def test_unauthorized_renders_friendly_message_with_session(
@@ -159,17 +224,15 @@ def test_unauthorized_renders_friendly_message_with_session(
 
     The dev server doesn't accept arbitrary session cookies (the secret
     is fixed at startup), so this test only asserts the redirect-to-login
-    behavior end-to-end in CI where /login is 503. In staging a follow-up
-    test could mint a deactivated session cookie via the test fixture
-    helpers and assert the full copy.
+    behavior. In staging a follow-up test could mint a deactivated
+    session cookie via the test fixture helpers and assert the full copy.
     """
     _skip_if_oauth_not_configured(page, base_url)
     # Without a valid session cookie the page is still bounced; the
     # behaviour with a deactivated cookie is verified by unit tests in
     # tests/test_pages.py::test_unauthorized_renders_html.
     response = page.goto(f"{base_url}/unauthorized", wait_until="domcontentloaded")
-    assert response is not None
-    assert response.status == 302
+    _assert_bounced_to_login(page, response, "/unauthorized")
 
 
 def test_animales_redirects_to_login_without_session(
@@ -194,8 +257,4 @@ def test_animales_redirects_to_login_without_session(
         )
 
     response = page.goto(f"{base_url}/animales", wait_until="domcontentloaded")
-    assert page.url.endswith("/login"), (
-        f"/animales without session should redirect to /login, got: {page.url}"
-    )
-    assert response is not None
-    assert response.status == 302
+    _assert_bounced_to_login(page, response, "/animales")
