@@ -97,7 +97,7 @@ tres piezas no pueden divergir.
 
 | Job | Responsabilidad |
 |---|---|
-| `pr-size` | Presupuesto de 400 líneas por PR (AGENTS.md §15.1); primer job, el resto depende de él vía `needs`. Delega la implementación a `pr-size.yml` como workflow reusable (`uses:`) — única fuente del cálculo (issue #890). |
+| `pr-size` | Presupuesto de 400 líneas por PR (AGENTS.md §15.1); primer job, el resto depende de él vía `needs`. Delega la implementación a `pr-size.yml` como workflow reusable (`uses:`) — única fuente del cálculo (issue #890). El override es `size-exception-reason: <motivo>` en el cuerpo del PR, leído vivo por la API en el mismo paso que aplica el gate (issue #1121); editar el cuerpo no relanza el check, se relanza el job fallido. |
 | `lint` | Ruff, reglas APAP, límites de arquitectura y ratchets. |
 | `issue-spec` | Issue vinculada, aprobada y con las seis secciones obligatorias. |
 | `security` | Auditoría de dependencias, secretos y Dockerfile. |
