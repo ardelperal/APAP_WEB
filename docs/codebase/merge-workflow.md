@@ -93,6 +93,20 @@ Decisión (2026-09-25, issue #972): **desactivar** `required_conversation_resolu
 
 Esta sección se complementa con §15.5 — cambiar branch protection requiere OK explícito del usuario por push (la ejecución del comando va en un comentario del PR, no automatizada en el merge).
 
+### §15.8 Auto-merge y actualización de rama con `update-branch` (issue #958)
+
+Decisión del operador (2026-09-30, issue #958): el repositorio tiene activados `allow_auto_merge=true` y `allow_update_branch=true`. `strict` permanece en `true` y es deliberado: el job `evidence` de `deploy.yml` exige que el árbol fusionado sea idéntico al del PR revisado, y esa identidad de la evidencia de despliegue depende de `strict`. No la relaje para ahorrar una repetición de CI.
+
+Uso:
+
+- Encole el merge de un PR con `gh pr merge <N> --auto --merge` (merge commit; nunca `--delete-branch`, véase §15.2). GitHub fusiona en cuanto los checks requeridos están verdes.
+- Actualice la rama del PR cuando `main` avance: `gh api -X PUT repos/ardelperal/APAP_WEB/pulls/<N>/update-branch` (respuesta 202 esperada). La CI se reejecuta sobre la head nueva.
+
+Límite honesto:
+
+- Con `strict`, si `main` avanza mientras el PR espera, el auto-merge se detiene hasta que alguien actualice la rama. Con varios PR en paralelo, fusione de uno en uno y actualice el siguiente inmediatamente.
+- Una actualización de rama disparada con `GITHUB_TOKEN` (desde un workflow) no reejecuta la CI; la hecha con el token de usuario vía `gh api` sí. Automatizar la actualización exigiría un personal access token o una GitHub App, y eso sigue requiriendo el OK explícito del usuario (§15.5).
+
 ## §16 — Norma multi-sesión sobre push directo a `main` (issue #986)
 
 Varias sesiones de agente en paralelo operan contra este repositorio
