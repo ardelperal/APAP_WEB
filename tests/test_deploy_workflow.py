@@ -13,6 +13,9 @@ string-based assertion style of tests/test_ci_workflow.py.
 
 import re
 from pathlib import Path
+from typing import Any
+
+from tests import _workflow_yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "deploy.yml"
@@ -74,6 +77,24 @@ def test_release_e2e_gate_evaluates_the_previous_deployed_revision() -> None:
     assert "first deploy" in section, "no previous deploy must pass explicitly"
 
 
+def test_release_e2e_gate_requires_both_release_contexts_of_the_previous_sha() -> None:
+    """Issue #1131: smoke AND e2e must be valid on the previous revision, and
+    the gate exposes that SHA so the record job can select the e2e range.
+    """
+    job = _deploy_job(_GATE_JOB)
+    text = _workflow_yaml.runs_text(job)
+
+    assert "release/smoke-production" in text
+    assert "release/e2e-production" in text
+    assert '--context "$context"' in text
+    assert 'exit "$failed"' in text, "a refusal in either context must fail the gate"
+    assert job["outputs"] == {"previous_sha": "${{ steps.gate.outputs.previous_sha }}"}
+    gate_step = _workflow_yaml.find_step(job, "verdicts")
+    assert gate_step["id"] == "gate"
+    first_output = text.index('echo "previous_sha=${prev_sha}" >> "$GITHUB_OUTPUT"')
+    assert first_output < text.index("first deploy"), "the output is written before any early exit"
+
+
 def test_release_e2e_gate_fails_closed_on_api_errors() -> None:
     section = _gate_section()
 
@@ -102,15 +123,15 @@ def test_release_e2e_record_runs_after_a_successful_deploy_only() -> None:
     """
     section = _record_section()
 
-    assert "needs: [deploy]" in section
+    assert "needs: [release-e2e-gate, deploy]" in section
     assert "needs.deploy.result == 'success'" in section
 
 
 def test_release_e2e_record_sets_pending_status_on_the_deployed_sha() -> None:
     section = _record_section()
 
-    assert STATUS_CONTEXT in section
-    assert 'state: "pending"' in section
+    assert f'context: "{STATUS_CONTEXT}"' in section
+    assert "state=pending" in section
     assert "statuses/${GITHUB_SHA}" in section
     assert RUNBOOK_PATH in section
 
@@ -213,3 +234,133 @@ def test_ui_e2e_gate_tree_mismatch_error_documents_the_recovery_path() -> None:
     assert "update the branch" in section
     assert "re-merge" in section
     assert "does NOT satisfy" in section
+
+
+# --- issue #1131: production smoke and the range-based e2e decision -----------
+
+_GATE_JOB = "release-e2e-gate"
+_SMOKE_JOB = "production-smoke"
+_SMOKE_CONTEXT = "release/smoke-production"
+#: GitHub rejects a commit-status description longer than this.
+_DESCRIPTION_LIMIT = 140
+#: success/failure of the smoke plus pending/not-required of the record job.
+_DESCRIPTION_COUNT = 4
+_PINNED_ACTION = re.compile(r"@[0-9a-f]{40}$")
+
+
+def _deploy_job(job_id: str) -> dict[str, Any]:
+    return _workflow_yaml.job(_workflow_yaml.load(DEPLOY_WORKFLOW_PATH), job_id)
+
+
+def _assert_pinned_and_gh_free(job: dict[str, Any]) -> None:
+    for step in _workflow_yaml.steps(job):
+        if "uses" in step:
+            assert _PINNED_ACTION.search(str(step["uses"])), step["uses"]
+        assert not re.search(r"(^|\s)gh\s", str(step.get("run", "")), flags=re.MULTILINE)
+
+
+def _description_literals(run_text: str) -> list[str]:
+    """Every ``description="..."`` assignment of a run script (shell-expanded)."""
+    return re.findall(r'description="([^"]+)"', run_text)
+
+
+def test_production_smoke_runs_after_a_successful_deploy_on_a_hosted_runner() -> None:
+    job = _deploy_job(_SMOKE_JOB)
+
+    assert _workflow_yaml.needs(job) == ["deploy"]
+    assert job["if"] == "needs.deploy.result == 'success'"
+    assert job["runs-on"] == "ubuntu-24.04", "hosted runner: no deploy-host access"
+    assert "timeout-minutes" in job
+
+
+def test_production_smoke_has_least_privilege_and_no_secrets() -> None:
+    job = _deploy_job(_SMOKE_JOB)
+    text = _workflow_yaml.job_text(job)
+
+    assert _workflow_yaml.permissions(job) == {"contents": "read", "statuses": "write"}
+    assert "secrets." not in text
+    assert "docker" not in text.lower()
+    assert "playwright" not in text.lower()
+    _assert_pinned_and_gh_free(job)
+
+
+def test_production_smoke_runs_the_script_against_the_variable_derived_url() -> None:
+    job = _deploy_job(_SMOKE_JOB)
+    run = _workflow_yaml.find_step(job, "smoke")
+
+    assert run["env"]["DEPLOY_HEALTH_URL"] == "${{ vars.APAP_DEPLOY_HEALTH_URL }}"
+    assert (
+        'python scripts/production_smoke.py --health-url "$DEPLOY_HEALTH_URL"'
+        ' --revision "$GITHUB_SHA"'
+    ) in run["run"]
+    assert "continue-on-error" not in run, "a failed smoke must fail the job"
+
+
+def test_production_smoke_always_records_its_status_on_the_deployed_sha() -> None:
+    job = _deploy_job(_SMOKE_JOB)
+    record = _workflow_yaml.find_step(job, "Record release/smoke-production")
+    text = str(record["run"])
+
+    assert record["if"] == "always()"
+    assert record["env"]["JOB_STATUS"] == "${{ job.status }}"
+    assert '"$JOB_STATUS" = "success"' in text
+    assert f'context: "{_SMOKE_CONTEXT}"' in text
+    assert "statuses/${GITHUB_SHA}" in text
+    assert "actions/runs/${GITHUB_RUN_ID}" in text, "target_url must be this run"
+    assert 'if [ "$code" != "201" ]' in text
+    smoke = _workflow_yaml.steps(job).index(_workflow_yaml.find_step(job, "smoke"))
+    assert smoke < _workflow_yaml.steps(job).index(record), "record runs after the smoke"
+
+
+def test_commit_status_descriptions_fit_the_github_limit() -> None:
+    """A description over 140 characters makes the statuses API answer 422."""
+    sha8 = "12345678"
+    pieces: list[str] = []
+    for job_id, step_name in ((_SMOKE_JOB, "Record release"), ("release-e2e-record", "Decide")):
+        step = _workflow_yaml.find_step(_deploy_job(job_id), step_name)
+        pieces += _description_literals(str(step["run"]))
+    assert len(pieces) == _DESCRIPTION_COUNT, pieces
+    for text in pieces:
+        expanded = text.replace("${GITHUB_SHA:0:8}", sha8).replace("${PREVIOUS_SHA:0:8}", sha8)
+        assert len(expanded) <= _DESCRIPTION_LIMIT, expanded
+
+
+def test_release_e2e_record_decides_with_the_range_selector_on_full_history() -> None:
+    job = _deploy_job("release-e2e-record")
+    checkout = _workflow_yaml.find_step(job, "Check out")
+    decide = _workflow_yaml.find_step(job, "Decide")
+    text = str(decide["run"])
+
+    assert checkout["with"]["fetch-depth"] == 0
+    assert decide["env"]["PREVIOUS_SHA"] == "${{ needs.release-e2e-gate.outputs.previous_sha }}"
+    assert (
+        'python scripts/check_release_e2e_required.py --base "$PREVIOUS_SHA" --head "$GITHUB_SHA"'
+    ) in text
+
+
+def test_release_e2e_record_maps_selector_exit_codes_fail_closed() -> None:
+    text = str(_workflow_yaml.find_step(_deploy_job("release-e2e-record"), "Decide")["run"])
+
+    assert "0) required=false" in text
+    assert "10) required=true" in text
+    assert "*)" in text and "cannot decide" in text, "any other exit code fails the job"
+    assert 'if [ -n "$PREVIOUS_SHA" ]' in text and "first deploy" in text
+    assert "state=pending" in text and "state=success" in text
+    assert "not-required: no e2e-sensitive path changed since ${PREVIOUS_SHA:0:8}" in text
+    assert "awaiting runbook validation: e2e-sensitive paths changed" in text
+
+
+def test_release_e2e_record_keeps_least_privilege_pinned_actions_and_no_gh() -> None:
+    job = _deploy_job("release-e2e-record")
+
+    assert _workflow_yaml.permissions(job) == {"contents": "read", "statuses": "write"}
+    assert "secrets." not in _workflow_yaml.job_text(job)
+    _assert_pinned_and_gh_free(job)
+
+
+def test_deploy_still_needs_the_gate_and_the_gate_is_read_only() -> None:
+    deploy = _deploy_job("deploy")
+
+    assert _workflow_yaml.needs(deploy) == ["evidence", "release-e2e-gate", "ui-e2e-gate"]
+    assert _SMOKE_JOB not in _workflow_yaml.needs(deploy), "the smoke runs after deploy, not before"
+    assert set(_workflow_yaml.permissions(_deploy_job(_GATE_JOB)).values()) == {"read"}

@@ -154,12 +154,14 @@ def _ensure_auth_state_or_skip(cache: e2e_login.AuthStateCache) -> Path:
 def authenticated_state_cache(tmp_path_factory: pytest.TempPathFactory) -> e2e_login.AuthStateCache:
     """TTL-aware session cache for the minted storageState (issue #906, F3).
 
-    The server refreshes its 300s in-process auth cache only on
-    ``/e2e/login``; this cache re-mints through that endpoint whenever
-    its copy is older than 240s (a safety margin under the server TTL),
-    so suites longer than ~5 minutes keep working without touching the
-    server-side default. ``authenticated_context`` re-checks freshness
-    per test; ``authenticated_state`` exposes the session-start path.
+    ``/e2e/login`` mints the session from the ``usuarios_autorizados``
+    allowlist; it does NOT seed the server's in-process auth cache
+    (issue #1073 — ``require_authorized_user`` is its single writer).
+    This cache re-mints through that endpoint whenever its copy is
+    older than 240s (issue #906, fix F3), so suites longer than ~5
+    minutes always drive a freshly minted session.
+    ``authenticated_context`` re-checks freshness per test;
+    ``authenticated_state`` exposes the session-start path.
     """
     import scripts.e2e_login as e2e_login  # noqa: PLC0415 — lazy, like the fixtures
 
@@ -176,9 +178,10 @@ def authenticated_state(authenticated_state_cache: e2e_login.AuthStateCache) -> 
     """StorageState path minted via the e2e login CLI (issue #906).
 
     Returns the cached path from ``authenticated_state_cache`` (mints on
-    first use). The per-test freshness guarantee — re-mint every 240s to
-    stay under the server's 300s auth-cache TTL, which only ``/e2e/login``
-    refreshes — lives in ``authenticated_context``; a direct consumer of
+    first use). The per-test freshness guarantee — re-mint every 240s so
+    long suites always drive a freshly minted session (issue #1073: the
+    login never seeds the server cache) — lives in
+    ``authenticated_context``; a direct consumer of
     this session-scoped path gets the state as of session start.
 
     Skip policy: skip ONLY when the secret env var is absent or the
@@ -194,9 +197,10 @@ def authenticated_context(_browser: Browser, authenticated_state_cache: e2e_logi
     """A fresh per-test context that starts authenticated from the shared state.
 
     Re-checks the cache's TTL freshness before building the context:
-    the server's auth cache expires after 300s and only ``/e2e/login``
-    refreshes it, so long suites re-mint every 240s (issue #906, F3).
-    The same benign-failure skip policy applies to the per-test re-mint.
+    the login never seeds the server's auth cache (issue #1073), so
+    long suites re-mint every 240s (issue #906, F3) to always drive a
+    freshly minted session. The same benign-failure skip policy applies
+    to the per-test re-mint.
     """
     state = _ensure_auth_state_or_skip(authenticated_state_cache)
     ctx = _browser.new_context(base_url=BASE_URL, storage_state=str(state))

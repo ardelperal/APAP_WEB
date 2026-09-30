@@ -39,14 +39,15 @@ concurrency:
   group: pr-size-${{ github.ref }}-${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && 'label' || 'call' }}
   cancel-in-progress: true
 # The job below reads the repository (merge-base diff) and, since issue
-# #926, the PR's live labels via the GitHub API; it never writes back.
+# #1121, the PR's body via the GitHub API; it never writes back.
 # Match the explicit permissions contract of ci.yml / deploy.yml so a
 # future repo-level default that broadens the GITHUB_TOKEN does not
 # silently widen this workflow's blast radius (issue #682).
 #
-# Issue #926: `issues: read` was added so the "Check size:exception label"
-# step below can fetch the PR's current labels from the GitHub API instead
-# of trusting the (possibly stale) pull_request event payload.
+# Issue #1121: `issues: read` fetches the PR body; check_pr_size.py parses
+# `size-exception-reason: <motivo>` from it. The ``size:exception`` label
+# is informational only — gates read structured data, not gestures
+# (#935); the historical label races (#926, #941, #896) are moot now.
 permissions:
   contents: read
   issues: read
@@ -133,45 +134,50 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
 
-      - name: Check size:exception label via the GitHub API
-        id: labels
-        # Issue #926: the triggering event's own PR-labels snapshot only
-        # reflects what was present the moment that event fired.
-        # `gh pr create --label` applies labels AFTER creation, so an
-        # `opened` payload has none, and `gh run rerun` replays that same
-        # original payload — both left a PR carrying `size:exception`
-        # failing the gate (PR #931, run 36046072242: HAS_EXCEPTION=false
-        # with the label present). Read the live labels instead. Only
-        # pull_request-shaped events have a PR to query; every other
-        # trigger (push, workflow_dispatch) has nothing to check and
-        # TOTAL=0 already passes regardless.
-        if: github.event_name == 'pull_request'
+      - name: Enforce 400-line budget (AGENTS.md §15.1, issue #1121)
+        # Issue #1121: the override that gates the 400-line budget lives
+        # in the PR body as `size-exception-reason: <motivo>` (epic #935:
+        # gates read structured data, not gestures). The previous
+        # label-based check raced with `labeled`/`unlabeled` events (#926,
+        # #941, #896); reading the live body on every run makes the gate
+        # self-contained.
+        #
+        # The body is author-controlled, so it is fetched and enforced in
+        # THIS step and reaches the script only through a shell variable.
+        # It is never written to $GITHUB_OUTPUT (a body line equal to the
+        # heredoc delimiter would inject step outputs) and never
+        # interpolated into the script text.
+        #
+        # Editing a body does not fire this check (ci.yml keeps the default
+        # pull_request types on purpose); re-running the failed job
+        # re-reads the live body (see CONTRIBUTING.md).
         env:
+          EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          TOTAL: ${{ steps.diff.outputs.total }}
         run: |
           set -euo pipefail
-          # Issue #533: this runner does not provide the `gh` CLI — curl +
-          # jq, both present, replace it (same pattern as deploy.yml's
-          # "Find the green CI run that proved this tree" step).
-          body=$(mktemp)
-          code=$(curl -sS -o "$body" -w '%{http_code}' --max-time 30 \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels?per_page=100")
-          # Fail CLOSED: a failed lookup must not be silently read as "no
-          # size:exception label", which would let an oversized PR through
-          # the budget gate instead of blocking it.
-          if [ "$code" != "200" ]; then
-            echo "::error::Failed to fetch labels for PR #$PR_NUMBER from the GitHub API (HTTP ${code}); failing closed instead of assuming size:exception is absent (issue #926)."
-            exit 1
+          PR_BODY=""
+          # Only pull_request-shaped events have a PR body; every other
+          # trigger (push, workflow_dispatch) reports TOTAL=0 and passes.
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            # Issue #533: this runner has no `gh` CLI; curl + jq, both
+            # present, replace it (same pattern as deploy.yml). PRs are
+            # issues in GitHub's data model, so the issues endpoint
+            # returns the body.
+            tmp=$(mktemp)
+            code=$(curl -sS -o "$tmp" -w '%{http_code}' --max-time 30 \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}")
+            # Fail CLOSED: a failed lookup must not be silently read as an
+            # empty body, which would let an oversized PR through the gate.
+            if [ "$code" != "200" ]; then
+              echo "::error::Failed to fetch body for PR #$PR_NUMBER (HTTP ${code}); failing closed (issue #1121)."
+              exit 1
+            fi
+            PR_BODY=$(jq -r '.body // ""' "$tmp")
           fi
-          HAS_EXCEPTION=$(jq 'any(.[]; .name == "size:exception")' "$body")
-          echo "has_exception=$HAS_EXCEPTION" >> "$GITHUB_OUTPUT"
-
-      - name: Enforce 400-line budget (AGENTS.md §15.1)
-        env:
-          TOTAL: ${{ steps.diff.outputs.total }}
-          HAS_EXCEPTION: ${{ steps.labels.outputs.has_exception == 'true' }}
-        run: python scripts/check_pr_size.py "$TOTAL" "$HAS_EXCEPTION"
+          python scripts/check_pr_size.py "$TOTAL" "$PR_BODY"

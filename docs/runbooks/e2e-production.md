@@ -92,6 +92,18 @@ required; every server-side action goes through the Coolify API.
 
 5. **Target reachable.** `https://apap.romancaba.com/healthz` reports the
    revision under validation before starting.
+6. **Default E2E user seeded in the database (issue #1073).** The login
+   endpoint resolves the target email against `usuarios_autorizados` —
+   the DB is the single allowlist and the role is read from the database.
+   `e2e@apap.local` (rol `developer`) is confirmed seeded in production;
+   verify it before a gate run if the user table was touched:
+
+   ```bash
+   psql "${APAP_LOCAL_DB_URL}" -c \
+     "SELECT email, rol, activo FROM usuarios_autorizados WHERE email = 'e2e@apap.local'"
+   ```
+
+   Without that row, Step 3 mints fail with `400` and the gate cannot run.
 
 ## Step 1 — Turn the e2e auth flag on (Coolify API)
 
@@ -146,6 +158,11 @@ curl -sS -o /dev/null -w '%{http_code}\n' "${APAP_E2E_BASE_URL}/e2e/login"
 - `404` — the flag did not take effect. Re-check the env edit and the
   restart; do not continue.
 
+A valid secret with an email that is not an active `usuarios_autorizados`
+row answers `400` (audited, issue #1073) — the endpoint no longer accepts
+arbitrary emails, and the `X-E2E-Email` request header is ignored (the
+target comes from `?email=` or the configured default only).
+
 The endpoint is audited and rate-limited (issue #904): every mint attempt
 writes an audit entry. Mint once per suite run, not in a loop.
 
@@ -170,9 +187,17 @@ Contract of the helper (issue #906):
 - Exit 0 means the `apap_session` cookie was minted and persisted; exit 1
   with a message on stderr means login or transport failure.
 
-The minted session mirrors the OAuth callback payload (role `developer`)
-and pre-populates the in-process auth cache, so it does not depend on the
-`usuarios_autorizados` seed.
+The minted session mirrors the OAuth callback payload shape, but the role
+and user id come from the `usuarios_autorizados` row (issue #1073) — the
+endpoint never hardcodes or elevates a role. Only the configured default
+email or an email that already exists as an active `usuarios_autorizados`
+row is accepted; anything else answers `400` and seeds nothing. The login
+no longer pre-populates the in-process auth cache: the first authorized
+request revalidates against the DB (single cache writer,
+`require_authorized_user`), so the seed row above is required, not
+optional. Note that `e2e_auth_secret` shorter than 32 chars now fails
+application startup when the mock is enabled (issue #1073); production's
+64-hex secret is unaffected.
 
 ## Step 4 — Run the gate suites
 
@@ -291,17 +316,26 @@ transitions.
 The validation runs **after** the deploy, against the deployed revision, so
 the evidence is bound to that revision and not to a global switch. The next
 deploy is gated on it: the pre-deploy job `release-e2e-gate` reads the
-`release/e2e-production` status of the previously deployed revision (the
-latest successful `deploy.yml` run on `main`, excluding the current run) and
-evaluates it with `scripts/check_release_evidence.py`. A `pending`, `failure`
-or absent verdict blocks the next deploy until the operator rolls back or
+`release/smoke-production` **and** `release/e2e-production` statuses of the
+previously deployed revision (the latest successful `deploy.yml` run on `main`,
+excluding the current run) and evaluates each with
+`scripts/check_release_evidence.py`. A `pending`, `failure` or absent verdict
+in either context blocks the next deploy until the operator rolls back or
 records `success` (or a bypass) on that SHA. With no previous deploy it passes
 with a notice.
 
-1. A push to `main` runs `deploy.yml`. When `deploy` succeeds, the
-   `release-e2e-record` job sets the commit status `release/e2e-production` to
-   `pending` ("awaiting runbook validation") on the deployed SHA. It runs no
-   e2e suite and holds no secret beyond the job token.
+1. A push to `main` runs `deploy.yml`. When `deploy` succeeds, two jobs run,
+   both without secrets beyond the job token:
+   `production-smoke` runs the automatic smoke and records
+   `release/smoke-production` (see the next subsection), and
+   `release-e2e-record` decides with `scripts/check_release_e2e_required.py`
+   whether the range since the previous deploy touches an e2e-sensitive path
+   (patterns in `.github/release-e2e-paths.txt`). If it does, or if the
+   selector cannot decide, the job sets `release/e2e-production` to `pending`
+   ("awaiting runbook validation: e2e-sensitive paths changed") and the steps
+   below apply. If it does not, the job records `success` with the description
+   `not-required: no e2e-sensitive path changed since <prev8>` and you have
+   nothing to do. Neither job runs an e2e suite.
 2. Validate production with Steps 1-5 and record the verdict on **that same
    SHA** with the GitHub statuses API (`SHA` is the deployed revision):
 
@@ -339,10 +373,57 @@ with a notice.
      | python scripts/check_release_evidence.py --sha "${SHA}"
    ```
 
-**Bootstrap.** The last revision deployed before this change (`460c56f1...`)
-has no `release/e2e-production` status, so the first deploy after the merge is
-blocked until an operator records `success` (or `success` with description
-`skipped:<reason>`) on that SHA with the same `gh api` statuses call above.
+### Quién escribe cada estado (issue #1131)
+
+| Estado | Lo escribe | Qué cubre |
+|---|---|---|
+| `release/smoke-production` | El job `production-smoke`, siempre, sobre la SHA desplegada (`success` o `failure`, con la URL del run) | Humo sin autenticación: la revisión está viva y la puerta de acceso responde |
+| `release/e2e-production` | El job `release-e2e-record` (`pending` o `success` con `not-required:`); si queda `pending`, el operador lo resuelve con los pasos de arriba | Batería e2e autenticada contra producción, exigida solo cuando el rango toca rutas sensibles |
+
+El humo (`scripts/production_smoke.py`) no usa secretos ni inicia sesión.
+Comprueba que `/healthz` publica la SHA desplegada (con reintentos acotados,
+porque el deploy termina justo antes), que `/login` responde `200` y que `/`
+sin sesión redirige a `/login` sin devolver un `5xx`. Deriva el origen de la
+variable `APAP_DEPLOY_HEALTH_URL`, no de un host escrito en el código.
+
+**Límites del humo.** No sustituye a la batería e2e autenticada: no prueba
+ningún flujo con sesión, ninguna escritura ni ninguna regla de negocio. Solo
+demuestra que la revisión responde y que el control de acceso está en pie. Por
+eso el gate exige ambos estados y el e2e sigue siendo obligatorio cuando el
+rango cambia autenticación, sesión, CSRF, configuración, migraciones o el
+despliegue.
+
+**Bootstrap (una sola vez).** La última revisión desplegada antes de este
+cambio no tiene `release/smoke-production`, así que el primer deploy posterior
+queda bloqueado por `release-e2e-gate`. Ejecute el humo usted mismo contra
+producción y registre el resultado **real** sobre esa SHA; no registre un
+`success` que el script no haya devuelto:
+
+```bash
+REPO=ardelperal/APAP_WEB
+DEPLOY_HEALTH_URL=<valor de la variable APAP_DEPLOY_HEALTH_URL>
+SHA=$(curl -s "${DEPLOY_HEALTH_URL}" | jq -r .revision)   # la revisión desplegada
+
+uv run python scripts/production_smoke.py \
+  --health-url "${DEPLOY_HEALTH_URL}" --revision "${SHA}"
+echo "exit=$?"
+
+# Solo con exit=0: registre el resultado real sobre la SHA desplegada.
+gh api --method POST "repos/${REPO}/statuses/${SHA}" \
+  -f state=success -f context=release/smoke-production \
+  -f description="bootstrap: smoke run by hand against production" \
+  -f target_url="<enlace a la evidencia>"
+
+# Con exit=1: registre state=failure con el mismo comando y corrija o haga
+# rollback según deploy-rollback.md.
+```
+
+Lea la SHA del campo `revision` de `/healthz`, no de `origin/main`: `main` puede
+haber avanzado por encima de lo desplegado (o el despliegue puede haber sido un
+rollback), y el estado debe quedar sobre la revisión que sirve producción.
+
+Si esa SHA tampoco tiene `release/e2e-production`, resuélvala con los pasos de
+arriba (`success` real o `skipped:<motivo>`).
 
 The retired repository variable `APAP_E2E_GATE_EVIDENCE` and the
 variable-based `release-e2e-gate` (issue #908) no longer exist: it blocked
