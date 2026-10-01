@@ -5,11 +5,13 @@ from pathlib import Path
 
 from scripts.check_required_jobs import (
     ALL_JOBS,
+    DOCS_ONLY_HEAVY_JOBS,
     GATE_SOURCE_FILES,
     JOB_DEPENDENCIES,
     NON_UI_PATH_PREFIXES,
     RequiredJobsReport,
     check_results,
+    docs_changed_for_paths,
     evaluate,
     format_report,
     ui_changed_for_paths,
@@ -58,7 +60,8 @@ def test_e2e_skip_on_pull_request_requires_no_ui_change_marker() -> None:
     for marker in ("true", "", "maybe"):
         _marker(needs, marker)
         assert check_results(needs, "pull_request") == [
-            f"e2e: result='skipped' without ui_changed='false' (got {marker!r})"
+            "e2e: result='skipped' without ui_changed='false' "
+            f"or docs_changed='true' (got ui_changed={marker!r}, docs_changed='')"
         ]
 
 
@@ -74,7 +77,8 @@ def test_e2e_skip_on_branch_push_requires_no_ui_change_marker() -> None:
 
     _marker(needs, "true")
     assert check_results(needs, "push") == [
-        "e2e: result='skipped' without ui_changed='false' (got 'true')"
+        "e2e: result='skipped' without ui_changed='false' "
+        "or docs_changed='true' (got ui_changed='true', docs_changed='')"
     ]
 
 
@@ -89,12 +93,14 @@ def test_e2e_missing_marker_fails_closed() -> None:
     # ui-detection ran but published no outputs.
     needs["ui-detection"] = {"result": "success"}
     assert check_results(needs, "pull_request") == [
-        "e2e: result='skipped' without ui_changed='false' (got '')"
+        "e2e: result='skipped' without ui_changed='false' "
+        "or docs_changed='true' (got ui_changed='', docs_changed='')"
     ]
     # Malformed output type.
     needs["ui-detection"] = {"result": "success", "outputs": {"ui_changed": 1}}
     assert check_results(needs, "pull_request") == [
-        "e2e: result='skipped' without ui_changed='false' (got '')"
+        "e2e: result='skipped' without ui_changed='false' "
+        "or docs_changed='true' (got ui_changed='', docs_changed='')"
     ]
 
 
@@ -592,3 +598,176 @@ def test_check_required_jobs_full_flow_happy_path_stays_clean() -> None:
     assert "required jobs: OK" in result.stdout
     assert "ROOT CAUSE" not in result.stderr
     assert "CONSEQUENCES" not in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Issue #1196: docs-only fast lane — fail-closed classifier.
+# ---------------------------------------------------------------------------
+
+
+def test_docs_changed_for_paths_true_for_pure_documentation_diffs() -> None:
+    """Issue #1196: docs-only holds only when EVERY changed file is prose:
+    everything under docs/, root-level *.md files, *.md under skills/."""
+    assert docs_changed_for_paths(["docs/architecture/foo.md"]) is True
+    assert docs_changed_for_paths(["README.md", "CHANGELOG.md"]) is True
+    assert docs_changed_for_paths(["skills/apap-architecture/SKILL.md"]) is True
+    assert docs_changed_for_paths(
+        ["docs/runbooks/e2e-production.md", "CONTRIBUTING.md"]
+    ) is True
+
+
+def test_docs_changed_for_paths_is_false_when_any_code_file_is_present() -> None:
+    """Mixed PRs (docs + anything else) run the heavy jobs: the detection is
+    strict ALL-files-are-docs."""
+    assert docs_changed_for_paths(["docs/x.md", "app/main.py"]) is False
+    assert docs_changed_for_paths(["README.md", "Makefile"]) is False
+    assert docs_changed_for_paths(["docs/x.md", "tests/test_ci_workflow.py"]) is False
+    assert docs_changed_for_paths(["docs/x.md", ".github/workflows/ci.yml"]) is False
+
+
+def test_docs_changed_for_paths_never_classifies_gate_sources_as_docs() -> None:
+    """Anti-self-exemption toll (mirrors issue #895): the gate's own sources
+    can never ride the docs-only lane, even defensively."""
+    assert docs_changed_for_paths(["scripts/check_required_jobs.py"]) is False
+    assert docs_changed_for_paths(["docs/x.md", ".github/workflows/deploy.yml"]) is False
+
+
+def test_docs_changed_for_paths_excludes_github_markdown() -> None:
+    """``.github/**`` is code-adjacent: workflow markdown never counts as docs."""
+    assert docs_changed_for_paths([".github/pull_request_template.md"]) is False
+    assert docs_changed_for_paths([".github/workflows/notes.md"]) is False
+
+
+def test_docs_changed_for_paths_requires_markdown_under_skills() -> None:
+    """Only *.md under skills/ counts; skill assets are not prose."""
+    assert docs_changed_for_paths(["skills/apap-security/data.json"]) is False
+
+
+def test_docs_changed_for_paths_scopes_root_markdown_to_the_root() -> None:
+    """Nested non-docs markdown is code-adjacent, not documentation."""
+    assert docs_changed_for_paths(["app/README.md"]) is False
+
+
+def test_docs_changed_for_paths_empty_diff_runs_heavy_jobs() -> None:
+    """Fail-closed: an empty changed set is a known no-op, not a docs-only
+    diff — the heavy jobs must run."""
+    assert docs_changed_for_paths([]) is False
+
+
+def test_docs_only_heavy_jobs_pin_the_skip_set() -> None:
+    """The heavy set is exactly the jobs the docs-only lane may skip."""
+    assert DOCS_ONLY_HEAVY_JOBS == frozenset(
+        {"typecheck", "test", "integration", "verify-fallback-ready", "build"}
+    )
+
+
+# ---------------------------------------------------------------------------
+# Issue #1196: docs-only fast lane — skip acceptance in ``evaluate``.
+# ---------------------------------------------------------------------------
+
+
+def _docs_marker(
+    needs: dict[str, dict], docs_changed: str, ui_changed: str = "false"
+) -> dict[str, dict]:
+    """Attach a ui-detection output payload carrying both markers."""
+    needs["ui-detection"] = {
+        "result": "success",
+        "outputs": {"ui_changed": ui_changed, "docs_changed": docs_changed},
+    }
+    return needs
+
+
+def test_docs_only_pull_request_accepts_the_documented_heavy_job_skips() -> None:
+    """Issue #1196: on a docs-only PR the heavy jobs (and e2e) skip with the
+    ``docs_changed='true'`` marker and the aggregator stays green."""
+    needs = _needs()
+    _docs_marker(needs, "true")
+    for job in ("typecheck", "test", "integration", "verify-fallback-ready", "build", "e2e"):
+        needs[job]["result"] = "skipped"
+
+    report = evaluate(needs, "pull_request")
+
+    assert report.is_clean, report
+
+
+def test_heavy_job_skip_without_docs_marker_fails_closed() -> None:
+    """A skipped heavy job without the marker stays a violation with its
+    documented skip reason named."""
+    needs = _needs()
+    _docs_marker(needs, "false")
+    needs["test"]["result"] = "skipped"
+
+    report = evaluate(needs, "pull_request")
+
+    assert any(
+        "test" in line and "docs_changed" in line
+        for line in report.other_violations
+    ), report.other_violations
+
+
+def test_docs_marker_does_not_accept_heavy_skips_on_release_events() -> None:
+    """Release events (workflow_dispatch / tag push) must terminate the heavy
+    jobs SUCCESS; the docs marker never exempts them there."""
+    needs = _needs()
+    _docs_marker(needs, "true")
+    needs["test"]["result"] = "skipped"
+
+    report = evaluate(needs, "workflow_dispatch")
+
+    assert not report.is_clean
+    assert report.other_violations
+
+
+def test_e2e_skip_on_docs_only_pr_accepted_even_with_ui_changed_true() -> None:
+    """Issue #1196: on a docs-only PR the e2e skip is accepted through the
+    docs marker even when ui_changed is not 'false'."""
+    needs = _needs()
+    _docs_marker(needs, "true", ui_changed="true")
+    needs["e2e"]["result"] = "skipped"
+
+    report = evaluate(needs, "pull_request")
+
+    assert report.is_clean, report
+
+
+def test_docs_only_pr_with_missing_job_still_fails_closed() -> None:
+    """The marker accepts documented skips, never absent jobs."""
+    needs = _needs()
+    _docs_marker(needs, "true")
+    for job in ("typecheck", "test", "integration", "verify-fallback-ready", "build"):
+        needs[job]["result"] = "skipped"
+    del needs["build"]
+
+    report = evaluate(needs, "pull_request")
+
+    assert "build" in report.missing
+    assert not report.is_clean
+
+
+def test_docs_changed_flag_reads_changed_paths_from_stdin() -> None:
+    """The workflow classifies the changed-file set through ``--docs-changed``
+    (one path per line on stdin), mirroring ``--ui-changed``."""
+    import subprocess
+    import sys
+
+    pure = subprocess.run(
+        [sys.executable, "scripts/check_required_jobs.py", "--docs-changed"],
+        cwd=REPO_ROOT,
+        input="docs/x.md\nREADME.md\nskills/foo/SKILL.md\n",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert pure.returncode == 0
+    assert pure.stdout.strip() == "true"
+
+    mixed = subprocess.run(
+        [sys.executable, "scripts/check_required_jobs.py", "--docs-changed"],
+        cwd=REPO_ROOT,
+        input="docs/x.md\napp/main.py\n",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert mixed.returncode == 0
+    assert mixed.stdout.strip() == "false"

@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
 
@@ -117,11 +117,11 @@ JOB_DEPENDENCIES: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "security": ("pr-size", "lint"),
         "security-deep": ("pr-size",),
         "mutation": ("pr-size",),
-        "typecheck": ("pr-size",),
-        "test": ("pr-size", "lint"),
-        "integration": ("pr-size", "lint"),
-        "verify-fallback-ready": ("pr-size", "integration"),
-        "build": ("pr-size", "test", "integration", "verify-fallback-ready"),
+        "typecheck": ("pr-size", "ui-detection"),
+        "test": ("pr-size", "lint", "ui-detection"),
+        "integration": ("pr-size", "lint", "ui-detection"),
+        "verify-fallback-ready": ("pr-size", "integration", "ui-detection"),
+        "build": ("pr-size", "test", "integration", "verify-fallback-ready", "ui-detection"),
         "e2e": ("build", "ui-detection"),
         "ui-detection": (),
     }
@@ -140,6 +140,17 @@ SKIPS_BY_EVENT = {
 #: ``ui_changed=false``). Tag pushes are carved out separately below: on a
 #: release event the e2e suite must terminate SUCCESS regardless of marker.
 E2E_MARKER_EXEMPT_EVENTS = frozenset({"pull_request", "push"})
+
+#: Issue #1196: heavy jobs a docs-only ``pull_request`` may skip, accepted
+#: only when the run carries the ``docs_changed='true'`` marker published
+#: by ``ui-detection`` (fail-closed, same semantics as the #895 e2e
+#: marker). Release events never accept these skips. ``e2e`` is not in
+#: this set: its skip acceptance predates it (#895) and additionally
+#: honors the docs marker, since a pure-documentation diff can never be
+#: a UI change.
+DOCS_ONLY_HEAVY_JOBS = frozenset(
+    {"typecheck", "test", "integration", "verify-fallback-ready", "build"}
+)
 
 
 def is_non_ui_path(path: str, allowlist: Sequence[str] = NON_UI_PATH_PREFIXES) -> bool:
@@ -176,6 +187,54 @@ def ui_changed_for_paths(
     return False
 
 
+def is_docs_path(path: str) -> bool:
+    """Return True when ``path`` is documentation for the #1196 fast lane.
+
+    The docs-only surface is deliberately minimal: everything under
+    ``docs/``, a root-level ``*.md`` file, or a ``*.md`` file under
+    ``skills/``. ``.github/**`` is code-adjacent (its markdown ships in
+    the same tree as the workflows it documents) and nested non-docs
+    markdown (``app/README.md``) is code-adjacent too.
+    """
+    if path.startswith("docs/"):
+        return True
+    if "/" not in path and path.endswith(".md"):
+        return True
+    return path.startswith("skills/") and path.endswith(".md")
+
+
+def docs_changed_for_paths(paths: Sequence[str]) -> bool:
+    """Fail-closed classifier for the issue #1196 docs-only fast lane.
+
+    Returns True only when the changed set is NON-empty, contains no gate
+    source file (anti-self-exemption toll, mirroring the #895 UI gate) and
+    EVERY path is documentation (:func:`is_docs_path`). Any code, config,
+    ``.github/**`` or gate-source file forces False — a mixed PR always
+    runs the heavy jobs. An empty changed set also returns False: it is a
+    known no-op, not a documentation diff.
+    """
+    if not paths:
+        return False
+    for path in paths:
+        if path in GATE_SOURCE_FILES:
+            return False
+        if not is_docs_path(path):
+            return False
+    return True
+
+
+def _detection_marker(needs: Mapping[str, object], key: str) -> str:
+    '''Return a published ui-detection output value, or ``''`` when untrustworthy.'''
+    payload = needs.get("ui-detection")
+    if not isinstance(payload, Mapping):
+        return ""
+    outputs = payload.get("outputs")
+    if not isinstance(outputs, Mapping):
+        return ""
+    marker = outputs.get(key)
+    return marker if isinstance(marker, str) else ""
+
+
 def _ui_changed_marker(needs: Mapping[str, object]) -> str:
     """Return the published ``ui_changed`` value, or """" when untrustworthy."""
     payload = needs.get("ui-detection")
@@ -184,8 +243,12 @@ def _ui_changed_marker(needs: Mapping[str, object]) -> str:
     outputs = payload.get("outputs")
     if not isinstance(outputs, Mapping):
         return ""
-    marker = outputs.get("ui_changed")
-    return marker if isinstance(marker, str) else ""
+    return _detection_marker(needs, "ui_changed")
+
+
+def _docs_changed_marker(needs: Mapping[str, object]) -> str:
+    '''Return the published ``docs_changed`` value, or ``''`` when untrustworthy.'''
+    return _detection_marker(needs, "docs_changed")
 
 
 def _pin_output_encoding() -> None:
@@ -272,6 +335,48 @@ def _closest_failing_upstream(job: str, failing: set[str]) -> str | None:
     return None
 
 
+def _e2e_marker_violation(needs: Mapping[str, object]) -> str:
+    """Return the violation for a skipped ``e2e`` without an exempt marker.
+
+    Issue #895: the skip acceptance requires the no-UI-change marker
+    (``ui_changed='false'``) — or, since issue #1196, the docs-only
+    marker (``docs_changed='true'``): a pure-documentation diff can
+    never be a UI change. The caller already excludes release events;
+    there neither marker exempts a skip.
+    """
+    ui_marker = _ui_changed_marker(needs)
+    docs_marker = _docs_changed_marker(needs)
+    if ui_marker == "false" or docs_marker == "true":
+        return ""
+    return (
+        f"e2e: result='skipped' without ui_changed='false' "
+        f"or docs_changed='true' (got ui_changed={ui_marker!r}, "
+        f"docs_changed={docs_marker!r})"
+    )
+
+
+def _allowed_skips_for_event(
+    event_name: str, ref: str, docs_marker: str
+) -> tuple[frozenset[str], str | None]:
+    """Return the event's allowed skips plus its unsupported-event marker.
+
+    Issue #766 + #1046: on a tag push e2e/mutation must still terminate
+    SUCCESS, so only ``issue-spec`` and ``security-deep`` skips are
+    accepted. Issue #1196: on a pull_request whose run carries the
+    ``docs_changed='true'`` marker, the heavy jobs join the allowed set —
+    the acceptance below still counts as clean only with the marker,
+    never on absence.
+    """
+    if event_name not in SKIPS_BY_EVENT:
+        return frozenset(), event_name or "<empty>"
+    if event_name == "push" and ref.startswith("refs/tags/"):
+        return frozenset({"issue-spec", "security-deep"}), None
+    allowed = SKIPS_BY_EVENT[event_name]
+    if event_name == "pull_request" and docs_marker == "true":
+        allowed = allowed | DOCS_ONLY_HEAVY_JOBS
+    return allowed, None
+
+
 def evaluate(
     needs: Mapping[str, object], event_name: str, ref: str = ""
 ) -> RequiredJobsReport:
@@ -284,17 +389,9 @@ def evaluate(
     failing = _failing_set(needs)
 
     unsupported: str | None = None
-    allowed_skips: frozenset[str] = frozenset()
+    docs_marker = _docs_changed_marker(needs)
     is_tag_push = event_name == "push" and ref.startswith("refs/tags/")
-    if event_name not in SKIPS_BY_EVENT:
-        unsupported = event_name or "<empty>"
-    elif is_tag_push:
-        # Issue #766 + #1046: e2e/mutation must still terminate SUCCESS
-        # on a tag push; security-deep moved to weekly+manual so its
-        # skip is accepted.
-        allowed_skips = frozenset({"issue-spec", "security-deep"})
-    else:
-        allowed_skips = SKIPS_BY_EVENT[event_name]
+    allowed_skips, unsupported = _allowed_skips_for_event(event_name, ref, docs_marker)
 
     root_causes: list[tuple[str, str]] = []
     cascade_skips: list[tuple[str, str]] = []
@@ -321,19 +418,24 @@ def evaluate(
             continue
         if job in allowed_skips:
             # Issue #895: a skipped e2e on pull_request / branch push is
-            # only a policy pass when the run carries the no-UI-change
-            # marker. On release events the marker never exempts a skip.
+            # only a policy pass when the run carries an exempt marker.
+            # On release events the marker never exempts a skip.
             if (
                 job == "e2e"
                 and event_name in E2E_MARKER_EXEMPT_EVENTS
                 and not is_tag_push
             ):
-                marker = _ui_changed_marker(needs)
-                if marker != "false":
-                    other_violations.append(
-                        f"{job}: result='skipped' without "
-                        f"ui_changed='false' (got {marker!r})"
-                    )
+                violation = _e2e_marker_violation(needs)
+                if violation:
+                    other_violations.append(violation)
+            continue
+        if event_name == "pull_request" and job in DOCS_ONLY_HEAVY_JOBS:
+            # Issue #1196: name the denied skip reason instead of the
+            # generic message, mirroring the e2e marker denial.
+            other_violations.append(
+                f"{job}: result='skipped' without docs_changed='true' "
+                f"(got {docs_marker!r})"
+            )
             continue
         other_violations.append(f"{job}: result={result!r}")
 
@@ -381,11 +483,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(" ".join(NON_UI_PATH_PREFIXES))
         return 0
     # Issue #895 fix round 1: the workflows classify the changed-file set
-    # through this flag (one path per line on stdin) so the fail-closed
-    # inversion and the gate toll live in the single source of truth too.
+    # through these flags (one path per line on stdin) so the fail-closed
+    # inversions and the gate tolls live in the single source of truth
+    # too. --ui-changed gates e2e (#895); --docs-changed gates the
+    # docs-only heavy-job fast lane (#1196).
+    classifier: Callable[[Sequence[str]], bool] | None = None
     if "--ui-changed" in args:
+        classifier = ui_changed_for_paths
+    elif "--docs-changed" in args:
+        classifier = docs_changed_for_paths
+    if classifier is not None:
         paths = [line for line in sys.stdin.read().splitlines() if line.strip()]
-        print("true" if ui_changed_for_paths(paths) else "false")
+        print("true" if classifier(paths) else "false")
         return 0
     try:
         needs = json.loads(os.environ["CI_NEEDS_JSON"])
