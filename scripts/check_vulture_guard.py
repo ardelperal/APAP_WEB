@@ -26,6 +26,17 @@ and frozen at 5. Every PR that introduces a new confirmed-dead symbol
 must either delete it or raise the baseline (the ratchet only hardens,
 never relaxes).
 
+Stacked slices (issue #1146): a slice whose helpers are consumed by the
+next PR in its chain reports those helpers as confirmed-dead at its own
+gate. The workflow that keeps the ratchet honest without weakening it is
+amend-up/ratchet-back: the slice commit raises BASELINE with the explicit
+same-commit rationale the constant requires, and the consumer commit
+deletes the now-used symbol (or lowers BASELINE) so the count returns to
+its downward path toward TARGET before the chain merges. Unlike
+``check_ruff_ratchet.py`` (``--update-baseline``, issue #1120) this guard
+has no such flag: BASELINE is edited by hand, always with rationale,
+shrink-only over time.
+
 Usage::
 
     python scripts/check_vulture_guard.py [root]
@@ -385,6 +396,7 @@ def main(argv: list[str] | None = None) -> int:
         for sym in sorted(dead_symbols):
             print(f"  {sym}")
         print("  Delete the symbol(s) above or update BASELINE in scripts/check_vulture_guard.py")
+        print("  (stacked chains: raise BASELINE with rationale in the slice, ratchet it back in the consumer — issue #1146)")
         return 1
 
     print(f"check_vulture_guard: OK ({count} confirmed-dead symbol(s), within BASELINE of {BASELINE})")

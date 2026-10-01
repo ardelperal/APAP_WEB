@@ -2,6 +2,17 @@
 
 This preserves the existing service-test fixtures while keeping production
 code coupled only to the backend-agnostic ``SqlExecutor`` contract.
+
+Known limitation (issue #1146): this fake performs NO column-type
+validation. Params are JSON-serialized and handed to the response handler
+as-is, so a value that only real Postgres would reject — e.g. a non-UUID
+string bound to a UUID column such as ``anadido_por`` — passes every
+fake-backed test here and only surfaces later as a ``QueryError`` against
+the real backend (lived: PR #1138). Generic per-column type checking is
+not feasible in this fake: the handler contract carries no schema, so
+there is no column-type information to validate against. Services whose
+correctness depends on database-side type enforcement need integration
+coverage against real Postgres (tests/integration/) before merge.
 """
 
 from __future__ import annotations
