@@ -51,6 +51,17 @@ def _write_workflow(tmp_path: Path, steps: list[tuple[str, str]]) -> Path:
     return path
 
 
+def _write_workflow_raw(tmp_path: Path, blocks: list[str]) -> Path:
+    """Write a temporary workflow whose lint job holds the given raw step blocks.
+
+    Unlike :func:`_write_workflow`, this accepts arbitrary step attributes
+    (``shell:``, ``if:``, ``env:``, ``working-directory:``) verbatim.
+    """
+    path = tmp_path / "wf.yml"
+    path.write_text(WORKFLOW_TEMPLATE.format(steps="\n".join(blocks)), encoding="utf-8")
+    return path
+
+
 def test_extra_lint_step_in_workflow_is_executed(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -145,6 +156,188 @@ def test_step_with_github_expression_is_refused_not_executed(
     assert not (tmp_path / "ran.txt").exists()
 
 
+def test_lint_job_with_zero_run_steps_fails_loud(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A lint job without ``run:`` steps must fail loud, never PASSED (0/0 steps)."""
+    workflow = tmp_path / "wf.yml"
+    workflow.write_text(
+        "on: push\n"
+        "jobs:\n"
+        "  lint:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - name: Check out repository\n"
+        "        uses: actions/checkout@v4\n",
+        encoding="utf-8",
+    )
+
+    code = preflight.main(["--workflow", str(workflow)])
+    captured = capsys.readouterr()
+
+    assert code == 2
+    assert "0 steps extracted" in captured.err
+    assert "parser drift" in captured.err
+    assert "PASSED" not in captured.out
+
+
+def test_lint_job_without_steps_key_also_fails_loud(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A lint job missing ``steps:`` entirely is the same parser-drift case."""
+    workflow = tmp_path / "wf.yml"
+    workflow.write_text(
+        "on: push\njobs:\n  lint:\n    runs-on: ubuntu-24.04\n",
+        encoding="utf-8",
+    )
+
+    code = preflight.main(["--workflow", str(workflow)])
+    captured = capsys.readouterr()
+
+    assert code == 2
+    assert "0 steps extracted" in captured.err
+
+
+def test_shell_attribute_warns_instead_of_being_silently_ignored(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A ``shell:`` step still runs (with ``bash -e``) but the attribute is warned."""
+    workflow = _write_workflow_raw(
+        tmp_path,
+        ["      - name: custom-shell\n        shell: bash\n        run: echo hi > ran.txt"],
+    )
+
+    code = preflight.main(["--workflow", str(workflow), "--root", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert code == 0
+    assert (tmp_path / "ran.txt").is_file()
+    assert "WARNING" in captured.out
+    assert "custom-shell" in captured.out
+    assert "shell" in captured.out
+
+
+def test_if_attribute_warns_and_step_still_runs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Conditions are not evaluated locally: warn, and the step runs unconditionally."""
+    workflow = _write_workflow_raw(
+        tmp_path,
+        [
+            "      - name: conditional-step\n"
+            "        if: runner.os == 'Linux'\n"
+            "        run: echo hi > ran.txt"
+        ],
+    )
+
+    code = preflight.main(["--workflow", str(workflow), "--root", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert code == 0
+    assert (tmp_path / "ran.txt").is_file()
+    assert "WARNING" in captured.out
+    assert "conditional-step" in captured.out
+    assert "if" in captured.out
+
+
+def test_working_directory_is_honored_not_ignored(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``working-directory:`` is honored: the step runs inside that subdirectory."""
+    (tmp_path / "sub").mkdir()
+    workflow = _write_workflow_raw(
+        tmp_path,
+        [
+            "      - name: subdir-step\n"
+            "        working-directory: sub\n"
+            "        run: echo marker > where.txt"
+        ],
+    )
+
+    code = preflight.main(["--workflow", str(workflow), "--root", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert code == 0
+    assert (tmp_path / "sub" / "where.txt").is_file()
+    assert not (tmp_path / "where.txt").exists()
+    # Honored attributes are not the silent-ignore defect: no WARNING for them.
+    assert "WARNING" not in captured.out
+
+
+def test_step_env_is_honored_not_ignored(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A step-level ``env:`` block is exported to the step's bash process."""
+    workflow = _write_workflow_raw(
+        tmp_path,
+        [
+            "      - name: env-step\n"
+            "        env:\n"
+            "          PREFLIGHT_MARKER: from-ci-env\n"
+            '        run: echo "$PREFLIGHT_MARKER" > marker.txt'
+        ],
+    )
+
+    code = preflight.main(["--workflow", str(workflow), "--root", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert code == 0
+    assert (tmp_path / "marker.txt").read_text(encoding="utf-8").strip() == "from-ci-env"
+    assert "WARNING" not in captured.out
+
+
+def test_github_expression_in_step_env_is_refused_not_executed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Bash cannot evaluate ``${{ }}`` in env values either: refuse loudly."""
+    workflow = _write_workflow_raw(
+        tmp_path,
+        [
+            "      - name: expression-env\n"
+            "        env:\n"
+            "          SHA: ${{ github.sha }}\n"
+            "        run: echo ok"
+        ],
+    )
+
+    code = preflight.main(["--workflow", str(workflow), "--root", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert code == 2
+    assert "expression-env" in captured.err
+
+
+def test_github_expression_in_working_directory_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    workflow = _write_workflow_raw(
+        tmp_path,
+        [
+            "      - name: expression-wd\n"
+            "        working-directory: ${{ github.workspace }}/sub\n"
+            "        run: echo ok"
+        ],
+    )
+
+    code = preflight.main(["--workflow", str(workflow), "--root", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert code == 2
+    assert "expression-wd" in captured.err
+
+
+def test_shipped_workflow_lint_steps_produce_no_attribute_warnings(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The real ci.yml lint job is fully faithful: zero ignored-attribute warnings."""
+    code = preflight.main(["--workflow", str(WORKFLOW_PATH), "--list"])
+    captured = capsys.readouterr()
+
+    assert code == 0
+    assert "WARNING" not in captured.out
+    assert len(captured.out.splitlines()) > 5
+
+
 def test_list_prints_steps_without_running_them(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -166,8 +359,8 @@ def test_shipped_workflow_lint_job_is_runnable_by_preflight() -> None:
 
 def test_preflight_outputs_pass_fail_per_step(capsys: pytest.CaptureFixture[str]) -> None:
     """Each step must be reported as PASS or FAIL with its ci.yml step name."""
-    ok = ("echo-OK-from-preflight-test", "echo OK-from-preflight-test")
-    bad = ("echo-FAIL-from-preflight-test", "exit 7")
+    ok = preflight.Step("echo-OK-from-preflight-test", "echo OK-from-preflight-test")
+    bad = preflight.Step("echo-FAIL-from-preflight-test", "exit 7")
 
     exit_code = preflight.run([ok, bad], root=REPO_ROOT)
     captured = capsys.readouterr()
@@ -182,8 +375,8 @@ def test_preflight_run_exits_zero_when_all_steps_pass(
 ) -> None:
     """Sanity: when every fake step exits 0, preflight.run returns 0."""
     steps = [
-        ("echo-OK-1-from-preflight-test", "true"),
-        ("echo-OK-2-from-preflight-test", "true"),
+        preflight.Step("echo-OK-1-from-preflight-test", "true"),
+        preflight.Step("echo-OK-2-from-preflight-test", "true"),
     ]
     exit_code = preflight.run(steps, root=REPO_ROOT)
     captured = capsys.readouterr()
@@ -204,7 +397,7 @@ def test_bash_that_cannot_start_is_an_environment_error_not_a_crash(
 
     monkeypatch.setattr(preflight.subprocess, "run", _cannot_spawn)
 
-    exit_code = preflight.run([("any-step", "true")], root=REPO_ROOT)
+    exit_code = preflight.run([preflight.Step("any-step", "true")], root=REPO_ROOT)
     captured = capsys.readouterr()
 
     assert exit_code == preflight.EXIT_ENVIRONMENT == 2
