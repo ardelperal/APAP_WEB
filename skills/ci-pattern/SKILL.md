@@ -1,6 +1,6 @@
 ---
 name: ci-pattern
-description: "Trigger: CI perfecto, patrón CI, gates, preflight, issue-spec, ratchet, evidencia SHA, adoptar CI, presupuesto de revisión, chain:partial. Distila el patrón de CI del repo (gates deterministas, presupuesto de revisión, evidencia por SHA, cadena de PRs encadenados y protocolo de mejora continua) y enseña a adoptarlo o auditarlo en otro repositorio."
+description: "Trigger: CI perfecto, patrón CI, gates, preflight, issue-spec, ratchet, evidencia SHA, adoptar CI, aplicar el patrón en un repositorio nuevo, gate de adopción, porting guide, presupuesto de revisión, chain:partial. Distila el patrón de CI del repo (gates deterministas, presupuesto de revisión, evidencia por SHA, cadena de PRs encadenados y protocolo de mejora continua), gobierna su adopción en otro repositorio (GATE DE ADOPCIÓN STOP + porting guide) y enseña a auditarlo."
 license: Apache-2.0
 metadata:
   author: ardelperal
@@ -40,12 +40,32 @@ destiló sobre un incidente real de pérdida de datos
 (`references/incidents.md`). La capa de gobernanza de orquestación (HR-23 a
 HR-28) se destiló del tramo final de la misma épica (2026-10-01): watch de
 sesión, colisión de shared-checkout, prescripciones obsoletas, toolchain sin
-pinear, settings paywalled y el `.env` local. El catálogo destilado y el
-veredicto de gates viven en `references/`; los parámetros portables, en
-`assets/parameters.md`. Los scripts de
+pinear, settings paywalled y el `.env` local. El GATE DE ADOPCIÓN del §1 se
+destiló de la adopción fallida del patrón en Cadete (2026-09-30/10-01): se
+aplicó sin el checklist de pre-vuelo y produjo 18 fallos falsos de batería,
+3 diagnósticos erróneos (issue #1130 cerrada con corrección), 5 prescripciones
+rotas, una premisa de propagación falsa y una colisión de shared-checkout.
+El catálogo destilado y el veredicto de gates viven en
+`references/`; los parámetros portables, en `assets/parameters.md`. Los scripts de
 implementación de referencia están versionados en este repo bajo `scripts/`.
 
 ## §1 Activation
+
+### ⛔ GATE DE ADOPCIÓN (STOP)
+
+Antes de aplicar este patrón en un repositorio NUEVO: completar
+`references/porting-guide.md` fase por fase: inventario read-only →
+auditoría del mecanismo de propagación REAL → aislamiento de entorno →
+gobierno viejo y nuevo en el MISMO PR → contratos cableados → primer PR real
+como acceptance test. Sin ese checklist completado y verificado: NO se lanza
+ningún worker, NO se toca el repo destino, NO se abre PR. Excepción: ninguna.
+
+Anclaje: la adopción en Cadete (2026-09-30/10-01) aplicó el patrón sin el
+checklist y produjo 18 fallos falsos de batería, 3 diagnósticos erróneos
+(issue #1130 cerrada con corrección), 5 prescripciones rotas, una premisa de
+propagación falsa y una colisión de shared-checkout (post-mortem:
+`docs/postmortems/2026-09-30-ci-pattern-adoption-cadete.md`). Este gate
+existe para que ese modo de fallo sea estructuralmente imposible.
 
 Cargue esta skill cuando:
 
@@ -73,6 +93,9 @@ No la cargue cuando:
 Fuentes normativas:
 
 - `skills/ci-pattern/references/fricciones.md` — catálogo destilado con antídoto.
+- Porting guide de la adopción (`references/porting-guide.md`; canónico en el
+  catálogo DysTelefonica/team-skills) — checklist de pre-vuelo fase por fase;
+  su cumplimiento es lo que el GATE DE ADOPCIÓN exige.
 - `skills/ci-pattern/references/gate-verdicts.md` — veredicto por gate con evidencia.
 - `skills/ci-pattern/references/benchmark-gentle-ai.md` — ideas contrastadas de otro CI.
 - `skills/ci-pattern/assets/parameters.md` — los parámetros que se extraen por repo.
@@ -204,8 +227,9 @@ Fuentes normativas:
 
 | Condición | Acción |
 |---|---|
-| Va a adoptar el patrón en un repo nuevo | Ejecute los cuatro pasos de adopción del §4: auditar, medir, instalar, validar en real. |
+| Va a adoptar el patrón en un repo nuevo | ⛔ GATE DE ADOPCIÓN del §1: complete el porting guide fase por fase y verifique cada gate de salida antes de lanzar workers, tocar el repo destino o abrir PR. Sin checklist: nada. |
 | El diff supera el presupuesto de líneas | Parta por unidad de trabajo; después encadene PRs; `size-exception-reason:` en el cuerpo es el último recurso. |
+| Va a abrir un PR intermedio de una cadena (`chain:partial`) | Palabras de cierre (`Closes`, `Fixes`, `Resolves`) NUNCA en el título ni en el cuerpo del intermedio: solo el PR punta cierra la issue. Intermedios con `Refs #<N>` + etiqueta de cadena; verifique `closingIssuesReferences` tras crear (HR-7). |
 | GitHub no registró `closingIssuesReferences` tras crear el PR | Etiqueta de cadena más excepción declarada en el cuerpo; cierre la issue a mano tras el merge con comentario que lo documente. |
 | El rojo exige un push de corrección | Empuje y deje que la CI se dispare sola; `rerun --failed` solo para transitorios, `workflow_dispatch` solo cuando el workflow cambió. |
 | Falla un paso del job de lint | Ejecute el preflight completo antes de empujar, no solo el paso roto (HR-5). |
@@ -342,6 +366,11 @@ Fuentes normativas:
 | Causa raíz enterrada en las notas de release o en el cuerpo del PR | Notas concisas con enlace; el post-mortem vive en su doc dedicado (HR-19, HR-21). |
 | Fix de incidente viviendo solo en una rama paralela esperando el release regular | Hotfix aterriza en main, deploy inmediato y release PATCH (HR-20). |
 | Post-mortem que nombra personas como causa | Blameless: causas de sistema; falló el proceso, no la persona (HR-21). |
+| Rojo de CI diagnosticado grepeando logs del runner en vez de pedir la evidencia por paso | `gh api repos/<org>/<repo>/actions/jobs/<id>` separa el paso que falla; el log del runner equivocado (hosted frente a self-hosted) fabricó el diagnóstico «Docker daemon» ×3 en Cadete (C2 del porting guide). |
+| Baseline o conteo medido con una toolchain distinta de la que juzga en CI | Pin de versiones en la stack de medición o re-medición por la toolchain del juez; cobertura local 11503 frente a runner 11559 por xdebug sin pinear (C7 del porting guide). |
+| Prescripción del orquestador ejecutada de memoria, sin verificarla en vivo | SHA, conteos, rutas y superficies son hipótesis: verifíquelos contra el repo real y reutilice lo existente; las prescripciones rotas de Cadete (formato de issue, rama ilegal, ruta de tests inexistente) lo pagaron (C3 del porting guide). |
+| Premisa de propagación o de gobernanza del destino tomada de su documentación | Audite el mecanismo real en vivo (hooks, reconciliador, markers, manifest) antes de depender de él; la premisa falsa dejó espejos stale medio tramo (C4 del porting guide). |
+| Adopción del patrón lanzada sin el checklist de pre-vuelo | GATE DE ADOPCIÓN del §1: sin porting guide completado no hay workers, ni toques al repo destino, ni PR (anclaje: Cadete, 2026-09-30/10-01). |
 | Deploy sin imagen de rollback capturada | Capture la imagen de rollback en el playbook antes de aplicar (HR-22). |
 | Bucle `--watch`, watcher de sesión o vigía IA esperando CI | Mecanismo primero: auto-merge armado más `allow_update_branch`; donde no hay mecanismo, script versionado con deadline y fallback (HR-23). |
 | Dos workers sobre el mismo working tree | Un worktree por actor concurrente; el síntoma es el commit sobre la rama ajena a mitad de vuelo (HR-24). |
@@ -368,7 +397,7 @@ Fuentes normativas:
 - `references/fricciones.md` — catálogo destilado: fricción, antídoto y evidencia.
 - `references/porting-guide.md` — checklist de pre-vuelo de la adopción fase
   por fase; cada fase declara hard gates y cita el incidente real de Cadete
-  (2026-09-30/10-01) que lo justifica.
+  (2026-09-30/10-01) que lo justifica. Exigido por el GATE DE ADOPCIÓN del §1.
 - `references/gate-verdicts.md` — veredicto de cada gate del inventario con su base.
 - `references/benchmark-gentle-ai.md` — ideas transferibles y rechazadas de otro CI.
 - `references/incidents.md` — ejemplo destilado de hotfix, post-mortem y
