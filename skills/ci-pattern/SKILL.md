@@ -366,6 +366,9 @@ Fuentes normativas:
   valores de este repo como ejemplo, el policy file de gates dormibles (HR-18)
   y los scripts de referencia indicados.
 - `references/fricciones.md` — catálogo destilado: fricción, antídoto y evidencia.
+- `references/porting-guide.md` — checklist de pre-vuelo de la adopción fase
+  por fase; cada fase declara hard gates y cita el incidente real de Cadete
+  (2026-09-30/10-01) que lo justifica.
 - `references/gate-verdicts.md` — veredicto de cada gate del inventario con su base.
 - `references/benchmark-gentle-ai.md` — ideas transferibles y rechazadas de otro CI.
 - `references/incidents.md` — ejemplo destilado de hotfix, post-mortem y
