@@ -16,6 +16,16 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 import check_issue_specs  # noqa: E402
 
 
+class RecordingSleep:
+    """Injectable no-op sleep that records every injected delay."""
+
+    def __init__(self) -> None:
+        self.delays: list[float] = []
+
+    def __call__(self, seconds: float) -> None:
+        self.delays.append(seconds)
+
+
 def _body(**overrides: str) -> str:
     answers = {heading: f"Answer for {heading}." for heading in check_issue_specs.REQUIRED_SECTIONS}
     answers.update(overrides)
@@ -155,6 +165,38 @@ def _event(head_ref: str, actor: str = "maintainer", number: int = 7) -> dict[st
             "body": "Closes #999 and Fixes #998",
         },
     }
+
+
+class SequencedLinksClient(StubClient):
+    """Stub whose pull_request_links replays a queue of link snapshots.
+
+    Models the closingIssuesReferences race (friction B11): GitHub populates
+    the field seconds after PR creation, so the first query sees it absent
+    and later queries see it present. The last snapshot repeats forever.
+    """
+
+    def __init__(
+        self,
+        issues: dict[int, dict[str, Any]],
+        labels: frozenset[str] = frozenset(),
+        sequence: tuple[check_issue_specs.PullRequestLinks, ...] = (),
+    ) -> None:
+        super().__init__(issues, labels=labels)
+        if not sequence:
+            raise ValueError("sequence must contain at least one snapshot")
+        self._sequence = sequence
+
+    def pull_request_links(
+        self, repository: str, number: int
+    ) -> check_issue_specs.PullRequestLinks:
+        self.pull_requests.append((repository, number))
+        return self._sequence[min(len(self.pull_requests) - 1, len(self._sequence) - 1)]
+
+
+def _event_with_body(body: str, head_ref: str = "fix/42-some-slug") -> dict[str, Any]:
+    event = _event(head_ref)
+    event["pull_request"]["body"] = body
+    return event
 
 
 def test_branch_number_closing_reference_and_approved_issue_pass() -> None:
@@ -334,6 +376,92 @@ def test_unreadable_pull_request_links_fail_loud() -> None:
 
     assert len(violations) == 1
     assert "cannot read the pull request" in violations[0]
+
+
+def test_body_declares_closing_keyword_matches_verbatim_numbers_only() -> None:
+    assert check_issue_specs.body_declares_closing_keyword("Closes #42", 42)
+    assert check_issue_specs.body_declares_closing_keyword("closes #42.", 42)
+    assert check_issue_specs.body_declares_closing_keyword("Closes #999 and Fixes #42", 42)
+    assert not check_issue_specs.body_declares_closing_keyword("Fixes #1421", 42)
+    assert not check_issue_specs.body_declares_closing_keyword("Refs #42", 42)
+    assert not check_issue_specs.body_declares_closing_keyword("no keywords here", 42)
+
+
+def test_late_registered_closing_reference_passes_after_retry() -> None:
+    absent = check_issue_specs.PullRequestLinks(labels=frozenset(), closing_issues=())
+    present = check_issue_specs.PullRequestLinks(labels=frozenset(), closing_issues=(42,))
+    client = SequencedLinksClient({42: _issue()}, sequence=(absent, present))
+    sleep = RecordingSleep()
+
+    violations = check_issue_specs.validate_pr_event(
+        _event_with_body("Closes #42"), client, retry_delays=(0.0,), sleep=sleep
+    )
+
+    assert violations == []
+    assert client.pull_requests == [(REPO, 7), (REPO, 7)]
+    assert sleep.delays == [0.0]
+
+
+def test_never_registered_closing_reference_fails_after_full_backoff() -> None:
+    absent = check_issue_specs.PullRequestLinks(labels=frozenset(), closing_issues=())
+    client = SequencedLinksClient({42: _issue()}, sequence=(absent,))
+    sleep = RecordingSleep()
+
+    violations = check_issue_specs.validate_pr_event(
+        _event_with_body("Fixes #42"), client, retry_delays=(0.0, 0.0, 0.0), sleep=sleep
+    )
+
+    assert len(violations) == 1
+    assert "Closes #42" in violations[0]
+    assert "chain:partial" in violations[0]
+    assert len(client.pull_requests) == 4  # initial query + one per injected delay
+    assert sleep.delays == [0.0, 0.0, 0.0]
+
+
+def test_absent_closing_reference_without_body_keyword_fails_without_retry() -> None:
+    absent = check_issue_specs.PullRequestLinks(labels=frozenset(), closing_issues=())
+    client = SequencedLinksClient({42: _issue()}, sequence=(absent,))
+    sleep = RecordingSleep()
+
+    violations = check_issue_specs.validate_pr_event(
+        _event_with_body("no keywords here"), client, retry_delays=(0.0, 0.0), sleep=sleep
+    )
+
+    assert len(violations) == 1
+    assert "Closes #42" in violations[0]
+    assert len(client.pull_requests) == 1  # genuine failure: no retries
+    assert sleep.delays == []
+
+
+def test_chain_partial_with_absent_reference_is_never_retried() -> None:
+    absent = check_issue_specs.PullRequestLinks(
+        labels=frozenset({"chain:partial"}), closing_issues=()
+    )
+    client = SequencedLinksClient(
+        {42: _issue()}, labels=frozenset({"chain:partial"}), sequence=(absent,)
+    )
+    sleep = RecordingSleep()
+
+    assert check_issue_specs.validate_pr_event(
+        _event_with_body("Closes #42"), client, retry_delays=(0.0,), sleep=sleep
+    ) == []
+    assert len(client.pull_requests) == 1  # chain:partial escape stays retry-free
+    assert sleep.delays == []
+
+
+def test_closing_retry_delays_default_and_env_override() -> None:
+    assert check_issue_specs.closing_retry_delays({}) == (30.0, 60.0, 90.0)
+    assert check_issue_specs.closing_retry_delays(
+        {check_issue_specs._CLOSING_RETRY_ENV: "5,10"}
+    ) == (5.0, 10.0)
+
+
+def test_closing_retry_delays_fail_loud_on_malformed_env() -> None:
+    for raw in ("soon", "-1", "30,"):
+        with pytest.raises(ValueError):
+            check_issue_specs.closing_retry_delays(
+                {check_issue_specs._CLOSING_RETRY_ENV: raw}
+            )
 
 
 def test_baseline_contains_no_body_and_binds_to_body_hash(tmp_path: Path) -> None:
