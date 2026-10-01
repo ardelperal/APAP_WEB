@@ -2884,16 +2884,23 @@ def test_ci_workflow_schedule_runs_security_deep_only() -> None:
 
     guarded = {"pr-size", "ui-detection", "e2e", "required"}
     own_event_gate = {"issue-spec", "mutation"}
-    cascaded = {
-        "lint",
-        "security",
+    # Issue #1196: the heavy jobs carry the docs-only skip condition, which
+    # contains NO status check function — so the pr-size cascade still skips
+    # them on schedule runs, and the schedule matrix stays security-deep only.
+    heavy_docs_only = {
         "typecheck",
         "test",
         "integration",
         "verify-fallback-ready",
         "build",
     }
-    assert guarded | own_event_gate | cascaded | {"security-deep"} == jobs
+    cascaded = {
+        "lint",
+        "security",
+    }
+    assert guarded | own_event_gate | heavy_docs_only | cascaded | {
+        "security-deep"
+    } == jobs
 
     for name in sorted(guarded):
         if_clause = str(_workflow_yaml.job(doc, name).get("if") or "")
@@ -2905,6 +2912,18 @@ def test_ci_workflow_schedule_runs_security_deep_only() -> None:
         assert "github.event_name == 'schedule'" not in if_clause, (
             f"{name} must keep its own event gate, which excludes schedule"
         )
+    for name in sorted(heavy_docs_only):
+        if_clause = str(_workflow_yaml.job(doc, name).get("if") or "")
+        assert "github.event_name != 'pull_request'" in if_clause, (
+            f"{name} must gate the docs-only skip on pull_request events "
+            "(issue #1196)"
+        )
+        for status_fn in ("always()", "failure()", "cancelled()"):
+            assert status_fn not in if_clause, (
+                f"{name} must not carry a status check function: without one, "
+                "the skipped pr-size cascade still skips it on schedule runs "
+                "(issue #1046 invariant)"
+            )
     for name in sorted(cascaded):
         assert _workflow_yaml.job(doc, name).get("if") is None, (
             f"{name} must stay skipped via the pr-size cascade on schedule "
@@ -3030,3 +3049,95 @@ def test_pr_size_ci_does_not_retrigger_on_edited() -> None:
     types = pull_request.get("types") if isinstance(pull_request, dict) else None
 
     assert not types or "edited" not in types
+
+
+# ---------------------------------------------------------------------------
+# Issue #1196: docs-only fast lane — the heavy jobs skip on pure-documentation
+# PRs while the fast gates always run.
+# ---------------------------------------------------------------------------
+
+#: Issue #1196: heavy jobs the docs-only lane may skip. e2e is gated
+#: separately (it already carries the ui_changed condition from issue #895).
+_HEAVY_DOCS_ONLY_JOBS = (
+    "typecheck",
+    "test",
+    "integration",
+    "verify-fallback-ready",
+    "build",
+)
+
+
+def test_ci_workflow_ui_detection_publishes_docs_changed_marker() -> None:
+    """Issue #1196: the ui-detection job must publish the ``docs_changed``
+    marker that the heavy jobs' skip conditions and the ``required``
+    aggregator rely on, classified by the single source of truth."""
+    block = _workflow_yaml.job_text(_job(WORKFLOW_PATH, "ui-detection"))
+
+    assert "docs_changed:" in block, (
+        "ui-detection must declare a docs_changed output"
+    )
+    assert 'echo "docs_changed=' in block, (
+        "ui-detection must publish docs_changed into $GITHUB_OUTPUT"
+    )
+    assert "--docs-changed" in block, (
+        "docs_changed must come from scripts/check_required_jobs.py "
+        "(single source of truth)"
+    )
+
+
+def test_ci_workflow_docs_detection_defaults_fail_closed() -> None:
+    """Issue #1196: the detection starts from docs_changed=false; only a
+    provably pure-documentation diff flips it — any doubt runs the heavy jobs."""
+    block = _workflow_yaml.job_text(_job(WORKFLOW_PATH, "ui-detection"))
+
+    assert "docs_changed=false" in block, (
+        "ui-detection must default to docs_changed=false (fail-closed)"
+    )
+
+
+@pytest.mark.parametrize("job_id", _HEAVY_DOCS_ONLY_JOBS)
+def test_ci_workflow_heavy_job_skips_on_docs_only_pull_requests(job_id: str) -> None:
+    """Issue #1196: every heavy job declares the explicit docs-only skip —
+    the job needs ui-detection (to read the marker) and its ``if`` runs it
+    on every event except a pull_request whose ui-detection published
+    docs_changed='true'."""
+    job = _job(WORKFLOW_PATH, job_id)
+
+    needs = _workflow_yaml.needs(job)
+    assert "ui-detection" in needs, (
+        f"job {job_id!r} reads needs.ui-detection.outputs.docs_changed, so "
+        "ui-detection must be a direct need"
+    )
+    if_clause = str(job.get("if", ""))
+    assert "github.event_name != 'pull_request'" in if_clause, (
+        f"job {job_id!r} must run on push and release events"
+    )
+    assert "needs.ui-detection.outputs.docs_changed != 'true'" in if_clause, (
+        f"job {job_id!r} must skip only on a docs-only pull_request"
+    )
+
+
+@pytest.mark.parametrize(
+    "job_id", ("pr-size", "issue-spec", "lint", "security", "required")
+)
+def test_ci_workflow_fast_gates_never_ride_the_docs_lane(job_id: str) -> None:
+    """Issue #1196: the fast gates always run — issue-spec, branch-name
+    (pr-name), pr-size, lint, security and the required rollup must not
+    reference the docs marker anywhere in their job text."""
+    job = _job(WORKFLOW_PATH, job_id)
+
+    assert "docs_changed" not in _workflow_yaml.job_text(job), (
+        f"fast gate {job_id!r} must never skip on docs-only PRs"
+    )
+
+
+def test_ci_workflow_e2e_does_not_run_on_docs_only_pull_requests() -> None:
+    """Issue #1196: the e2e ``if`` gates on docs_changed too — a pure docs
+    diff can never be a UI change, so e2e skips even when an odd root-level
+    markdown file outside the NON-UI allowlist forced ui_changed=true."""
+    e2e_job = _job(WORKFLOW_PATH, "e2e")
+    if_clause = str(e2e_job.get("if", ""))
+
+    assert "needs.ui-detection.outputs.docs_changed != 'true'" in if_clause, (
+        "e2e must not run on a docs-only pull_request"
+    )
