@@ -188,6 +188,8 @@ source .venv/bin/activate
 make verify
 ```
 
+Para reproducir el job `e2e` completo en local (Postgres y MinIO reales, aplicación con lifespan, suite `tests/e2e_ci`), use `make e2e-local` (issue #1146). Requisitos honestos: Docker en marcha; la imagen réplica de MinIO está pineada en GHCR (en una máquina limpia puede exigir `docker login ghcr.io` con un PAT con `read:packages`) y es amd64-only (en hosts arm64 hace falta qemu binfmt o el target fallará en el health gate de MinIO); Chromium de Playwright instalado. No necesita secrets del repo: el secret de auth se genera por corrida y MinIO usa credenciales root locales. El desmontaje es automático, también en fallo.
+
 ### Preflight canónico — `scripts/preflight.py` (issue #1119)
 
 Antes del push, corra `scripts/preflight.py`: es la validación canónica de pre-push. Lee el job `lint` de `.github/workflows/ci.yml` en tiempo de ejecución y ejecuta, en orden, cada uno de sus steps con `run:`, con la misma semántica de shell que el runner de GitHub (`bash -e`). El verde aquí equivale al verde del job `lint` y evita el patrón «ruff verde en local, CI rojo» documentado en la PR #1111.
