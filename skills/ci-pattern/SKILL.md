@@ -5,7 +5,7 @@ license: Apache-2.0
 metadata:
   author: ardelperal
   version: "0.1"
-  last_verified: 2026-09-30
+  last_verified: 2026-10-01
   based_on: "odd/skill-ci-portable/ @ ardelperal/APAP_WEB (épica #935, 2026-09-29/30)"
 ---
 
@@ -25,9 +25,13 @@ El patrón combina cuatro piezas sobre un mismo repositorio:
 5. **Protocolo de mejora continua**: toda fricción se registra con evidencia, se
    arregla por el pipeline y se destila en regla; la recurrencia dispara
    automatización.
+6. **Release con evidencia**: releases como tags semver anotados, hotfix con
+   bump de PATCH y deploy inmediato, y post-mortem blameless tras todo
+   incidente de producción (HR-19 a HR-22).
 
 El patrón nació de una épica de fricciones reales (18 reglas, cada una pagada con
-un rojo de CI). El catálogo destilado y el veredicto de gates viven en
+un rojo de CI). La capa de release y post-mortem se destiló sobre un incidente
+real de pérdida de datos (`references/incidents.md`). El catálogo destilado y el veredicto de gates viven en
 `references/`; los parámetros portables, en `assets/parameters.md`. Los scripts de
 implementación de referencia están versionados en este repo bajo `scripts/`.
 
@@ -42,6 +46,10 @@ Cargue esta skill cuando:
 - Deba **clasificar un rojo de CI** o decidir entre push, rerun o dispatch.
 - Toque **evidencia de deploy**: estados por SHA, smoke de producción, baterías.
 - Vaya a **destilar una fricción nueva** en regla del playbook.
+- Deba **cortar un release o un hotfix** (tag semver, notas de release,
+  playbook de deploy por release).
+- Toque un **incidente de producción** (issue, fix, deploy inmediato,
+  post-mortem blameless, action items como issues).
 
 No la cargue cuando:
 
@@ -56,6 +64,8 @@ Fuentes normativas:
 - `skills/ci-pattern/references/gate-verdicts.md` — veredicto por gate con evidencia.
 - `skills/ci-pattern/references/benchmark-gentle-ai.md` — ideas contrastadas de otro CI.
 - `skills/ci-pattern/assets/parameters.md` — los parámetros que se extraen por repo.
+- `skills/ci-pattern/references/incidents.md` — ejemplo destilado de hotfix y
+  post-mortem blameless sobre un incidente real.
 
 ## §2 Hard Rules
 
@@ -117,6 +127,26 @@ Fuentes normativas:
   re-activación es un cambio de datos del policy file que pasa por review; el
   candado construido `MUST NOT` borrarse. (R15; benchmark T1;
   `references/gate-verdicts.md`)
+- **HR-19 — Todo release `MUST` ser un tag semver anotado** (`vMAJOR.MINOR.PATCH`)
+  con GitHub Release asociada y marcada `Latest`; los prereleases
+  (`vX.Y.Z-rc.N`) `MUST` quedar excluidos de la estable (`v*-*`), y las notas de
+  release `MUST` ser concisas (qué cambió + enlace al issue o post-mortem), sin
+  enterrar nunca el RCA del incidente. (incidente de pérdida de datos;
+  `references/incidents.md`)
+- **HR-20 — Todo hotfix `MUST` aterrizar primero en main** y salir como bump de
+  PATCH con deploy inmediato tras el merge; el fix `MUST NOT` vivir solo en una
+  rama paralela ni esperar al próximo release regular. (incidente de pérdida de
+  datos; `references/incidents.md`)
+- **HR-21 — Todo incidente de producción `MUST` cerrar con post-mortem
+  blameless** en el doc dedicado del consumer (`docs/postmortems/<date>-<slug>.md`;
+  secciones: Timeline UTC / Impact / Root cause / What worked / What failed),
+  con causas de sistema y nunca de personas, y cada action item `MUST`
+  abrirse como issue de GitHub con owner. (canon del sector, precedente GitLab
+  2017; `references/incidents.md`)
+- **HR-22 — Cada deploy `MUST` llevar su playbook por release**
+  (`RELEASE-<TAG>.md`: build/push si aplica, apply, rollout, verificación y
+  rollback), y la imagen de rollback `MUST` capturarse antes de desplegar.
+  (incidente de pérdida de datos; `references/incidents.md`)
 
 ## §3 Decision Gates
 
@@ -133,6 +163,8 @@ Fuentes normativas:
 | Va a guardar un registro acumulativo entre sesiones | Sin clave de upsert: una observación nueva por entrada (HR-12). |
 | Debe reiniciar la aplicación de producción | Use el procedimiento del runbook de deploy; el reinicio directo redespliega el HEAD de la rama por defecto sin gate de evidencia. |
 | Hereda un proceso vivo (vigía) de otra sesión | Verifique qué hace leyendo su script; cumplido su propósito, termínelo; inesperado, deténgase y reporte su contenido. |
+| Se declara un incidente de producción | Hotfix: issue `type:bug` → fix en main → deploy inmediato → release PATCH → post-mortem blameless con action items como issues (HR-20, HR-21). |
+| Va a cortar un release | Tag semver anotado + GitHub Release `Latest` + notas concisas + playbook `RELEASE-<TAG>.md` con imagen de rollback capturada antes de desplegar (HR-19, HR-22). |
 
 ## §4 Execution Steps
 
@@ -172,6 +204,35 @@ Fuentes normativas:
 8. Deploy: registre el veredicto de la batería sobre el SHA de `/healthz` de la
    revisión desplegada (HR-10); apague cualquier flag de prueba al terminar,
    también si la batería falla.
+
+### Release, hotfix y post-mortem
+
+**Corte de release (semver, estilo gentle-ai).**
+
+1. Confirme que main está verde contra la base actual y sin rebase pendiente;
+   el verde contra una base obsoleta no autoriza el release.
+2. Cree el tag anotado `vMAJOR.MINOR.PATCH` y la GitHub Release asociada
+   marcada `Latest`; los prereleases usan `vX.Y.Z-rc.N` y quedan excluidos de
+   la estable con el patrón `v*-*` (HR-19).
+3. Escriba notas concisas: qué cambió y enlace al issue o post-mortem; el RCA
+   completo vive en su doc dedicado, nunca dentro de las notas (HR-21).
+4. Ejecute el playbook de deploy: `RELEASE-<TAG>.md` con build/push si aplica,
+   apply, rollout, verificación y rollback; capture la imagen de rollback
+   antes de desplegar (HR-22).
+
+**Hotfix (incidente de producción).**
+
+1. Abra la issue canónica (`type:bug`) con la evidencia del incidente.
+2. Aterrice el fix en main por el pipeline normal (issue, worktree, PR, CI,
+   merge); sin rutas paralelas ni fixes que vivan solo en una rama (HR-20).
+3. Despliegue inmediatamente tras el merge y registre el veredicto sobre el
+   SHA desplegado (HR-10).
+4. Corte el release PATCH con notas que enlacen al issue (HR-19).
+5. Escriba el post-mortem blameless en `docs/postmortems/<date>-<slug>.md` con
+   secciones Timeline (UTC) / Impact / Root cause / What worked / What failed;
+   causas de sistema, nunca personas (HR-21).
+6. Abra cada action item como issue de GitHub con owner asignado y verifique
+   que no queden solo en el doc (HR-21).
 
 ### Destilación de fricciones (protocolo de mejora continua)
 
@@ -219,6 +280,10 @@ Fuentes normativas:
 | Batería ejecutada con los tests de la rama por defecto contra un deploy anterior | Worktree en la revisión desplegada; los fallos por desfase se clasifican, no se registran como fallo del deploy. |
 | Gate retirado por perder su justificación | Duerma el gate tras un policy file con el motor probado; retirarlo destruye el candado y la re-activación futura exige reconstruirlo (HR-18). |
 | Baseline de un ratchet editada a mano en cada reducción | Comando de regeneración de baseline; el gate solo rechaza entradas nuevas (HR-15). |
+| RCA enterrado en las notas de release o en el cuerpo del PR | Notas concisas con enlace; el post-mortem vive en su doc dedicado (HR-19, HR-21). |
+| Fix de incidente viviendo solo en una rama paralela esperando el release regular | Hotfix aterriza en main, deploy inmediato y release PATCH (HR-20). |
+| Post-mortem que nombra personas como causa | Blameless: causas de sistema; falló el proceso, no la persona (HR-21). |
+| Deploy sin imagen de rollback capturada | Capture la imagen de rollback en el playbook antes de aplicar (HR-22). |
 
 ## §7 Companion skills
 
@@ -238,6 +303,8 @@ Fuentes normativas:
 - `references/fricciones.md` — catálogo destilado: fricción, antídoto y evidencia.
 - `references/gate-verdicts.md` — veredicto de cada gate del inventario con su base.
 - `references/benchmark-gentle-ai.md` — ideas transferibles y rechazadas de otro CI.
+- `references/incidents.md` — ejemplo destilado de hotfix, post-mortem y
+  release sobre un incidente real de pérdida de datos.
 - Implementación de referencia versionada en este repo: `scripts/preflight.py`,
   `scripts/check_pr_size.py`, `scripts/check_issue_specs.py`,
   `scripts/check_required_jobs.py`, `scripts/check_release_evidence.py`,
