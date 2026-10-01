@@ -135,6 +135,16 @@ class FormShapeError(TypeError):
         super().__init__(f"{path}: expected a YAML mapping")
 
 
+class ClosingRetryEnvError(ValueError):
+    """Raised when ISSUE_SPEC_CLOSING_RETRY_SECONDS is malformed."""
+
+    def __init__(self, value: str) -> None:
+        super().__init__(
+            f"{_CLOSING_RETRY_ENV}: delays must be comma-separated "
+            f"non-negative seconds, got {value!r}"
+        )
+
+
 def parse_sections(body: str) -> dict[str, str]:
     """Return H3 sections from a GitHub issue body."""
     sections: dict[str, list[str]] = {}
@@ -385,9 +395,12 @@ def closing_retry_delays(environ: Mapping[str, str] | None = None) -> tuple[floa
         return _DEFAULT_CLOSING_RETRY_DELAYS
     delays = []
     for part in raw.split(","):
-        value = float(part)  # malformed values fail loud, never silently ignored
+        try:
+            value = float(part)
+        except ValueError as exc:
+            raise ClosingRetryEnvError(part) from exc
         if value < 0:
-            raise ValueError(f"{_CLOSING_RETRY_ENV}: delays must be >= 0, got {value}")
+            raise ClosingRetryEnvError(part)
         delays.append(value)
     return tuple(delays)
 
@@ -427,6 +440,11 @@ def _other_closing_errors(client: PullRequestClient, repository: str, number: in
     if issue.get("state") == "closed" and APPROVAL_LABEL in _labels(issue):
         return []
     return [f"#{number}: {error}" for error in issue_contract_errors(issue)]
+
+
+def _retry_delays(retry_delays: Sequence[float] | None) -> Sequence[float]:
+    """Resolve injected retry delays, falling back to the environment."""
+    return closing_retry_delays() if retry_delays is None else retry_delays
 
 
 def validate_pr_event(
@@ -470,18 +488,28 @@ def validate_pr_event(
     violations = _branch_issue_errors(client, repository, issue_number)
     if any("cannot read the issue" in violation for violation in violations):
         return violations
-    try:
+    body = pull_request.get("body") or ""
+
+    def links_with_retry(delays: Sequence[float]) -> PullRequestLinks:
+        """Look up PR links, retrying when the closing reference registers late."""
         links = client.pull_request_links(repository, pr_number)
         if (
-            issue_number not in links.closing_issues
-            and CHAIN_PARTIAL_LABEL not in links.labels
-            and body_declares_closing_keyword(pull_request.get("body") or "", issue_number)
+            issue_number in links.closing_issues
+            or CHAIN_PARTIAL_LABEL in links.labels
+            or not body_declares_closing_keyword(body, issue_number)
         ):
-            for delay in closing_retry_delays() if retry_delays is None else retry_delays:
-                sleep(delay)
-                links = client.pull_request_links(repository, pr_number)
-                if issue_number in links.closing_issues:
-                    break
+            return links
+        # Friction B11: GitHub populates closingIssuesReferences seconds after
+        # PR creation. Re-query with backoff before concluding it is absent.
+        for delay in delays:
+            sleep(delay)
+            links = client.pull_request_links(repository, pr_number)
+            if issue_number in links.closing_issues:
+                break
+        return links
+
+    try:
+        links = links_with_retry(_retry_delays(retry_delays))
     except GitHubApiError as exc:
         return [*violations, f"PR #{pr_number}: cannot read the pull request links ({exc})"]
     closes_branch_issue = issue_number in links.closing_issues
