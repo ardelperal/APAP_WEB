@@ -24,6 +24,35 @@ from playwright.sync_api import BrowserContext, Page
 E2E_SECRET_HEADER = "X-E2E-Secret"
 
 
+def _assert_bounced_to_login(page: Page, response, origin: str) -> None:
+    """Assert an anonymous navigation landed on a rendered /login.
+
+    Final-response semantics (issues #1153/#1160): ``page.goto`` returns
+    the FINAL response of the redirect chain, so the server-side 302
+    surfaces as 200 @ /login; the ``redirected_from`` predecessor pins
+    the server-redirect contract (a JS bounce would not have one). A 503
+    final response means /login cannot render on this target (OAuth
+    unconfigured) — skipped with the #1153 preflight reason, never
+    counted as an assertion failure.
+    """
+    assert response is not None
+    if response.status == 503:
+        pytest.skip(
+            f"{origin} reached /login but it returned 503 (Google OAuth "
+            "not configured on this target); the auth gate did redirect."
+        )
+    assert response.status == 200, (
+        f"{origin} should land on a rendered /login (final response of the redirect "
+        f"chain), got {response.status} @ {response.url}"
+    )
+    assert page.url.endswith("/login"), (
+        f"{origin} without session should redirect to /login, got: {page.url}"
+    )
+    assert response.request.redirected_from is not None, (
+        f"{origin} must reach /login through a server redirect, not a client-side bounce"
+    )
+
+
 def _e2e_secret() -> str | None:
     return os.environ.get("APAP_E2E_AUTH_SECRET")
 
@@ -58,13 +87,7 @@ def test_get_list_without_session_redirects_to_login(
     """GET /sanidad without a session → 302 to /login."""
     response = page.goto(f"{base_url}/sanidad", wait_until="domcontentloaded")
 
-    assert response is not None
-    assert response.status in (302, 303), (
-        f"GET /sanidad without session must redirect, got {response.status}"
-    )
-    assert "/login" in response.url, (
-        f"auth guard must redirect to /login, got {response.url!r}"
-    )
+    _assert_bounced_to_login(page, response, "/sanidad")
 
 
 # --- 2. unauthenticated GET /sanidad/new → 302 ------------------------
@@ -76,13 +99,7 @@ def test_get_form_without_session_redirects_to_login(
     """GET /sanidad/new without a session → 302 to /login."""
     response = page.goto(f"{base_url}/sanidad/new", wait_until="domcontentloaded")
 
-    assert response is not None
-    assert response.status in (302, 303), (
-        f"GET /sanidad/new without session must redirect, got {response.status}"
-    )
-    assert "/login" in response.url, (
-        f"auth guard must redirect to /login, got {response.url!r}"
-    )
+    _assert_bounced_to_login(page, response, "/sanidad/new")
 
 
 # --- 3. unauthenticated POST /sanidad → 302 (not 403) ----------------
@@ -95,9 +112,14 @@ def test_post_without_session_redirects_to_login(
 
     CsrfMiddleware fires before the auth dependency, so an unauthenticated
     POST is redirected to /login before the CSRF token is checked.
+    ``max_redirects=0`` pins the RAW redirect response: Playwright's
+    ``APIRequestContext`` follows redirects by default, so the final
+    response would be the rendered /login (or its 503), never the 302
+    the auth guard issues (issues #1153/#1160).
     """
     response = page.request.post(
         f"{base_url}/sanidad",
+        max_redirects=0,
         form={
             "animal_id": "fake-animal-id",
             "fecha": "2024-07-15",
@@ -120,9 +142,14 @@ def test_post_without_session_redirects_to_login(
 def test_delete_without_session_redirects_to_login(
     page: Page, base_url: str
 ) -> None:
-    """POST /sanidad/{id}/delete without a session → 302 to /login."""
+    """POST /sanidad/{id}/delete without a session → 302 to /login.
+
+    ``max_redirects=0`` pins the RAW redirect response (see the POST
+    test above; issues #1153/#1160).
+    """
     response = page.request.post(
         f"{base_url}/sanidad/fake-actuacion-id/delete",
+        max_redirects=0,
         form={"csrf_token": "fake-token"},
     )
 
@@ -145,29 +172,44 @@ def test_reader_cannot_post_sanidad(
 ) -> None:
     """POST /sanidad with a reader session → 403 Forbidden.
 
-    The route requires ``WRITE_SALUD`` permission (key_user rol).
-    A reader rol is authenticated but lacks the required permission —
-    the RBAC gate returns 403 before any port call is made.
-
-    Skips when the OAuth mock does not support minting a reader session.
+    The route requires ``WRITE_SALUD`` (key_user rol); a reader rol is
+    authenticated but the RBAC gate returns 403 before any port call.
+    The mock resolves the rol from ``usuarios_autorizados`` (issue
+    #1073), so a reader session requires an allowlisted reader account
+    wired through APAP_E2E_READER_EMAIL; otherwise the 403 branch is
+    unreachable and the test skips with a traced reason.
     """
-    page, csrf_token = authenticated_session
-
-    # Try to mint a reader session.
-    response_reader = page.request.get(
-        f"{base_url}/e2e/login?rol=reader",
-        headers={E2E_SECRET_HEADER: _e2e_secret() or ""},
-    )
-    if response_reader.status != 200:
+    reader_email = os.environ.get("APAP_E2E_READER_EMAIL")
+    if reader_email is None:
         pytest.skip(
-            "OAuth mock does not support /e2e/login?rol=reader. "
-            "The reader rol test requires the mock to mint a session "
-            "with rol=reader on demand."
+            "APAP_E2E_READER_EMAIL not set: the OAuth mock resolves the rol from "
+            "usuarios_autorizados (issue #1073) and cannot mint a reader session "
+            "on demand; point APAP_E2E_READER_EMAIL at an allowlisted reader."
         )
+
+    page, csrf_token = authenticated_session
+    _ = csrf_token  # the reader POST mints its own token below
+
+    response_reader = page.request.get(
+        f"{base_url}/e2e/login",
+        headers={E2E_SECRET_HEADER: _e2e_secret() or ""},
+        params={"email": reader_email},
+    )
+    assert response_reader.status == 200, (
+        f"/e2e/login?email={reader_email!r} must mint the reader session, "
+        f"got {response_reader.status} — is the account allowlisted and "
+        "active on this target?"
+    )
     reader_payload = response_reader.json()
     reader_csrf = reader_payload.get("csrf_token")
-    if not isinstance(reader_csrf, str) or not reader_csrf:
-        pytest.skip("OAuth mock did not return a csrf_token for reader rol.")
+    assert isinstance(reader_csrf, str) and reader_csrf
+
+    if reader_payload.get("rol") != "reader":
+        pytest.skip(
+            f"e2e reader account {reader_email!r} has rol="
+            f"{reader_payload.get('rol')!r}, not 'reader' — fix the allowlist "
+            "row to exercise the 403 branch."
+        )
 
     response = page.request.post(
         f"{base_url}/sanidad",

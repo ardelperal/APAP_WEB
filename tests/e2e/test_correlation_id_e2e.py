@@ -24,6 +24,20 @@ X_REQUEST_ID_HEADER = "X-Request-ID"
 _UUID_HEX_16 = re.compile(r"^[0-9a-f]{16}$")
 
 
+def _response_header(response, name: str) -> str:
+    """Read a response header case-insensitively.
+
+    Playwright's ``APIResponse.headers`` lower-cases every key, so a
+    mixed-case ``.get("X-Request-ID")`` silently returns ``None`` on
+    every response and the original assertions were un-passable (issue
+    #1160). Match against ``headers_array``, which preserves wire case.
+    """
+    for header in response.headers_array:
+        if header["name"].lower() == name.lower():
+            return header["value"]
+    return ""
+
+
 def test_healthz_response_carries_generated_request_id(
     browser_context: BrowserContext,
     base_url: str,
@@ -39,7 +53,7 @@ def test_healthz_response_carries_generated_request_id(
     assert response.status == 200, (
         f"/healthz must remain public for this contract pin; got {response.status}"
     )
-    request_id = response.headers.get(X_REQUEST_ID_HEADER, "")
+    request_id = _response_header(response, X_REQUEST_ID_HEADER)
     assert request_id, (
         f"missing {X_REQUEST_ID_HEADER} header on /healthz response; the middleware "
         "must always stamp the header even on public probes"
@@ -67,7 +81,7 @@ def test_inbound_request_id_is_echoed_back_verbatim(
         headers={X_REQUEST_ID_HEADER: upstream_id},
     )
     assert response.status == 200
-    echoed = response.headers.get(X_REQUEST_ID_HEADER, "")
+    echoed = _response_header(response, X_REQUEST_ID_HEADER)
     assert echoed == upstream_id, (
         f"middleware regenerated the inbound {X_REQUEST_ID_HEADER}; "
         f"upstream={upstream_id!r} echoed={echoed!r}; the contract requires verbatim echo"
@@ -87,8 +101,8 @@ def test_two_requests_get_distinct_generated_ids(
     first = browser_context.request.get(f"{base_url}/healthz")
     second = browser_context.request.get(f"{base_url}/healthz")
     assert first.status == 200 and second.status == 200
-    first_id = first.headers.get(X_REQUEST_ID_HEADER, "")
-    second_id = second.headers.get(X_REQUEST_ID_HEADER, "")
+    first_id = _response_header(first, X_REQUEST_ID_HEADER)
+    second_id = _response_header(second, X_REQUEST_ID_HEADER)
     assert first_id and second_id, (
         "one of the requests missed the X-Request-ID header — middleware skipped a request"
     )
