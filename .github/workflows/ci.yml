@@ -113,6 +113,10 @@ jobs:
       contents: read
     outputs:
       ui_changed: ${{ steps.detect.outputs.ui_changed }}
+      # Issue #1196: the docs-only fast-lane marker. The heavy jobs' skip
+      # conditions and the `required` checker (DOCS_ONLY_HEAVY_JOBS) only
+      # accept a skipped heavy job when this marker is exactly 'true'.
+      docs_changed: ${{ steps.detect.outputs.docs_changed }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -145,6 +149,9 @@ jobs:
           NON_UI_PATHS="$(python scripts/check_required_jobs.py --print-ui-paths)"
           CHANGED=""
           ui_changed=true
+          # Issue #1196: fail-closed in the opposite direction — docs-only
+          # must be PROVEN; any doubt runs the heavy jobs.
+          docs_changed=false
           if [ "$EVENT_NAME" = "pull_request" ]; then
             if [ -z "$BASE_REF" ]; then
               echo "::error::pull_request event without base_ref" >&2
@@ -190,9 +197,19 @@ jobs:
             esac
           done
           echo "ui_changed=${ui_changed}" >> "$GITHUB_OUTPUT"
+          # Issue #1196: classify the same changed-file set for the
+          # docs-only fast lane through the single source of truth. An
+          # empty CHANGED keeps docs_changed=false (a no-op diff is not a
+          # documentation diff), and the classifier itself rejects any
+          # gate-source file (anti-self-exemption toll, mirroring the
+          # ui_changed toll above).
+          if [ -n "$CHANGED" ]; then
+            docs_changed="$(printf '%s\n' "$CHANGED" | python scripts/check_required_jobs.py --docs-changed)"
+          fi
+          echo "docs_changed=${docs_changed}" >> "$GITHUB_OUTPUT"
           # NON_UI_PATHS is the live allowlist from the single source of
           # truth; echoing it keeps every run's detection auditable.
-          echo "::notice::ui-detection: ui_changed=${ui_changed} (non-UI allowlist: ${NON_UI_PATHS})"
+          echo "::notice::ui-detection: ui_changed=${ui_changed} docs_changed=${docs_changed} (non-UI allowlist: ${NON_UI_PATHS})"
 
   lint:
     name: lint
@@ -961,7 +978,15 @@ jobs:
 
   typecheck:
     name: typecheck
-    needs: pr-size
+    needs: [pr-size, ui-detection]
+    # Issue #1196: a docs-only pull_request (EVERY changed file is
+    # documentation, per the fail-closed classifier in
+    # scripts/check_required_jobs.py) skips this heavy job; the `required`
+    # checker accepts the skip only when ui-detection published
+    # docs_changed='true'. Pushes and release events always run it.
+    if: >-
+      github.event_name != 'pull_request' ||
+      needs.ui-detection.outputs.docs_changed != 'true'
     # See lint job for the runs-on rationale.
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -990,7 +1015,13 @@ jobs:
     # into another run.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    needs: [pr-size, lint]
+    needs: [pr-size, lint, ui-detection]
+    # Issue #1196: docs-only fast lane — see the typecheck job for the
+    # condition rationale; the `required` checker accepts the skip only
+    # with the ui-detection docs_changed='true' marker.
+    if: >-
+      github.event_name != 'pull_request' ||
+      needs.ui-detection.outputs.docs_changed != 'true'
     # Issue #879: does not read issues.
     permissions:
       contents: read
@@ -1101,7 +1132,13 @@ jobs:
     name: integration
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    needs: [pr-size, lint]
+    needs: [pr-size, lint, ui-detection]
+    # Issue #1196: docs-only fast lane — see the typecheck job for the
+    # condition rationale; the `required` checker accepts the skip only
+    # with the ui-detection docs_changed='true' marker.
+    if: >-
+      github.event_name != 'pull_request' ||
+      needs.ui-detection.outputs.docs_changed != 'true'
     # Issue #879: does not read issues.
     permissions:
       contents: read
@@ -1194,7 +1231,13 @@ jobs:
     # path exercises against).
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    needs: [pr-size, integration]
+    needs: [pr-size, integration, ui-detection]
+    # Issue #1196: docs-only fast lane — see the typecheck job for the
+    # condition rationale. The explicit skip also keeps the GitHub needs
+    # cascade deterministic when the integration job above skips.
+    if: >-
+      github.event_name != 'pull_request' ||
+      needs.ui-detection.outputs.docs_changed != 'true'
     # Issue #879: does not read issues.
     permissions:
       contents: read
@@ -1252,7 +1295,13 @@ jobs:
     name: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    needs: [pr-size, test, integration, verify-fallback-ready]
+    needs: [pr-size, test, integration, verify-fallback-ready, ui-detection]
+    # Issue #1196: docs-only fast lane — see the typecheck job for the
+    # condition rationale. The explicit skip also keeps the GitHub needs
+    # cascade deterministic when the test/integration jobs above skip.
+    if: >-
+      github.event_name != 'pull_request' ||
+      needs.ui-detection.outputs.docs_changed != 'true'
     # Issue #879: does not read issues.
     permissions:
       contents: read
@@ -1282,7 +1331,8 @@ jobs:
     # also runs it when the ui-detection job detected a UI-path change on
     # the SHA under test; with ui_changed=false the job skips explicitly
     # (never silently — the `required` checker accepts the skip only when
-    # the run carries that marker). Issue #1046: scheduled runs never
+    # the run carries that marker). Issue #1196: a docs-only pull_request
+    # skips too — a pure-documentation diff can never be a UI change. Issue #1046: scheduled runs never
     # reach e2e — the guard below is explicit even though the pr-size
     # cascade already skips the job (defense in depth).
     if: >-
@@ -1290,7 +1340,10 @@ jobs:
       (
         github.event_name == 'workflow_dispatch' ||
         startsWith(github.ref, 'refs/tags/') ||
-        needs.ui-detection.outputs.ui_changed == 'true'
+        (
+          needs.ui-detection.outputs.docs_changed != 'true' &&
+          needs.ui-detection.outputs.ui_changed == 'true'
+        )
       )
     services:
       postgres:

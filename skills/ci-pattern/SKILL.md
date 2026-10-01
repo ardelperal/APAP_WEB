@@ -53,10 +53,8 @@ implementación de referencia están versionados en este repo bajo `scripts/`.
 
 ### ⛔ GATE DE ADOPCIÓN (STOP)
 
-Antes de aplicar este patrón en un repositorio NUEVO: completar el porting
-guide fase por fase (`references/porting-guide.md`; el checklist canónico vive
-en el catálogo DysTelefonica/team-skills, `personal/ardelperal/ci-pattern/`,
-mientras la wave de portado no lo aterrice aquí): inventario read-only →
+Antes de aplicar este patrón en un repositorio NUEVO: completar
+`references/porting-guide.md` fase por fase: inventario read-only →
 auditoría del mecanismo de propagación REAL → aislamiento de entorno →
 gobierno viejo y nuevo en el MISMO PR → contratos cableados → primer PR real
 como acceptance test. Sin ese checklist completado y verificado: NO se lanza
@@ -65,8 +63,9 @@ ningún worker, NO se toca el repo destino, NO se abre PR. Excepción: ninguna.
 Anclaje: la adopción en Cadete (2026-09-30/10-01) aplicó el patrón sin el
 checklist y produjo 18 fallos falsos de batería, 3 diagnósticos erróneos
 (issue #1130 cerrada con corrección), 5 prescripciones rotas, una premisa de
-propagación falsa y una colisión de shared-checkout. Este gate existe para
-que ese modo de fallo sea estructuralmente imposible.
+propagación falsa y una colisión de shared-checkout (post-mortem:
+`docs/postmortems/2026-09-30-ci-pattern-adoption-cadete.md`). Este gate
+existe para que ese modo de fallo sea estructuralmente imposible.
 
 Cargue esta skill cuando:
 
@@ -396,10 +395,9 @@ Fuentes normativas:
   valores de este repo como ejemplo, el policy file de gates dormibles (HR-18)
   y los scripts de referencia indicados.
 - `references/fricciones.md` — catálogo destilado: fricción, antídoto y evidencia.
-- `references/porting-guide.md` (canónico en el catálogo DysTelefonica/team-skills,
-  `personal/ardelperal/ci-pattern/`) — checklist de pre-vuelo de la adopción
-  fase por fase; cada gate cita el incidente real de Cadete (2026-09-30/10-01)
-  que lo justifica. Exigido por el GATE DE ADOPCIÓN del §1.
+- `references/porting-guide.md` — checklist de pre-vuelo de la adopción fase
+  por fase; cada fase declara hard gates y cita el incidente real de Cadete
+  (2026-09-30/10-01) que lo justifica. Exigido por el GATE DE ADOPCIÓN del §1.
 - `references/gate-verdicts.md` — veredicto de cada gate del inventario con su base.
 - `references/benchmark-gentle-ai.md` — ideas transferibles y rechazadas de otro CI.
 - `references/incidents.md` — ejemplo destilado de hotfix, post-mortem y
