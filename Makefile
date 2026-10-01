@@ -18,13 +18,27 @@ TAILWIND_DIR ?= tailwindcss
 TAILWIND_INPUT ?= $(TAILWIND_DIR)/styles/app.css
 TAILWIND_OUTPUT ?= app/static/css/output.css
 
+# e2e-local — same pinned images and env contract as the ci.yml `e2e`
+# job's service containers (issue #1146). Override the ports if they
+# collide with something on the workstation.
+E2E_POSTGRES_IMAGE ?= postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+E2E_MINIO_IMAGE ?= ghcr.io/ardelperal/minio@sha256:6140fe7015bd97e4e6340c9a8ead775c09bc1a226b7c36e41d24852f839dae8f
+E2E_MINIO_USER ?= e2e-minio-root
+E2E_MINIO_PASSWORD ?= e2e-minio-password
+E2E_POSTGRES_PORT ?= 55432
+E2E_MINIO_PORT ?= 59000
+E2E_APP_PORT ?= 58000
+E2E_NETWORK ?= apap-e2e-local
+E2E_PG_CONTAINER ?= apap-e2e-local-postgres
+E2E_MINIO_CONTAINER ?= apap-e2e-local-minio
+
 .PHONY: help install dev test test-ci lint typecheck verify \
         check-rules check-module-size check-route-size check-layers \
         check-slice-completeness check-migration-boundaries \
         check-docstring-coverage check-complexity check-ruff-ratchet \
         check-vulture-guard check-jscpd check-mutation-sites \
         check-docstring-balance check-import-cycles check-workflows check-test-classification check-crap \
-        mutation build all clean css css-watch serve run
+        mutation e2e-local build all clean css css-watch serve run
 
 help:
 	@echo "APAP make targets:"
@@ -37,6 +51,7 @@ help:
 	@echo "  typecheck    - Run mypy over app/ + migration/ (scope in pyproject [tool.mypy])"
 	@echo "  check-rules  - Run the AST-based AGENTS.md rule linter (scripts/check_rules.py)"
 	@echo "  mutation     - Run the cosmic-ray session + ratchet (LINUX ONLY; use WSL)"
+	@echo "  e2e-local    - Reproduce the ci.yml e2e job locally (Docker + GHCR login needed; see target docs)"
 	@echo "  build        - Build sdist + wheel with python -m build"
 	@echo "  css          - Compile Tailwind v4 CSS once (production-style, minified)"
 	@echo "  css-watch    - Run Tailwind v4 in watch mode (dev)"
@@ -249,6 +264,75 @@ mutation:
 
 build:
 	$(PYTHON) -m build
+
+# e2e-local — reproduce the ci.yml `e2e` job on a workstation (issue #1146).
+#
+# Boots the same pinned Postgres and MinIO-replica service containers CI
+# uses, creates the apap-photos bucket, starts the real application with
+# lifespan enabled and the same APAP_* env the workflow sets, and runs
+# tests/e2e_ci against it. Everything tears down automatically, even on
+# failure.
+#
+# Honest requirements (what is NOT free):
+#   - Docker daemon running (checked; fails fast like the CI preflight).
+#   - The MinIO replica image lives on ghcr.io and is pinned by digest to
+#     the same digest ci.yml uses. If the pull is denied (the package is
+#     private — CI authenticates with the ephemeral GITHUB_TOKEN), run
+#     `docker login ghcr.io` with a PAT granted read:packages first (see
+#     docs/operations/minio-replica.md). There is no public mirror to
+#     fall back on (issue #973).
+#   - amd64 workstations run the pinned replica as-is. On arm64 hosts
+#     (Apple Silicon etc.) the image is amd64-only and needs qemu binfmt
+#     (e.g. `docker run --privileged tonistiigi/binfmt --install amd64`);
+#     without it the MinIO container dies with `exec format error` and
+#     this target fails at the health gate — that failure is the honest
+#     signal, not a target bug. CI runs on amd64 hosted runners.
+#   - Playwright Chromium: `make install` then
+#     `python -m playwright install --with-deps chromium`.
+#   - bash + openssl + curl (Linux/macOS; no Windows path in this target).
+#   - No repository secrets needed: the auth secret is generated per run
+#     and MinIO uses the local root credentials below, not the MINIO_E2E_*
+#     organization secrets CI reads.
+e2e-local:
+	@bash -euo pipefail -c '\
+	echo "== e2e-local: reproducing the ci.yml e2e job (issue #1146) =="; \
+	docker info >/dev/null 2>&1 || { echo "FAIL: Docker daemon is not reachable; start Docker and retry." >&2; exit 1; }; \
+	cleanup() { if [ -n "$${SERVER_PID:-}" ]; then kill "$SERVER_PID" 2>/dev/null || true; fi; docker rm -f $(E2E_PG_CONTAINER) $(E2E_MINIO_CONTAINER) >/dev/null 2>&1 || true; docker network rm $(E2E_NETWORK) >/dev/null 2>&1 || true; }; \
+	trap cleanup EXIT INT TERM; \
+	cleanup >/dev/null 2>&1 || true; \
+	if ! docker image inspect $(E2E_MINIO_IMAGE) >/dev/null 2>&1; then \
+	  echo "Pulling the MinIO replica (private GHCR image; requires docker login ghcr.io with read:packages — docs/operations/minio-replica.md)..."; \
+	  docker pull $(E2E_MINIO_IMAGE); \
+	fi; \
+	docker network create $(E2E_NETWORK) >/dev/null 2>&1 || true; \
+	docker run -d --name $(E2E_PG_CONTAINER) --network $(E2E_NETWORK) \
+	  -e POSTGRES_USER=postgres -e POSTGRES_DB=apap_e2e -e POSTGRES_HOST_AUTH_METHOD=trust \
+	  -p $(E2E_POSTGRES_PORT):5432 $(E2E_POSTGRES_IMAGE) >/dev/null; \
+	docker run -d --name $(E2E_MINIO_CONTAINER) --network $(E2E_NETWORK) \
+	  -e MINIO_ROOT_USER=$(E2E_MINIO_USER) -e MINIO_ROOT_PASSWORD=$(E2E_MINIO_PASSWORD) \
+	  -p $(E2E_MINIO_PORT):9000 $(E2E_MINIO_IMAGE) server /data --console-address :9001 >/dev/null; \
+	echo "Waiting for Postgres readiness (30s cap)..."; \
+	for i in $$(seq 1 30); do docker exec $(E2E_PG_CONTAINER) pg_isready -U postgres -d apap_e2e >/dev/null 2>&1 && break; sleep 1; done; \
+	docker exec $(E2E_PG_CONTAINER) pg_isready -U postgres -d apap_e2e >/dev/null || { echo "FAIL: Postgres did not become ready within 30s." >&2; exit 1; }; \
+	echo "Waiting for MinIO health (60s cap)..."; \
+	for i in $$(seq 1 60); do curl -fsS http://127.0.0.1:$(E2E_MINIO_PORT)/minio/health/live >/dev/null 2>&1 && break; sleep 1; done; \
+	curl -fsS http://127.0.0.1:$(E2E_MINIO_PORT)/minio/health/live >/dev/null || { echo "FAIL: MinIO did not become healthy within 60s." >&2; exit 1; }; \
+	MINIO_HOST_PORT=$(E2E_MINIO_PORT) S3_ACCESS_KEY=$(E2E_MINIO_USER) S3_SECRET_KEY=$(E2E_MINIO_PASSWORD) \
+	  $(PYTHON) scripts/create_minio_bucket.py; \
+	export APAP_LOCAL_DB_URL=postgresql://postgres@127.0.0.1:$(E2E_POSTGRES_PORT)/apap_e2e \
+	  APAP_E2E_AUTH_SECRET=$$(openssl rand -hex 32) \
+	  APAP_DEBUG=true APAP_MODE=test \
+	  APAP_AUTH_ENABLE_MAGIC_LINK=true \
+	  APAP_E2E_AUTH_ENABLED=true APAP_E2E_AUTH_DEFAULT_EMAIL=e2e@apap.local \
+	  APAP_S3_ENDPOINT=http://127.0.0.1:$(E2E_MINIO_PORT) \
+	  APAP_S3_ACCESS_KEY=$(E2E_MINIO_USER) APAP_S3_SECRET_KEY=$(E2E_MINIO_PASSWORD) \
+	  APAP_S3_BUCKET=apap-photos APAP_S3_SECURE=false; \
+	echo "Starting the application on 127.0.0.1:$(E2E_APP_PORT)..."; \
+	$(UVICORN) app.main:app --host 127.0.0.1 --port $(E2E_APP_PORT) --lifespan on & SERVER_PID=$$!; \
+	for i in $$(seq 1 45); do curl -fsS http://127.0.0.1:$(E2E_APP_PORT)/healthz >/dev/null 2>&1 && break; sleep 1; done; \
+	curl -fsS http://127.0.0.1:$(E2E_APP_PORT)/healthz >/dev/null || { echo "FAIL: the application did not become healthy within 45s (check the uvicorn output above)." >&2; exit 1; }; \
+	APAP_E2E_BASE_URL=http://127.0.0.1:$(E2E_APP_PORT) $(PYTEST) tests/e2e_ci/ -v; \
+	echo "e2e-local: PASSED"'
 
 css:
 	cd $(TAILWIND_DIR) && npx tailwindcss -i ./styles/app.css -o ../$(TAILWIND_OUTPUT) --minify
