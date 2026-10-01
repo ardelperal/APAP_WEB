@@ -564,9 +564,22 @@ jobs:
         # The `timeout` is the load-bearing part, not `docker info`: an
         # unwrapped `docker info` hangs exactly like the `docker run` it is
         # supposed to protect, and a preflight that can hang is not a preflight.
+        #
+        # Issue #1146 (lived as #1130): the runner echoes this whole script as
+        # the step header, so a literal `::error::` sentence in the script text
+        # made log greps report a daemon failure that never fired — three
+        # #1130 reruns were misdiagnosed on that text while the real cause was
+        # a shifted .gitleaksignore fingerprint. The failure reason therefore
+        # lives in `env:` (never echoed as the header) and the script's only
+        # literal output is the informative notice below.
+        env:
+          PREFLIGHT_FAIL_REASON: >-
+            docker info did not answer within 30s (timed out or errored);
+            failing fast instead of hanging — check the runner's Docker daemon.
         run: |
+          echo "::notice::Preflight: verifying the Docker daemon answers before the secrets scans (30s cap)."
           if ! timeout 30 docker info >/dev/null 2>&1; then
-            echo "::error::Docker daemon is not answering on this runner; failing fast instead of hanging." >&2
+            echo "::error::${PREFLIGHT_FAIL_REASON}" >&2
             exit 1
           fi
 
@@ -697,9 +710,17 @@ jobs:
         # it more: `trivy image` pulls hundred-megabyte base images, so a
         # `docker run` that never answers is indistinguishable from one that is
         # merely slow, and this job carries the largest timeout budget to burn.
+        # Same `env:`-based failure reason as the sibling step: the script text
+        # is echoed as the step header, so it must stay free of literal error
+        # sentences (issue #1146, lived as #1130).
+        env:
+          PREFLIGHT_FAIL_REASON: >-
+            docker info did not answer within 30s (timed out or errored);
+            failing fast instead of hanging — check the runner's Docker daemon.
         run: |
+          echo "::notice::Preflight: verifying the Docker daemon answers before the full-history scan (30s cap)."
           if ! timeout 30 docker info >/dev/null 2>&1; then
-            echo "::error::Docker daemon is not answering on this runner; failing fast instead of hanging." >&2
+            echo "::error::${PREFLIGHT_FAIL_REASON}" >&2
             exit 1
           fi
 
