@@ -14,9 +14,10 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
@@ -50,8 +51,17 @@ EMPTY_RESPONSES = frozenset({"", "_No response_"})
 PAGE_SIZE = 100
 CHAIN_PARTIAL_LABEL = "chain:partial"
 # Issue #956: traceability is derived from the head branch, the PR labels and
-# GitHub's structured closingIssuesReferences, never from PR-body prose.
+# GitHub's structured closingIssuesReferences, never from PR-body prose. The
+# body is read only as a trigger for the late-registration retry below
+# (friction B11): the verdict itself always comes from the structured field.
 _BRANCH_ISSUE_RE = re.compile(r"^[a-z]+/(?P<number>[0-9]+)-")
+_CLOSING_KEYWORD_RE = re.compile(r"(?i)\b(?:closes|fixes|resolves)\s+#(?P<number>[0-9]+)\b")
+_CLOSING_RETRY_ENV = "ISSUE_SPEC_CLOSING_RETRY_SECONDS"
+# GitHub populates closingIssuesReferences seconds after PR creation, so a
+# fresh PR can fail the gate spuriously. Re-query at these offsets (seconds)
+# before concluding the reference is absent; worst case adds 90s to CI, and
+# only when the reference is missing while the body declares the keyword.
+_DEFAULT_CLOSING_RETRY_DELAYS: tuple[float, ...] = (30.0, 60.0, 90.0)
 _EXEMPT_HEAD_PREFIXES = ("archive/", "skill-fleet/")
 _EXEMPT_HEADS = frozenset({"main"})
 _CLOSING_REFERENCES_QUERY = """
@@ -355,6 +365,33 @@ class PullRequestClient(Protocol):
     def pull_request_links(self, repository: str, number: int) -> PullRequestLinks: ...
 
 
+def body_declares_closing_keyword(body: str, issue_number: int) -> bool:
+    """Return whether the body verbatim declares a closing keyword for the issue.
+
+    This is a retry trigger for friction B11, never evidence: a passing
+    verdict still requires GitHub's structured closingIssuesReferences.
+    """
+    return any(
+        int(match.group("number")) == issue_number
+        for match in _CLOSING_KEYWORD_RE.finditer(body)
+    )
+
+
+def closing_retry_delays(environ: Mapping[str, str] | None = None) -> tuple[float, ...]:
+    """Return the seconds to wait before each closing-reference re-query."""
+    source = os.environ if environ is None else environ
+    raw = source.get(_CLOSING_RETRY_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_CLOSING_RETRY_DELAYS
+    delays = []
+    for part in raw.split(","):
+        value = float(part)  # malformed values fail loud, never silently ignored
+        if value < 0:
+            raise ValueError(f"{_CLOSING_RETRY_ENV}: delays must be >= 0, got {value}")
+        delays.append(value)
+    return tuple(delays)
+
+
 def _branch_issue_number(head_ref: str) -> int | None:
     """Return N from a valid `<tipo>/<N>-<slug>` head branch, else None."""
     branch_violations, _notices = check_branch_name.check(head_ref)
@@ -392,8 +429,20 @@ def _other_closing_errors(client: PullRequestClient, repository: str, number: in
     return [f"#{number}: {error}" for error in issue_contract_errors(issue)]
 
 
-def validate_pr_event(event: Mapping[str, Any], client: PullRequestClient) -> list[str]:
-    """Validate PR traceability from branch, labels and closing references."""
+def validate_pr_event(
+    event: Mapping[str, Any],
+    client: PullRequestClient,
+    retry_delays: Sequence[float] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+) -> list[str]:
+    """Validate PR traceability from branch, labels and closing references.
+
+    When the branch issue is absent from closingIssuesReferences while the PR
+    body declares a verbatim closing keyword for it, the lookup is retried
+    with backoff (friction B11: GitHub registers the reference late). The
+    delays are injected by tests and default to the
+    ISSUE_SPEC_CLOSING_RETRY_SECONDS environment or 30/60/90 seconds.
+    """
     pull_request = event.get("pull_request") or {}
     actor = (pull_request.get("user") or {}).get("login", "")
     head_ref = (pull_request.get("head") or {}).get("ref", "")
@@ -423,6 +472,16 @@ def validate_pr_event(event: Mapping[str, Any], client: PullRequestClient) -> li
         return violations
     try:
         links = client.pull_request_links(repository, pr_number)
+        if (
+            issue_number not in links.closing_issues
+            and CHAIN_PARTIAL_LABEL not in links.labels
+            and body_declares_closing_keyword(pull_request.get("body") or "", issue_number)
+        ):
+            for delay in closing_retry_delays() if retry_delays is None else retry_delays:
+                sleep(delay)
+                links = client.pull_request_links(repository, pr_number)
+                if issue_number in links.closing_issues:
+                    break
     except GitHubApiError as exc:
         return [*violations, f"PR #{pr_number}: cannot read the pull request links ({exc})"]
     closes_branch_issue = issue_number in links.closing_issues
