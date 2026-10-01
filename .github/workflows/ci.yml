@@ -312,14 +312,22 @@ jobs:
         # historical `openspec/changes/archive/` stay out of scope
         # (archive is excluded inside the detector as immutable history).
         #
-        # Blocking since issue #576. ADR d-42 documents the removal of
-        # `continue-on-error: true` once ALAN003 reached a manageable
-        # baseline. A new ALAN violation in any scanned file now fails
-        # the job instead of reporting noise. Authors clean their files
-        # via the `<!-- alantyle-ignore:ALANxxx -->` directives or by
-        # rewriting. Parity pinned by tests/test_ci_workflow.py::
+        # Blocking from issue #576 to #1148; informational since issue
+        # #1149 (operator decision 2026-09-30, CI epic decision 3): the
+        # gate never caught a real defect (last-100 audit in
+        # docs/quality/ci-gate-inventory.md) while rejecting correct docs
+        # — an ALL-CAPS `BOTH` false positive in #1133 and 2 ALAN
+        # violations on PR #1117's runbook. The step still runs the
+        # detector on the same scope and prints every violation to the
+        # job log, but `--informational` turns findings into exit 0 so a
+        # docs-style hit no longer fails the lint job. Usage errors still
+        # exit 2, so a broken invocation never passes as green. The
+        # detector keeps its value as review guidance: AGENTS.md still
+        # rejects non-alan-style docs at REVIEW time. Authors clean their
+        # files via the `<!-- alantyle-ignore:ALANxxx -->` directives or
+        # by rewriting. Parity pinned by tests/test_ci_workflow.py::
         # test_ci_workflow_lint_job_runs_alantyle_lint.
-        run: python scripts/check_alantyle.py docs/ openspec/specs/ openspec/changes/*/specs/ README.md AGENTS.md DOCS.md CONTRIBUTING.md
+        run: python scripts/check_alantyle.py --informational docs/ openspec/specs/ openspec/changes/*/specs/ README.md AGENTS.md DOCS.md CONTRIBUTING.md
 
       - name: Run module-size ratchet (AGENTS.md rule 21)
         # Issue #202 — removing this step is a blocked change. The

@@ -87,10 +87,14 @@ los siguientes gates pasaron de **bloqueantes** a **informativos**: el script
 sigue ejecutándose en el mismo job (`lint` o `test`) y emite un `NOTE` por cada
 hallazgo, pero `main()` sale con exit 0 aunque haya notas. La señal sigue
 estando en el log del PR; lo que se quita es el bloqueo que forzaba reescritura
-de código correcto sin defecto subyacente.
+de código correcto sin defecto subyacente. Excepción mecánica: `check_alantyle`
+(#1149) conserva su contrato CLI por defecto (exit 1 con violaciones) y la
+tolerancia se activa con el flag `--informational` que el paso de CI pasa
+de forma explícita, de modo que los errores de uso siguen fallando el job.
 
 | Gate | Issue | Script | Razón para el cambio |
 |---|---|---|---|
+| Alan-style docs detector | #1149 | `scripts/check_alantyle.py` | Detector de estilo documental sin defecto real atajado: solo falsos positivos (`BOTH` en mayúsculas, ALAN003, en #1133) y el runbook de #1117 bloqueado por 2 violaciones del detector. Decisión del operador 2026-09-30: el paso de CI pasa `--informational`, muestra las violaciones y no falla el `lint`; el detector queda como guía de revisión (AGENTS.md sigue rechazando en revisión las docs sin la skill `documentation-alan-style`). |
 | Mutation-site density ratchet | #968 | `scripts/check_mutation_sites.py` | El conteo AST de nodos no detecta defectos; obligaba a partir módulos sin razón de bug. Mantiene el ratchet shrink-only de la BASELINE, pero el crecimiento se registra como `NOTE`. Enforcement dormant vía `.github/ci-gate-policy.json` (#1168). |
 | Docstring coverage floor | #970 | `scripts/check_docstring_coverage.py` | El porcentaje de docstrings es una señal de documentación, no de defectos; `interrogate` y similares se usan como aviso, no como puerta. El suelo del 73 % se mantiene documentado. |
 | Per-function CRAP score + baseline exactness | #969 | `scripts/check_crap.py` | La cobertura combinada (#929) no existe aún; el script solo mide cobertura unitaria, y el `check_baseline_exactness` penalizaba las mejoras. Se reevaluará cuando #929 esté mergeado. Enforcement dormant vía `.github/ci-gate-policy.json` (#1168). |

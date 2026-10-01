@@ -818,23 +818,33 @@ def test_deploy_smoke_database_uses_ephemeral_trust_not_a_literal_password() -> 
 
 
 def test_ci_workflow_lint_job_runs_alantyle_lint() -> None:
-    """Issue #559, ADR d-42: ``lint`` bloquea anti-patrones alan-style.
+    """Issue #559, ADR d-42: ``lint`` ejecuta el detector alan-style.
 
-    El rollout terminó en issue #576. El step conserva el scope canónico,
-    ejecuta el detector entre ``check_rules`` y ``check_module_size`` y no
-    puede suavizar su exit code con ``continue-on-error``.
+    Informativo desde issue #1149 (decisión del operador 2026-09-30): el
+    step conserva el scope canónico, ejecuta el detector entre
+    ``check_rules`` y ``check_module_size`` y pasa el flag
+    ``--informational`` para que las violaciones se muestren en el log
+    sin fallar el job. La tolerancia vive en el flag del script, nunca en
+    ``continue-on-error`` (que ocultaría también errores de uso).
     """
     lint_runs = _workflow_yaml.runs_text(_job(WORKFLOW_PATH, "lint"))
 
     assert "scripts/check_alantyle.py" in lint_runs, (
-        "el job lint debe invocar scripts/check_alantyle.py para hacer "
-        "cumplir §10 de la skill documentation-alan-style (issue #559)."
+        "el job lint debe invocar scripts/check_alantyle.py para aplicar "
+        "§10 de la skill documentation-alan-style como guía de revisión "
+        "(issue #559)."
+    )
+    assert "--informational" in lint_runs, (
+        "el detector alan-style es informativo desde issue #1149; el paso "
+        "debe pasar --informational para que las violaciones se muestren "
+        "sin fallar el job."
     )
     assert "continue-on-error" not in _workflow_yaml.job_text(
         _job(WORKFLOW_PATH, "lint")
     ), (
-        "el detector alan-style es un gate bloqueante desde issue #576; "
-        "continue-on-error ocultaría su exit code y reabriría el rollout."
+        "la tolerancia del detector alan-style vive en su flag "
+        "--informational (issue #1149); continue-on-error ocultaría también "
+        "los errores de uso y cualquier otro fallo del job."
     )
     # Issue #578: el scope incluye los delta-specs de cada change. El
     # detector enmascara inline code y aplica la whitelist spec-context
