@@ -127,8 +127,11 @@ Fuentes normativas:
 - **HR-5 — Tras corregir el primer paso rojo de un job, el autor `MUST` reproducir
   también todos los pasos posteriores** antes de empujar: el runner se detiene en
   el primer fallo y los pasos posteriores nunca se han visto verdes. (R12; playbook regla 7)
-- **HR-6 — Las etiquetas del PR `MUST` aplicarse en el comando de creación**;
-  etiquetar después no reevalúa un gate sin disparador `labeled`. (playbook regla 2)
+- **HR-6 — Las etiquetas del PR `MUST` aplicarse en el comando de creación**
+  (higiene del autor): aplicadas tarde, alguien tiene que reejecutar o empujar
+  para que el gate lea el dato nuevo, y esa higiene `MUST NOT` tratarse como
+  evaluación del gate — lo que se evaluó fue el PR sin las etiquetas (HR-31).
+  (playbook regla 2)
 - **HR-7 — Solo el PR punta de una cadena `MUST` llevar `Closes #<issue>`**; los
   intermedios llevan `Refs` más la etiqueta de cadena, la rama se nombra
   `<tipo>/<N>-<slug>`, el autor `MUST` verificar `closingIssuesReferences` tras
@@ -169,7 +172,9 @@ Fuentes normativas:
 - **HR-17 — La actualización de rama `MUST` seguir la secuencia determinista**
   (PUT `update-branch`, verificar run fresco sobre el nuevo SHA a los dos
   minutos, fallback `workflow_dispatch` sobre el SHA), y tras cualquier PATCH de
-  settings `MUST` leerse de vuelta antes de concluir. (playbook reglas 11 y 18)
+  settings `MUST` leerse de vuelta antes de concluir; el fallback manual `MUST`
+  resolver el PR a partir del SHA y evaluarlo completo, o `MUST NOT` publicar
+  nombres de checks requeridos (HR-30). (playbook reglas 11 y 18)
 - **HR-18 — Un gate que pierde su justificación se duerme, no se retira**: se
   deja tras un policy file con el motor construido y probado
   (`enforcement: "dormant"`, snapshot de activación inmutable) y la
@@ -236,6 +241,33 @@ Fuentes normativas:
   aislamiento no existe todavía, los rojos ambientales `MUST` documentarse
   como fallo de entorno, nunca como defecto de código. (5 rojos ambientales
   locales por el `.env` de la raíz, 2026-10-01)
+- **HR-29 — El agregador de jobs requeridos `MUST` verificar la paridad de los
+  tres conjuntos que lo sostienen**: `jobs(workflow) − {agregador}`, el `needs`
+  del agregador y el conjunto conocido por el evaluador `MUST` ser iguales; una
+  clave de `needs` que el evaluador no conozca `MUST` contarse como violación y
+  `MUST NOT` ignorarse, y un job excluido a propósito del agregado se declara
+  como dato con su motivo, nunca por omisión. Al añadir, renombrar o eliminar un
+  job, los tres conjuntos se actualizan en el mismo PR: un job cableado en
+  `needs` y ausente del conjunto conocido, o añadido al workflow sin cablear,
+  queda fuera de todo veredicto y el agregador sale limpio con un fallo real
+  dentro. (team-skills#133; derivada de la lectura del código del agregador de
+  origen, 2026-10-01; fricciones D1)
+- **HR-30 — Un nombre de check requerido `MUST` publicarse solo desde un evento
+  que evalúa el PR**; en cualquier otro evento (`push`, `workflow_dispatch`,
+  `schedule`) el job `MUST` publicar bajo otro nombre de contexto o fallar, y
+  `MUST NOT` emitir éxito sin haber evaluado el PR: un verde requerido que no
+  evaluó es un falso verde indistinguible del bueno y anula la protección de
+  rama. (team-skills#134; derivada de la lectura del código de origen,
+  2026-10-01; fricciones D2)
+- **HR-31 — Un gate que lee datos mutables del PR o de la issue enlazada
+  (cuerpo del PR, etiquetas, estado y etiquetas de la issue) `MUST` reejecutarse
+  cuando esos datos cambian**, o su verde `MUST` invalidarse reevaluando el gate
+  en el momento del merge. Límite honesto: un cambio en la issue enlazada no
+  dispara eventos del PR en el host, así que para ese dato la reevaluación en el
+  merge no es opcional — la regla `MUST NOT` prometer un disparador que no
+  existe. Un verde que sobrevive a la edición del cuerpo o de una etiqueta no
+  certifica nada. (team-skills#134; derivada de la lectura del código de origen,
+  2026-10-01)
 
 ## §3 Decision Gates
 
@@ -245,8 +277,11 @@ Fuentes normativas:
 | El diff supera el presupuesto de líneas | Parta por unidad de trabajo; después encadene PRs; `size-exception-reason:` en el cuerpo es el último recurso. |
 | Va a abrir un PR intermedio de una cadena (`chain:partial`) | Palabras de cierre (`Closes`, `Fixes`, `Resolves`) NUNCA en el título ni en el cuerpo del intermedio: solo el PR punta cierra la issue. Intermedios con `Refs #<N>` + etiqueta de cadena; verifique `closingIssuesReferences` tras crear (HR-7). |
 | GitHub no registró `closingIssuesReferences` tras crear el PR | Etiqueta de cadena más excepción declarada en el cuerpo; cierre la issue a mano tras el merge con comentario que lo documente. |
-| El rojo exige un push de corrección | Empuje y deje que la CI se dispare sola; `rerun --failed` solo para transitorios, `workflow_dispatch` solo cuando el workflow cambió. |
+| El rojo exige un push de corrección | Empuje y deje que la CI se dispare sola; `rerun --failed` solo para transitorios, `workflow_dispatch` solo cuando el workflow cambió y bajo el límite de HR-17: si publica checks requeridos, resuelva el PR desde el SHA y evalúelo completo. |
+| Va a disparar un evento manual o programado sobre la rama de un PR | Solo si el job evalúa el PR completo; si no, publique bajo otro nombre de contexto o falle — nunca un check requerido en verde sin evaluación (HR-30). |
+| El cuerpo del PR, sus etiquetas o la issue enlazada cambian después del verde | Reejecute el gate si el host dispara algún evento para ese dato; si no lo dispara (cambio en la issue enlazada), reevalúe en el momento del merge antes de dar el verde por válido (HR-31). |
 | Falla un paso del job de lint | Ejecute el preflight completo antes de empujar, no solo el paso roto (HR-5). |
+| Va a añadir, renombrar o eliminar un job del workflow | Actualice los tres conjuntos en el mismo PR — jobs del workflow, `needs` del agregador y conjunto conocido por el evaluador; una clave de `needs` desconocida es violación, no se ignora (HR-29). |
 | Aparece una fricción que ninguna regla cubre | Aplique el protocolo de HR-11: registrar con evidencia, arreglar por el pipeline, destilar en regla. |
 | Un gate acumula baseline creciente sin defecto real cazado | Duerma el gate tras su policy file (`enforcement: "dormant"`), no lo retire; la re-activación es un cambio de datos con review (HR-18). |
 | Va a dejar un gate como informativo sin policy file | No lo haga: informativo sin policy pierde el candado construido; muévalo a dormant (R15). |
@@ -369,6 +404,9 @@ Fuentes normativas:
 | Verde en local y rojo en CI por un paso de lint que el runner de tests local no ejecuta (parámetro 13) | Preflight canónico que reproduce el job completo; ejecútelo antes de cada push. |
 | Gate que imprime «`OK (0 hallazgos)`» sin haber corrido el herramienta | Fail-loud: el gate falla si el herramienta no está instalado o no midió (HR-3). |
 | Un rojo de raíz enmascarado como N fallos en el agregador | El agregador separa causa raíz de skips en cascada y agrupa las consecuencias. |
+| Job cableado en `needs` y ausente del conjunto conocido falla sin que el agregador lo note | Paridad three-way verificada: `jobs(workflow) − {agregador}` = `needs` = conjunto conocido; una clave de `needs` desconocida cuenta como violación y no se ignora (HR-29). |
+| Un check requerido sale en verde desde un evento manual o programado que nunca evaluó el PR | Nombres requeridos solo desde el evento que evalúa; en cualquier otro, otro nombre de contexto o fallo — nunca éxito sin evaluación (HR-30). |
+| El verde sobrevive a la edición del cuerpo del PR o a un cambio de etiquetas de la issue enlazada | Disparador para el dato mutable donde exista y reevaluación en el merge donde no; un gate sin relectura del dato no certifica nada (HR-31). |
 | Bucle de sondeo de CI o vigía que sobrevive a la sesión | Auto-merge más una sonda única a los dos minutos; sin procesos vivos (HR-9). |
 | Variable global que aprueba o bloquea deploys para siempre | Estado de commit por SHA; la evidencia viaja con la revisión (HR-10). |
 | Fix de fricción aplicado a mano sin registrar | El rojo vuelve con la próxima sesión; registre con evidencia y destile en regla. |
