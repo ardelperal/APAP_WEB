@@ -3,7 +3,8 @@
 # Tres ecosistemas:
 # - pip: dependencias Python de pyproject.toml
 # - npm: tailwindcss en tailwindcss/package.json
-# - github-actions: SHA de las GitHub Actions en workflows
+# - github-actions: SHA de las GitHub Actions en workflows y en
+#   .github/actions/* (acciones compuestas)
 #
 # Los PRs automáticos resultantes quedan verificados por el pipeline
 # lint / test / security y por los gates específicos de PR.
@@ -54,9 +55,13 @@ updates:
       dev-dependencies:
         dependency-type: "development"
 
-  # GitHub Actions — check .github/workflows/
+  # GitHub Actions — check .github/workflows/ and .github/actions/ (issue
+  # #1087: Dependabot only bumps what a declared directory covers, so the
+  # composite actions need their own glob entry).
   - package-ecosystem: "github-actions"
-    directory: "/"
+    directories:
+      - "/"
+      - "/.github/actions/*"
     target-branch: "main"
     schedule:
       interval: "weekly"

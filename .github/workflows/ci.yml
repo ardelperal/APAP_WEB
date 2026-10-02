@@ -86,7 +86,7 @@ jobs:
       - name: Set up exact Python runtime
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
-          python-version: "3.12.11"
+          python-version-file: .python-version
 
       - name: Validate PR traceability (branch, labels, closing references)
         env:
@@ -129,7 +129,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
-          python-version: "3.12.11"
+          python-version-file: .python-version
 
       - name: Detect UI-path changes
         id: detect
@@ -846,17 +846,16 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Set up Python
-        # Pin to CPython 3.12 here even though ``pyproject.toml`` requires
-        # ``>=3.11``. The pinned cosmic-ray 8.4.6 (matches
-        # ``mutation-baseline.json::acquired_on.cosmic_ray``) calls
-        # ``asyncio.get_event_loop()`` from its HTTP distributor
-        # (``cosmic_ray/distribution/http.py:47``); that call has no current
-        # loop on Python 3.14 and the runtime aborts the session before any
-        # mutant executes. The fix landed in cosmic-ray 8.7.x but bumping
-        # the pin is a separate concern — pinning Python here keeps the
-        # evidence run reproducible against the baseline and matches the
-        # 3.12.3 CPython the baseline was acquired on. Restore
-        # ``python-version-file: pyproject.toml`` once cosmic-ray is bumped.
+        # Reads ``.python-version`` (3.12.14) through the composite action —
+        # the same interpreter the CI suites exercise and the production
+        # image builds with (issue #1087 unified the sources). The pinned
+        # cosmic-ray 8.4.6 (matches
+        # ``mutation-baseline.json::acquired_on.cosmic_ray``) is safe on
+        # 3.12.x: its HTTP distributor's ``asyncio.get_event_loop()`` only
+        # aborts on Python 3.14+ (fix landed upstream in 8.7.x). The
+        # baseline in ``docs/quality/mutation-baseline.json`` was acquired
+        # on 3.12.11; the survivor ratchet compares session results, not
+        # interpreters, and the next re-acquisition will record 3.12.14.
         uses: ./.github/actions/setup-python
 
       - name: Verify the unmutated suite is green

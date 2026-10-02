@@ -3141,3 +3141,70 @@ def test_ci_workflow_e2e_does_not_run_on_docs_only_pull_requests() -> None:
     assert "needs.ui-detection.outputs.docs_changed != 'true'" in if_clause, (
         "e2e must not run on a docs-only pull_request"
     )
+
+
+# --- issue #1087: a single Python version and a single setup-python SHA ------
+
+_SETUP_PYTHON_SHA_PATTERN = re.compile(r"actions/setup-python@([0-9a-f]{40})")
+_INLINE_PYTHON_VERSION_PATTERN = re.compile(r'^\s*python-version:\s*["\']', re.MULTILINE)
+_GITHUB_WORKFLOW_FILES = sorted(
+    path
+    for directory in (".github/workflows", ".github/actions")
+    for path in (REPO_ROOT / directory).rglob("*.yml")
+)
+
+
+def test_python_version_file_is_the_only_version_source() -> None:
+    """Issue #1087: no workflow or composite action may declare an inline
+    ``python-version:`` — every interpreter comes from ``.python-version``
+    via ``python-version-file:``, so CI cannot drift from the deployed
+    image.
+    """
+    offenders = [
+        f"{path.relative_to(REPO_ROOT)}: {line}"
+        for path in _GITHUB_WORKFLOW_FILES
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if _INLINE_PYTHON_VERSION_PATTERN.match(line)
+    ]
+
+    assert not offenders, (
+        "inline python-version found; use python-version-file: .python-version\n"
+        + "\n".join(offenders)
+    )
+
+
+def test_setup_python_uses_a_single_sha_everywhere() -> None:
+    """Issue #1087: ``actions/setup-python`` is pinned to one SHA across
+    workflows and the composite action — Dependabot bumps must not leave
+    the composite action behind.
+    """
+    hits = [
+        (path.relative_to(REPO_ROOT), sha)
+        for path in _GITHUB_WORKFLOW_FILES
+        for sha in _SETUP_PYTHON_SHA_PATTERN.findall(
+            path.read_text(encoding="utf-8")
+        )
+    ]
+
+    assert hits, "actions/setup-python must be referenced somewhere"
+    shas = {sha for _, sha in hits}
+    assert len(shas) == 1, (
+        "multiple actions/setup-python SHAs found:\n"
+        + "\n".join(f"{path}: {sha}" for path, sha in hits)
+    )
+
+
+def test_dockerfile_python_version_matches_python_version_file() -> None:
+    """Issue #1087: the interpreter CI tests on (``.python-version``) and the
+    one the production image builds with (``ARG PYTHON_VERSION``) must be
+    the same string, so what is tested is what is deployed.
+    """
+    pinned = (REPO_ROOT / ".python-version").read_text(encoding="utf-8").strip()
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    match = re.search(r"^ARG PYTHON_VERSION=(\S+)", dockerfile, re.MULTILINE)
+
+    assert match is not None, "Dockerfile must declare ARG PYTHON_VERSION"
+    assert match.group(1) == pinned, (
+        f"Dockerfile ARG PYTHON_VERSION={match.group(1)!r} diverges from "
+        f".python-version {pinned!r}"
+    )
