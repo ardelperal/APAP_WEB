@@ -1,6 +1,6 @@
 ---
 name: access-vba-e2e-methodology
-description: Trigger: Access VBA forms, helpers, UAT, TDD VBA bridge. Forms finos + helpers desacoplados y testeables; átomos TDD espejo de escenarios UAT. Coordina access-vba-tdd-fundamentos + feature-acceptance-uat.
+description: 'Trigger: Access VBA forms, helpers, UAT, TDD VBA bridge. Forms finos + helpers desacoplados y testeables; átomos TDD espejo de escenarios UAT. Coordina access-vba-tdd-fundamentos + feature-acceptance-uat.'
 license: Apache-2.0
 metadata:
   author: Andrés Román

@@ -40,7 +40,13 @@ $script:Findings = [System.Collections.ArrayList]::new()
 $script:WslDistro = 'Ubuntu-22.04'
 $script:EngramDataDir = Join-Path $env:USERPROFILE '.engram'
 $script:EngramDbPath = Join-Path $script:EngramDataDir 'engram.db'
-$script:EngramExePath = "$env:LOCALAPPDATA\engram\bin\engram.exe"
+# Resolve the engram CLI. The canonical install is `go install` (go/bin), NOT
+# %LOCALAPPDATA%\engram\bin. Prefer PATH, then go/bin, then the legacy path.
+$script:EngramExePath = (Get-Command engram -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+if (-not $script:EngramExePath) {
+  $goBinEngram = Join-Path $env:USERPROFILE 'go\bin\engram.exe'
+  $script:EngramExePath = if (Test-Path $goBinEngram) { $goBinEngram } else { "$env:LOCALAPPDATA\engram\bin\engram.exe" }
+}
 $script:DaemonPort = 7437
 $script:PostgresPort = 5433
 $script:CloudUrl = 'https://engram.romancaba.com'
@@ -54,10 +60,46 @@ function Add-Finding {
   })
 }
 
+# Defined here, before any call site, so the preflight failure path (which exits
+# early) can render findings without hitting a PowerShell forward-reference error.
+# $daemonProcs/$daemonPid are resolved at call time, so declaration order is fine.
+function Format-Findings {
+  $ok = $script:Findings | Where-Object { $_.Severity -eq 'OK' }
+  $warn = $script:Findings | Where-Object { $_.Severity -eq 'WARN' }
+  $blocked = $script:Findings | Where-Object { $_.Severity -eq 'BLOCKED' }
+
+  Write-Host "`n=== Engram Sync Doctor ===" -ForegroundColor Cyan
+  Write-Host "Project root: $($PWD)"
+  Write-Host "Timestamp:    $(Get-Date -Format 'yyyy-MM-ddTHH:mm:ssZ')"
+  Write-Host "Daemon:       $(if ($daemonProcs) { "running (PID $daemonPid)" } else { 'NOT RUNNING' })"
+  Write-Host "Cloud:        $($script:CloudUrl)`n"
+
+  foreach ($f in ($ok + $warn + $blocked | Group-Object Severity | ForEach-Object { $_.Group })) {
+    $color = switch ($f.Severity) {
+      'OK'      { 'Green' }
+      'WARN'    { 'Yellow' }
+      'BLOCKED' { 'Red' }
+      default   { 'White' }
+    }
+    Write-Host ("[{0,-7}] {1,-30} {2}" -f $f.Severity, $f.Category, $f.Message) -ForegroundColor $color
+  }
+
+  Write-Host ''
+  if ($blocked) {
+    Write-Host "Verdict: BLOCKED. Run repair.ps1 to clear blocking categories." -ForegroundColor Red
+  } elseif ($warn) {
+    Write-Host "Verdict: DEGRADED. Review warnings; consider running repair.ps1." -ForegroundColor Yellow
+  } else {
+    Write-Host "Verdict: HEALTHY. No action required." -ForegroundColor Green
+  }
+}
+
 function Invoke-WslSqlite {
   param([string]$Sql, [string]$DbPath = "/mnt/c/Users/adm1/.engram/engram.db")
-  $escaped = $Sql -replace '"', '\"'
-  $out = wsl -d $script:WslDistro -u root -- bash -c "sqlite3 '$DbPath' \"$escaped\"" 2>&1
+  # Pipe the SQL over stdin instead of interpolating it into `bash -c "..."`.
+  # The previous inline form escaped " as \" which sqlite3 then read as a literal
+  # backslash token, so every SQL check silently returned nothing.
+  $out = $Sql | wsl -d $script:WslDistro -u root -- sqlite3 $DbPath 2>&1
   if ($LASTEXITCODE -ne 0) { return $null }
   return ($out -split "`n" | Where-Object { $_ -match '\S' })
 }
@@ -235,37 +277,6 @@ if ($repairableSid -and $repairableSid -ne '0') {
 }
 
 # --- Output ------------------------------------------------------------------
-function Format-Findings {
-  $ok = $script:Findings | Where-Object { $_.Severity -eq 'OK' }
-  $warn = $script:Findings | Where-Object { $_.Severity -eq 'WARN' }
-  $blocked = $script:Findings | Where-Object { $_.Severity -eq 'BLOCKED' }
-
-  Write-Host "`n=== Engram Sync Doctor ===" -ForegroundColor Cyan
-  Write-Host "Project root: $($PWD)"
-  Write-Host "Timestamp:    $(Get-Date -Format 'yyyy-MM-ddTHH:mm:ssZ')"
-  Write-Host "Daemon:       $(if ($daemonProcs) { "running (PID $daemonPid)" } else { 'NOT RUNNING' })"
-  Write-Host "Cloud:        $($script:CloudUrl)`n"
-
-  foreach ($f in ($ok + $warn + $blocked | Group-Object Severity | ForEach-Object { $_.Group })) {
-    $color = switch ($f.Severity) {
-      'OK'      { 'Green' }
-      'WARN'    { 'Yellow' }
-      'BLOCKED' { 'Red' }
-      default   { 'White' }
-    }
-    Write-Host ("[{0,-7}] {1,-30} {2}" -f $f.Severity, $f.Category, $f.Message) -ForegroundColor $color
-  }
-
-  Write-Host ''
-  if ($blocked) {
-    Write-Host "Verdict: BLOCKED. Run repair.ps1 to clear blocking categories." -ForegroundColor Red
-  } elseif ($warn) {
-    Write-Host "Verdict: DEGRADED. Review warnings; consider running repair.ps1." -ForegroundColor Yellow
-  } else {
-    Write-Host "Verdict: HEALTHY. No action required." -ForegroundColor Green
-  }
-}
-
 if ($Json) {
   $script:Findings | ConvertTo-Json -Depth 3
 } else {

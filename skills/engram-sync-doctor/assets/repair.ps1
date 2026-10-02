@@ -48,8 +48,17 @@ $ErrorActionPreference = 'Stop'
 $script:WslDistro = 'Ubuntu-22.04'
 $script:EngramDbPath = '/mnt/c/Users/adm1/.engram/engram.db'
 $script:EngramDbWindows = Join-Path $env:USERPROFILE '.engram\engram.db'
-$script:EngramExePath = "$env:LOCALAPPDATA\engram\bin\engram.exe"
+# Resolve the engram CLI. The canonical install is `go install` (go/bin), NOT
+# %LOCALAPPDATA%\engram\bin. This path is load-bearing: Stop-Daemon matches the
+# serve process by $_.Path, so a wrong value means the daemon is NOT stopped and
+# the WAL/SHM delete below corrupts the live DB.
+$script:EngramExePath = (Get-Command engram -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+if (-not $script:EngramExePath) {
+  $goBinEngram = Join-Path $env:USERPROFILE 'go\bin\engram.exe'
+  $script:EngramExePath = if (Test-Path $goBinEngram) { $goBinEngram } else { "$env:LOCALAPPDATA\engram\bin\engram.exe" }
+}
 $script:PostgresPort = 5433
+$script:DaemonPort = 7437
 
 if ($AssumeYes -and -not $Confirm) {
   Write-Host "ERROR: -AssumeYes requires -Confirm. Refusing to run unattended without explicit confirmation." -ForegroundColor Red
@@ -70,12 +79,24 @@ function Backup-Db {
 }
 
 function Stop-Daemon {
-  $procs = Get-Process -Name 'engram' -ErrorAction SilentlyContinue |
-    Where-Object { $_.Path -eq $script:EngramExePath -and $_.CommandLine -like '*serve*' }
-  if ($procs) {
-    $procs | Stop-Process -Force
+  # Match the HTTP server on the daemon port via its owning process, because
+  # Get-Process does not expose CommandLine and a path-only match previously
+  # selected nothing (leaving the daemon alive during a live-DB write).
+  $pids = @()
+  try {
+    $conns = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $script:DaemonPort -State Listen -ErrorAction Stop
+    $pids = @($conns | Select-Object -ExpandProperty OwningProcess -Unique)
+  } catch {
+    $pids = @()
+  }
+  $targets = @(Get-Process -Id $pids -ErrorAction SilentlyContinue |
+    Where-Object { $_.ProcessName -eq 'engram' })
+  if ($targets.Count -gt 0) {
+    $targets | Stop-Process -Force
     Start-Sleep -Seconds 2
-    Write-Host "[daemon] stopped $($procs.Count) serve process(es)" -ForegroundColor Cyan
+    Write-Host "[daemon] stopped $($targets.Count) serve process(es) on port $($script:DaemonPort)" -ForegroundColor Cyan
+  } else {
+    Write-Host "[daemon] no engram process listening on port $($script:DaemonPort)" -ForegroundColor DarkGray
   }
 }
 
@@ -95,8 +116,12 @@ function Start-Daemon {
 
 function Invoke-WslSqlite {
   param([string]$Sql, [switch]$ReadOnly)
-  $escaped = $Sql -replace '"', '\"'
-  $out = Read-WslInput -WslCmd "sqlite3 $script:EngramDbPath \"$escaped\"" 2>&1
+  # Pipe the SQL over stdin instead of interpolating it into `bash -c "..."`.
+  # The previous inline form escaped " as \" which sqlite3 then read as a literal
+  # backslash token ("unrecognized token: \"") and aborted the whole repair.
+  # Default target is the WSL-local working copy: reading the live /mnt/c DB from
+  # WSL returns "disk I/O error (10)" on this machine.
+  $out = $Sql | wsl -d $script:WslDistro -u root -- sqlite3 /root/work/repair.db 2>&1
   if ($LASTEXITCODE -ne 0) { throw "sqlite3 failed: $out" }
   return ($out -split "`n" | Where-Object { $_ -match '\S' })
 }
@@ -106,7 +131,8 @@ function Copy-Db-WslToWindows {
   # 1) PRAGMA wal_checkpoint(TRUNCATE) to flush WAL
   # 2) Copy from WSL to Windows
   # 3) Delete WAL/SHM on Windows so the daemon opens cleanly
-  Read-WslInput -WslCmd 'sqlite3 /root/work/repair.db "PRAGMA wal_checkpoint(TRUNCATE);"' | Out-Null
+  # Pipe the checkpoint via stdin (parentheses in PRAGMA(...) break `bash -c`).
+  'PRAGMA wal_checkpoint(TRUNCATE);' | wsl -d $script:WslDistro -u root -- sqlite3 /root/work/repair.db 2>&1 | Out-Null
   Read-WslInput -WslCmd "cp /root/work/repair.db $script:EngramDbPath" | Out-Null
   Remove-Item "$($script:EngramDbWindows)-wal" -ErrorAction SilentlyContinue
   Remove-Item "$($script:EngramDbWindows)-shm" -ErrorAction SilentlyContinue
@@ -116,7 +142,8 @@ function Copy-Db-WslToWindows {
 function Run-Sql {
   param([string]$Sql, [string]$Description)
   Write-Host "[sql] $Description" -ForegroundColor DarkCyan
-  Read-WslInput -WslCmd "sqlite3 /root/work/repair.db \"$($Sql -replace '"','\"')\"" 2>&1 | Out-Null
+  # Same stdin-pipe approach as Invoke-WslSqlite to survive embedded quotes.
+  $Sql | wsl -d $script:WslDistro -u root -- sqlite3 /root/work/repair.db 2>&1 | Out-Null
 }
 
 function Confirm-Action {
@@ -142,7 +169,9 @@ $backup = Backup-Db
 # Copy current DB to WSL work area
 Read-WslInput -WslCmd 'mkdir -p /root/work' | Out-Null
 Read-WslInput -WslCmd "cp $script:EngramDbPath /root/work/repair.db && chmod 644 /root/work/repair.db" | Out-Null
-Read-WslInput -WslCmd 'sqlite3 /root/work/repair.db "PRAGMA wal_checkpoint(TRUNCATE);"' | Out-Null
+# PRAGMA wal_checkpoint(TRUNCATE) has parentheses; passing it through `bash -c "..."`
+# broke on the parens. Pipe it via stdin to sqlite3 instead (matches Run-Sql).
+'PRAGMA wal_checkpoint(TRUNCATE);' | wsl -d $script:WslDistro -u root -- sqlite3 /root/work/repair.db 2>&1 | Out-Null
 
 # --- Category 1: Title repair ----------------------------------------------
 if (-not $skipSet['1']) {
@@ -292,8 +321,16 @@ if (-not $skipSet['5']) {
 # --- Final: REINDEX + integrity + propagate --------------------------------
 Write-Host ""
 Write-Host "Final steps: REINDEX, integrity_check, propagate, restart daemon..." -ForegroundColor Yellow
-Read-WslInput -WslCmd 'sqlite3 /root/work/repair.db "REINDEX;"' | Out-Null
-$integrity = Invoke-WslSqlite "PRAGMA integrity_check"
+'REINDEX;' | wsl -d $script:WslDistro -u root -- sqlite3 /root/work/repair.db 2>&1 | Out-Null
+# integrity_check must run against the REPAIRED copy inside WSL, not the live
+# /mnt/c DB (which returns "disk I/O error (10)" from WSL on this machine).
+$integrity = 'PRAGMA integrity_check;' | wsl -d $script:WslDistro -u root -- sqlite3 /root/work/repair.db 2>&1
+$integrity = $integrity | Where-Object { $_ -match '\S' }
+if (-not $integrity) {
+  Write-Host "[FATAL] integrity_check returned no result after repair" -ForegroundColor Red
+  Write-Host "Restore from backup: $backup"
+  exit 4
+}
 if ($integrity -notcontains 'ok') {
   Write-Host "[FATAL] integrity_check failed after repair: $($integrity -join '; ')" -ForegroundColor Red
   Write-Host "Restore from backup: $backup"

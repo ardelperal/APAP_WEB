@@ -1,6 +1,6 @@
 ---
 name: deterministic-quality-harness
-description: Trigger: deterministic code quality, ratchet gate, shrink-only baseline, fail-loud gate. Enforce criteria via mechanical self-policing gates.
+description: 'Trigger: deterministic code quality, ratchet gate, shrink-only baseline, fail-loud gate. Enforce criteria via mechanical self-policing gates.'
 license: Apache-2.0
 metadata:
   author: ardelperal

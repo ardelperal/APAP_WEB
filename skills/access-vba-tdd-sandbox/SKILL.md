@@ -1,6 +1,6 @@
 ---
 name: access-vba-tdd-sandbox
-description: Trigger: Access test sandbox, test data isolation, fixture lifecycle, injectable database, production safety. Defines mandatory sandbox routing and deterministic isolation for Access VBA tests.
+description: 'Trigger: Access test sandbox, test data isolation, fixture lifecycle, injectable database, production safety. Defines mandatory sandbox routing and deterministic isolation for Access VBA tests.'
 license: Apache-2.0
 metadata:
   author: Andrés Román

@@ -1,6 +1,6 @@
 ---
 name: oci-iot-platform
-description: Trigger: oci iot platform. Explore, create, and troubleshoot Oracle Cloud Infrastructure Internet of Things Platform resources, including domains, digital twin models, adapters, instances, relationships, and device publish flows. Use when requests involve OCI IoT bootstrap, digital twin inspection, safe lifecycle operations, or translating OCI IoT docs and samples into concrete commands.
+description: 'Trigger: oci iot platform. Explore, create, and troubleshoot Oracle Cloud Infrastructure Internet of Things Platform resources, including domains, digital twin models, adapters, instances, relationships, and device publish flows. Use when requests involve OCI IoT bootstrap, digital twin inspection, safe lifecycle operations, or translating OCI IoT docs and samples into concrete commands.'
 license: Apache-2.0
 metadata:
   author: ardelperal

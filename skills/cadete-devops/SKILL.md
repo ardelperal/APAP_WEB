@@ -1,6 +1,6 @@
 ---
 name: cadete-devops
-description: Trigger: DevOps Cadete, Quay, OpenShift, despliegue, vulnerabilidad, CVE. Operate Cadete builds, releases, networking and rollback.
+description: 'Trigger: DevOps Cadete, Quay, OpenShift, despliegue, vulnerabilidad, CVE. Operate Cadete builds, releases, networking and rollback.'
 license: Apache-2.0
 metadata:
   author: Andrés Román

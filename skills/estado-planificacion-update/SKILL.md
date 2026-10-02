@@ -1,6 +1,6 @@
 ---
 name: estado-planificacion-update
-description: Trigger: actualizar estado de planificación, refrescar planning status, status report, cerrar fase. Update estado-planificacion-*.html with new RAG, dates, deltas and Gantt bars in castellano de España.
+description: 'Trigger: actualizar estado de planificación, refrescar planning status, status report, cerrar fase. Update estado-planificacion-*.html with new RAG, dates, deltas and Gantt bars in castellano de España.'
 license: Apache-2.0
 metadata:
   author: Andrés Román

@@ -1,6 +1,6 @@
 ---
 name: oke-troubleshooter
-description: Trigger: pods pending, troubleshoot OKE, service has no IP, cluster unhealthy, DPDK/SR-IOV mlx5 pod failures. Use this skill when the user wants to diagnose or root-cause issues with an OCI Kubernetes Engine cluster or workload. Trigger phrases include "pods pending", "troubleshoot OKE", "service has no IP", "cluster unhealthy", DPDK/SR-IOV mlx5 pod failures, Multus network-status issues, or broad incident RCA across Kubernetes and OCI resources. Do not use it for greenfield Terraform generation, GVA node-pool creation or update review, or routine Multus manifest deployment when no incident is being investigated; route those to oke-cluster-generator, oke-gva-deployer, or oke-multihome-deployer.
+description: 'Trigger: pods pending, troubleshoot OKE, service has no IP, cluster unhealthy, DPDK/SR-IOV mlx5 pod failures. Use this skill when the user wants to diagnose or root-cause issues with an OCI Kubernetes Engine cluster or workload. Trigger phrases include "pods pending", "troubleshoot OKE", "service has no IP", "cluster unhealthy", DPDK/SR-IOV mlx5 pod failures, Multus network-status issues, or broad incident RCA across Kubernetes and OCI resources. Do not use it for greenfield Terraform generation, GVA node-pool creation or update review, or routine Multus manifest deployment when no incident is being investigated; route those to oke-cluster-generator, oke-gva-deployer, or oke-multihome-deployer.'
 license: Apache-2.0
 metadata:
   author: ardelperal

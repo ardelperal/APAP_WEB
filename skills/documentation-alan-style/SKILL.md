@@ -1,6 +1,6 @@
 ---
 name: documentation-alan-style
-description: Trigger: redactar o revisar README, AGENTS, DOCS, CODEBASE-GUIDE, CONTRIBUTING, CHANGELOG, épicas o walkthroughs JSON en Castellano peninsular formal. Adaptador de locale sobre skill-style-guide + skill-creator + skill-improver (Gentleman-Programming/gentle-ai). Cargue las skills de Alan PRIMERO para estructura y Output Contract; este adaptador agrega solo la capa de idioma Castellano.
+description: 'Trigger: redactar o revisar README, AGENTS, DOCS, CODEBASE-GUIDE, CONTRIBUTING, CHANGELOG, épicas o walkthroughs JSON en Castellano peninsular formal. Adaptador de locale sobre skill-style-guide + skill-creator + skill-improver (Gentleman-Programming/gentle-ai). Cargue las skills de Alan PRIMERO para estructura y Output Contract; este adaptador agrega solo la capa de idioma Castellano.'
 license: MIT
 metadata:
   author: gentleman-programming

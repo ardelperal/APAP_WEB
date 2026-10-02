@@ -1,6 +1,6 @@
 ---
 name: vba-sql-impact
-description: Trigger: what breaks if I change table X, impact of modifying query X, who reads/writes table X, trace SQL alias lineage. Assesses the impact of changing a table or saved query in an MS Access project: finds VBA callers, form/report bindings, and resolves column/table alias lineage.
+description: 'Trigger: what breaks if I change table X, impact of modifying query X, who reads/writes table X, trace SQL alias lineage. Assesses the impact of changing a table or saved query in an MS Access project: finds VBA callers, form/report bindings, and resolves column/table alias lineage.'
 license: Apache-2.0
 status: active
 requires: codegraph MCP (codegraph_explore) with an initialized .codegraph/ index for the target VBA/Access project

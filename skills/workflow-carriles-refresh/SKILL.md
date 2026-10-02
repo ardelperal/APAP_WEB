@@ -1,6 +1,6 @@
 ---
 name: workflow-carriles-refresh
-description: Trigger: refresh carriles, migrate Sol models, sync Codex to OpenCode, upgrade gentle-ai binary. Maintains gentle-ai defaults and Codex-to-OpenCode carriles.
+description: 'Trigger: refresh carriles, migrate Sol models, sync Codex to OpenCode, upgrade gentle-ai binary. Maintains gentle-ai defaults and Codex-to-OpenCode carriles.'
 license: Apache-2.0
 metadata:
   author: Gentleman-Programming

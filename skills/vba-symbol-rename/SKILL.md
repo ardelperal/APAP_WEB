@@ -1,6 +1,6 @@
 ---
 name: vba-symbol-rename
-description: Trigger: rename X a Y, qué se rompe si renombro X, rename this VBA symbol, rename across modules. Renombra un símbolo VBA (Sub/Function/Variable/Const) cross-module con verificación de impacto binario+source antes de escribir.
+description: 'Trigger: rename X a Y, qué se rompe si renombro X, rename this VBA symbol, rename across modules. Renombra un símbolo VBA (Sub/Function/Variable/Const) cross-module con verificación de impacto binario+source antes de escribir.'
 license: Apache-2.0
 status: active
 requires: dysflow MCP, codegraph v1.5.0+; for current tool names, flags, defaults and error codes → see `dysflow-usage` skill.

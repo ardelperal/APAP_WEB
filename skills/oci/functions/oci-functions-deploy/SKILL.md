@@ -1,6 +1,6 @@
 ---
 name: oci-functions-deploy
-description: Trigger: Fn-context-guided flow with argv-safe mutation execution, OCI CLI, Python. Build, configure, scaffold, and deploy OCI Functions from a local machine using a dependency-first, Fn-context-guided flow with argv-safe mutation execution, nonce-scoped confirmations, and a canonical lowercase machine-readable contract. Use when asked to validate/install Fn, OCI CLI, and Docker, configure or create Fn contexts, validate OCI session and Docker registry auth from Fn context values, choose or create a Functions application, scaffold Java, Python, or Node functions, and deploy them. Network creation is supported only as an explicit advanced branch.
+description: 'Trigger: Fn-context-guided flow with argv-safe mutation execution, OCI CLI, Python. Build, configure, scaffold, and deploy OCI Functions from a local machine using a dependency-first, Fn-context-guided flow with argv-safe mutation execution, nonce-scoped confirmations, and a canonical lowercase machine-readable contract. Use when asked to validate/install Fn, OCI CLI, and Docker, configure or create Fn contexts, validate OCI session and Docker registry auth from Fn context values, choose or create a Functions application, scaffold Java, Python, or Node functions, and deploy them. Network creation is supported only as an explicit advanced branch.'
 license: Apache-2.0
 metadata:
   author: ardelperal

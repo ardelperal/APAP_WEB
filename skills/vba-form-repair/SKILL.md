@@ -1,6 +1,6 @@
 ---
 name: vba-form-repair
-description: Trigger: arregla el form X, el form está roto, controles descolocados, handler huérfano, form inconsistente, repara este formulario. Diagnostica y repara forms de Access rotos o inconsistentes: controles perdidos, handlers huérfanos, propiedades corruptas, bindings rotos.
+description: 'Trigger: arregla el form X, el form está roto, controles descolocados, handler huérfano, form inconsistente, repara este formulario. Diagnostica y repara forms de Access rotos o inconsistentes: controles perdidos, handlers huérfanos, propiedades corruptas, bindings rotos.'
 license: Apache-2.0
 status: active
 requires: dysflow MCP, codegraph v1.5.0+; for current tool names, flags, defaults and error codes → see `dysflow-usage` skill.

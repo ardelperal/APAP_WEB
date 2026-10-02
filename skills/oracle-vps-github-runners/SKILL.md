@@ -1,6 +1,6 @@
 ---
 name: oracle-vps-github-runners
-description: Trigger: runner self-hosted, runner en Coolify, VPS Oracle, jobs encolados, runner offline, segundo runner, migrar repo a runners propios. Provision, harden and diagnose self-hosted GitHub Actions runners, and migrate repos onto them.
+description: 'Trigger: runner self-hosted, runner en Coolify, VPS Oracle, jobs encolados, runner offline, segundo runner, migrar repo a runners propios. Provision, harden and diagnose self-hosted GitHub Actions runners, and migrate repos onto them.'
 license: Apache-2.0
 metadata:
   author: Andrés Román

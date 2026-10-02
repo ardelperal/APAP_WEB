@@ -1,6 +1,6 @@
 ---
 name: worktree-reorg-per-project
-description: Trigger: worktree reorg per project, clean main. Reorganize git worktrees so each project has main at the project root and all linked worktrees live in a sibling `<project>-worktrees\\` container outside the repo. Trigger: scattered worktree dirs INSIDE a project folder (e.g. `<project>/bugfix_125\\`), request to 'mover worktrees fuera del repo', 'organizar worktrees', 'sacar worktrees de dentro del proyecto', or pre-PR cleanup of a project in c:\\00repos\\codigo\\.
+description: 'Trigger: worktree reorg per project, clean main. Reorganize git worktrees so each project has main at the project root and all linked worktrees live in a sibling `<project>-worktrees\\` container outside the repo. Trigger: scattered worktree dirs INSIDE a project folder (e.g. `<project>/bugfix_125\\`), request to ''mover worktrees fuera del repo'', ''organizar worktrees'', ''sacar worktrees de dentro del proyecto'', or pre-PR cleanup of a project in c:\\00repos\\codigo\\.'
 license: Apache-2.0
 metadata:
   author: ardelpeal

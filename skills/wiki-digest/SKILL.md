@@ -1,6 +1,6 @@
 ---
 name: wiki-digest
-description: Trigger: wiki digest, knowledge graph curation. Curates the DysTelefonica/wiki knowledge graph from TIER 1 material (Engram, per-project docs, OpenSpec dumps, git history) and TIER 2 cache (wiki/raw/). This is the SINGLE routine that processes incoming info into the wiki. Use when the user says 'digerí', 'digest', 'meté esto en la wiki', 'update the wiki', 'process the wiki', or any reference to curating DysTelefonica/wiki. Triggered explicitly by the user — NOT on every event. The wiki is a DERIVED artifact, batch-curated on a schedule or by request.
+description: 'Trigger: wiki digest, knowledge graph curation. Curates the DysTelefonica/wiki knowledge graph from TIER 1 material (Engram, per-project docs, OpenSpec dumps, git history) and TIER 2 cache (wiki/raw/). This is the SINGLE routine that processes incoming info into the wiki. Use when the user says ''digerí'', ''digest'', ''meté esto en la wiki'', ''update the wiki'', ''process the wiki'', or any reference to curating DysTelefonica/wiki. Triggered explicitly by the user — NOT on every event. The wiki is a DERIVED artifact, batch-curated on a schedule or by request.'
 license: Apache-2.0
 metadata:
   author: ardelperal

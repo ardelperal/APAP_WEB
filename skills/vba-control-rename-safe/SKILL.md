@@ -1,6 +1,6 @@
 ---
 name: vba-control-rename-safe
-description: Trigger: renombra el control X, qué pasa si cambio X por Y, safe-rename de X, consolida forms y renombra controles. Renombra un control de Access de forma segura, mapeando refs Me.X, bang refs, event handlers y consumers antes de aplicar con form_rename_control.
+description: 'Trigger: renombra el control X, qué pasa si cambio X por Y, safe-rename de X, consolida forms y renombra controles. Renombra un control de Access de forma segura, mapeando refs Me.X, bang refs, event handlers y consumers antes de aplicar con form_rename_control.'
 license: Apache-2.0
 status: active
 requires: dysflow MCP, codegraph v1.5.0+; for current tool names, flags, defaults and error codes → see `dysflow-usage` skill.

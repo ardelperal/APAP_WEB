@@ -1,6 +1,6 @@
 ---
 name: vba-binary-drift
-description: Trigger: drift binario, sincronizado, recompila, zombies MSACCESS, readback de .cls. Verifica drift source vs binario Access (.cls = comportamiento, .form.txt = UI/layout); exige .dysflow/project.json por worktree; detecta zombies MSACCESS.
+description: 'Trigger: drift binario, sincronizado, recompila, zombies MSACCESS, readback de .cls. Verifica drift source vs binario Access (.cls = comportamiento, .form.txt = UI/layout); exige .dysflow/project.json por worktree; detecta zombies MSACCESS.'
 license: Apache-2.0
 status: active
 requires: dysflow MCP, codegraph-vba MCP (`codegraph_explore`); for current tool names and flags → see `dysflow-usage` skill.

@@ -1,6 +1,6 @@
 ---
 name: vba-query-decoupler
-description: Trigger: sql inline, sql en vba, desacopla consulta, query en código, querydef. Desacopla sentencias SQL inline o hardcodeadas de los módulos de código VBA, transformándolas en QueryDefs o consultas SQL parametrizadas externas.
+description: 'Trigger: sql inline, sql en vba, desacopla consulta, query en código, querydef. Desacopla sentencias SQL inline o hardcodeadas de los módulos de código VBA, transformándolas en QueryDefs o consultas SQL parametrizadas externas.'
 license: Apache-2.0
 status: active
 requires: codegraph-vba, dysflow MCP; for current tool names and flags → see `dysflow-usage` skill.

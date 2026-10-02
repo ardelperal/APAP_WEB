@@ -1,6 +1,6 @@
 ---
 name: natalia-tone
-description: Trigger: informe para Natalia, mensaje para Natalia, acceptance web para Calidad, status Natalia, comunicar a Natalia. Reports, acceptance webs, and short messages for Natalia (producto, non-technical) in natural Madrid Castilian, no AI-tells, no technical terms.
+description: 'Trigger: informe para Natalia, mensaje para Natalia, acceptance web para Calidad, status Natalia, comunicar a Natalia. Reports, acceptance webs, and short messages for Natalia (producto, non-technical) in natural Madrid Castilian, no AI-tells, no technical terms.'
 license: Apache-2.0
 metadata:
   author: andres
