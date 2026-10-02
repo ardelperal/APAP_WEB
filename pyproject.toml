@@ -55,11 +55,11 @@ dev = [
     # no system libraries required. Pinned exactly: the adapter (CP3) is
     # written and verified against this release line; bumping it requires
     # re-verifying the generated PDF bytes.
-    "reportlab==4.5.1",
+    "reportlab==5.0.1",
     # Type stubs for reportlab so mypy can type-check the PDF adapter.
     # Floored to the stub release matching the runtime pin, capped below
     # the 5.x stub line so the mypy surface cannot jump under us.
-    "types-reportlab>=4.5.1,<5",
+    "types-reportlab>=4.5.1,<6",
     "pytest==9.1.1",
     "pytest-asyncio>=0.24",
     "pytest-cov==7.1.0",
