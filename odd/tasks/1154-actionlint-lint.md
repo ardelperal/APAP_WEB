@@ -7,7 +7,7 @@ Gate the CI `lint` job on actionlint 1.7.12 across all workflows (operator decis
 ## Acceptance criteria
 
 1. `Run actionlint (all workflows, pinned 1.7.12)` step in the `lint` job; any finding fails the job.
-2. `.github/actionlint.yaml` declares the self-hosted fleet labels from `deploy.yml:296` (`self-hosted, Linux, ARM64, apap, oracle, coolify, noble, deploy`).
+2. `.github/actionlint.yaml` declares the self-hosted fleet labels from `deploy.yml:296` (`self-hosted, Linux, ARM64, apap, oracle, coolify, noble`).
 3. All findings fixed or declared with rationale comments.
 4. `scripts/preflight.py` parity: the step is picked up automatically (no preflight.py change — dynamic `run:` extraction from #1145); locally `PASSED (20/20 steps)` with the step named and executed.
 5. `tests/test_ci_workflow.py` pins: step present, version pin `1.7.12`, checksum-verified download, the three declared ignores, and the runner-label config covering every label `deploy.yml` uses.

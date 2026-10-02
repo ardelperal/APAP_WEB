@@ -12,4 +12,3 @@ self-hosted-runner:
     - oracle
     - coolify
     - noble
-    - deploy
