@@ -13,6 +13,18 @@ alwaysApply: true
 
 APAP_WEB es una aplicación web FastAPI + HTMX + Jinja2 (Python `>=3.11`) con arquitectura por capas estricta en transición a hexagonal con slices verticales (ver [docs/codebase/architecture.md](docs/codebase/architecture.md)). Cuando trabaje en este proyecto, cargue las skills relevantes antes de escribir código o docs.
 
+## Skill Registry Protocol (MANDATORY) <!-- alantyle-ignore:ALAN003 -->
+
+La tabla de skills de este `AGENTS.md` es un subconjunto curado (~20 filas); el registro generado — [`.atl/skill-registry.md`](.atl/skill-registry.md), refrescado por la skill `skill-registry` (`gentle-ai skill-registry refresh`) — es la fuente de verdad de descubrimiento (~100 filas). Una regla que existe y está indexada pero que ninguna sesión carga no gobierna nada: este protocolo (adaptado del orquestador de gentle-ai, `internal/assets/skills/_shared/odd-orchestrator-sections.md`) convierte el índice en despacho.
+
+1. **Lea** `.atl/skill-registry.md` (o el índice de skills del repo) antes de escribir o revisar código, CI o documentación.
+2. **Matchee** la tarea contra la columna `Trigger / description` de las skills candidatas.
+3. **Cargue** leyendo íntegros los `SKILL.md` que matcheen antes de actuar (p. ej. [`skills/ci-pattern/SKILL.md`](skills/ci-pattern/SKILL.md) para cualquier trabajo de CI de este repo).
+4. **Delegue con rutas exactas**: al pasar una tarea a un subagente, incluya las rutas exactas de los `SKILL.md` bajo un encabezado `## Skills to load before work` en la tarea. Un nombre en prosa no basta: el subagente no debe tener que adivinar ni redescubrir (eso produce el degradado `fallback-registry`).
+5. **Declare el gap**: si ninguna skill matchea y la tarea toca CI/PRs, releases, la flota de runners o la adopción de un repositorio nuevo, es un gap de orquestación — dígalo explícitamente en vez de proceder de memoria.
+
+**Deriva índice/registro.** Este índice es la puerta del contribuyente; el registro es la verdad operativa. Que una skill no aparezca en las tablas de abajo no autoriza concluir «no aplica»: autoriza buscarla en `.atl/skill-registry.md` (y refrescarlo con `gentle-ai skill-registry refresh` si está stale respecto al último cambio de skills). Ejemplo vivido 2026-10-02: `oracle-vps-github-runners` solo existe en el registro; la regla estaba escrita e indexada y ninguna sesión la cargó.
+
 ## Antes de empezar (checklist de CI)
 
 Antes de escribir la primera línea de código, verifique:
@@ -52,7 +64,7 @@ Revisar esto recién cuando el PR ya está armado llega tarde: el presupuesto de
 | `apap-security` | Auth (§6, §29), CSRF (§10), secrets (§8), log_safe (§9), PII. | [`~/.config/opencode/skills/apap-security/SKILL.md`](~/.config/opencode/skills/apap-security/SKILL.md) |
 | `apap-testing` | CRITICAL_HELPERS (§11), cobertura (§19), configuración pytest. | [`~/.config/opencode/skills/apap-testing/SKILL.md`](~/.config/opencode/skills/apap-testing/SKILL.md) |
 | `apap-testing-strategy` | Decidir tipo de test (unit / integration / e2e / migration), auditar gaps de cobertura real vs mock, refactorizar mocks a integration con Postgres real cuando aplique. Basada en [docs/quality/test-audit.md](../docs/quality/test-audit.md). Complementaria a `apap-testing` (gates y cobertura). | [`skills/apap-testing-strategy/SKILL.md`](skills/apap-testing-strategy/SKILL.md) |
-| `ci-pattern` | Adoptar o auditar el patrón de CI del repo en otro repositorio: gates deterministas, preflight canónico, issue-spec, ratchets, gates dormibles (policy file), evidencia por SHA, cadena de PRs encadenados y protocolo de mejora continua. | [`skills/ci-pattern/SKILL.md`](skills/ci-pattern/SKILL.md) |
+| `ci-pattern` | Trabajar en el CI de este repo (abrir/mergear PRs y cadenas, gates, presupuesto de revisión, evidencia por SHA, flota de runners) o adoptar/auditar el patrón en otro repositorio: gates deterministas, preflight canónico, issue-spec, ratchets, gates dormibles (policy file), cadena de PRs encadenados y protocolo de mejora continua. | [`skills/ci-pattern/SKILL.md`](skills/ci-pattern/SKILL.md) |
 | `apap-migration` | `app/core/migration/`, sync bidireccional, `python -m migration reconcile`. | [`skills/apap-migration/SKILL.md`](skills/apap-migration/SKILL.md) |
 | `apap-merge-workflow` | Política pre-MVP single-branch (§15), ciclo de vida de rama, autorización standing de merge. | [`skills/apap-merge-workflow/SKILL.md`](skills/apap-merge-workflow/SKILL.md) |
 | `apap-orchestrator-discipline` | Coordinación de subagents (§17), patrones de delegación, lentes de revisión. | [`skills/apap-orchestrator-discipline/SKILL.md`](skills/apap-orchestrator-discipline/SKILL.md) |
@@ -217,6 +229,8 @@ Procedimiento de validación periódica (mensual o por release de skill fuente):
 ### Antipatrones
 
 - "Esperar a que CI esté verde para mergear" sin rebasear contra la base actual — el verde contra base obsoleta es stale-green.
+- "Delegar mencionando la skill por nombre en prosa, sin rutas exactas bajo `## Skills to load before work`" — el subagente redescubre, cae en `fallback-registry` y opera de memoria.
+- "No está en la tabla del AGENTS.md, luego no aplica" — la tabla es un subconjunto curado; la ausencia solo autoriza una búsqueda en el registro, nunca una conclusión.
 - "Borrar la rama remota post-merge porque ya está mergeada" — destruye la granularidad por unidad de trabajo que el flujo pretende crear.
 - "PR con 600 líneas porque el feature lo requiere" — partir primero, encadenar después; `size:exception` es el último recurso, no la primera opción.
 - "Mergear con CI rojo aunque el rojo parezca trivial" — la trivialidad la decide el revisor, no el autor.
@@ -230,5 +244,5 @@ Al buscar una skill de este catálogo, resuelva en este orden:
 2. Repo: `.agents/skills/` del consumer, materializada desde `.team-skills.yaml` por `scripts/refresh-team-skills.ps1` (vía rama `skill-fleet/<name>`).
 3. Catálogo: `skills/<nombre>/SKILL.md` de personal-skills.
 
-Referencias por nombre, nunca por ruta absoluta. Nota de precedencia: pi nativo conserva la primera copia encontrada (gana la global), mientras que el registry de gentle-pi prefiere la copia del repo; una copia global desactualizada tapa la del repo en pi, así que las copias globales deben seguir al catálogo. Si una skill citada en este partial no resuelve en ninguno de los tres niveles, repórtelo: falta declararla en `.team-skills.yaml` del consumer.
+Referencias por nombre en prosa; ruta absoluta exacta en la delegación: al pasar una tarea a un subagente, copie la ruta del `SKILL.md` desde `.atl/skill-registry.md` bajo `## Skills to load before work` (ver §Skill Registry Protocol). La regla anti-ruta-absoluta gobierna el texto de skills y docs — las rutas varían por máquina — no la delegación, donde la ruta exacta es obligatoria. Nota de precedencia: pi nativo conserva la primera copia encontrada (gana la global), mientras que el registry de gentle-pi prefiere la copia del repo; una copia global desactualizada tapa la del repo en pi, así que las copias globales deben seguir al catálogo. Si una skill citada en este partial no resuelve en ninguno de los tres niveles, repórtelo: falta declararla en `.team-skills.yaml` del consumer.
 <!-- /personal-skills:slice:APAP_WEB -->
