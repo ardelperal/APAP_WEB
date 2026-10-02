@@ -1,6 +1,6 @@
 ---
 name: vba-source-impact
-description: Trigger: impacto en source de X, qué archivos afecta cambiar X, qué tests cubren el área de X. Lista el impacto en el source tree de tocar un símbolo VBA: callers/callees, refs UI (Me.X, bang refs), bindings RecordSource/RowSource, TempVars, DoCmd targets, archivos afectados y tests relacionados.
+description: 'Trigger: impacto en source de X, qué archivos afecta cambiar X, qué tests cubren el área de X. Lista el impacto en el source tree de tocar un símbolo VBA: callers/callees, refs UI (Me.X, bang refs), bindings RecordSource/RowSource, TempVars, DoCmd targets, archivos afectados y tests relacionados.'
 license: Apache-2.0
 status: active
 requires: codegraph v1.5.0+, dysflow MCP (cross-check opcional); for current tool names and flags → see `dysflow-usage` skill.

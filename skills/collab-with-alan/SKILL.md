@@ -1,12 +1,18 @@
 ---
 name: collab-with-alan
-description: Trigger: contributor workflow on Gentleman-Programming/gentle-ai or Gentleman-Programming/engram. Two outputs and one action, repo-aware. Output 1: 'my work' table — open and recent PRs/branches by @ardelperal, with Alan-TheGentleman's merge + comment status and any pending action. Output 2: 'approved list' — issues with `status:approved`, open, no PR cross-reference, no duplicates-of-already-resolved (3-layer detection: linkedPullRequests, cross-repo search, textual duplicate markers), sorted by priority (high → medium → low → none) then oldest first. Skipped items shown in a dedicated section. Picking rule for mutually-duplicate candidates documented. Action: when the contributor names an issue number, delegate implementation to the SDD chain and the contribution rules skills. Triggers on phrases like 'cómo va mi PR en <repo>', 'lista de <repo>', 'atacar otra issue nueva', 'voy con #N', 'ya terminó'.
+description: 'Trigger: contributor workflow on Gentleman-Programming/gentle-ai or Gentleman-Programming/engram. Two outputs and one action, repo-aware. Output 1: ''my work'' table — open and recent PRs/branches by @ardelperal, with Alan-TheGentleman''s merge + comment status and any pending action. Output 2: ''approved list'' — issues with `status:approved`, open, no PR cross-reference, no duplicates-of-already-resolved (3-layer detection: linkedPullRequests, cross-repo search, textual duplicate markers), sorted by priority (high → medium → low → none) then oldest first. Skipped items shown in a dedicated section. Picking rule for mutually-duplicate candidates documented. Action: when the contributor names an issue number, delegate implementation to the SDD chain and the contribution rules skills. Triggers on phrases like ''cómo va mi PR en <repo>'', ''lista de <repo>'', ''atacar otra issue nueva'', ''voy con #N'', ''ya terminó''.'
 license: Apache-2.0
 metadata:
   author: ardelperal
-  version: 1.3.0
-  depends_on: 
-  last_verified: 2026-09-05
+  version: 1.4.0
+  depends_on:
+    - gentle-ai-collab-perfect        # community rules for the PR body (gentle-ai)
+    - gentle-ai-branch-pr             # branch + PR mechanics
+    - gentle-ai-issue-creation        # issue mechanics
+    - gentle-ai-chained-pr            # only when the chosen change exceeds 400 lines
+    - sdd-onboard                     # canonical SDD life cycle
+    - sdd-apply                       # actual code-work delegation
+  last_verified: 2026-09-21
   scope: ['universal']
   auto_invoke: ['loading the collab-with-alan skill']
   tiers: ['universal']
@@ -481,6 +487,7 @@ Triggered when the contributor says "voy con `#N`" / "ataco `#N`" / "elijo `#N`"
     - **`unclassified — needs triage`** → candidate with disposition column `unclear (C8 deferred)` or similar; safe to attack but expect Alan may classify it into a future wave.
     - **Not in the disposition** → candidate with disposition column `n/a (post-2026-08-02 or non-RDD)`; safe to attack, but verify the snapshot date hasn't drifted into a new wave-planning branch. Wave-planning branches follow the pattern `docs/rdd-wave{N}-{topic}`; the **highest-numbered** wave branch on upstream is the canonical snapshot.
     The same filter applies to Output 1 maintainer-race: when a rival PR closes an issue classified `absorbed-into-wave-N`, the bucket becomes `superseded/wave-N` instead of `superseded/full`. The filter also applies to the Pre-apply and Inter-phase race rechecks — between every SDD phase transition, grep the linked issue against the highest-numbered wave-disposition branch; a newly-classified wave-absorbsion flips the plan to `superseded/wave-N`. Companion planning docs live in `docs/architecture/rdd-ownership-inventory.md`, `rdd-freeze-expansion-policy.md`, `rdd-root-simplification-design.md`, and `rdd-shadow-evaluation.md`.
+14. **`update-branch` API does not push local commits.** `PUT /repos/{owner}/{repo}/pulls/{n}/update-branch` performs a server-side merge of `main` into the existing branch head only. Local commits made after the previous remote head are silently dropped — they never reach the remote, even though the API returns success and the PR head SHA advances. To land a new commit on a PR whose branch lives in the upstream repo, push it to a personal fork first and reopen the PR from there, or ask the maintainer to apply the commit directly via `git push` on the branch (Alan has push rights on every PR branch). **Verification after every call**: `git ls-remote <remote> refs/heads/<branch>` must show the new commit SHA, and `git diff origin/main...FETCH_HEAD --stat` must include the files your local commit modified. The silent-drop symptom — API returns success, head SHA advances, but the diff against `origin/main` does not include the new files — is the canonical failure mode. Verified empirically in #4078 (Alan: *"the second time your verification claims did not match what reached GitHub"*); the first instance was Denver2828's bench-evidence flag on the same #4078 (2026-09-02). **Pattern note**: this rule pairs with hard rule #12 — `pre-push-race-check.ps1` blocks pushes of stale WIP, but it cannot detect that an `update-branch` API call silently dropped a fresh commit. The two rules are complementary: rule #12 stops races at the local push gate, this rule stops silent drops at the API-call gate.
 
 ---
 

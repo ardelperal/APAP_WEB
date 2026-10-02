@@ -1,6 +1,6 @@
 ---
 name: vba-event-tracer
-description: Trigger: trace VBA event X, find event handlers for X, who raises event X, who listens to event X. Traces a custom VBA event to its declaration, RaiseEvent call sites, and dynamically resolved WithEvents handlers using the codegraph index.
+description: 'Trigger: trace VBA event X, find event handlers for X, who raises event X, who listens to event X. Traces a custom VBA event to its declaration, RaiseEvent call sites, and dynamically resolved WithEvents handlers using the codegraph index.'
 license: Apache-2.0
 status: active
 requires: codegraph MCP (codegraph_explore) with an initialized .codegraph/ index for the target VBA/Access project; v1.11.0+ runtime recommended for the direct event-handler edge

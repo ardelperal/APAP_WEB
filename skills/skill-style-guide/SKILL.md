@@ -1,6 +1,6 @@
 ---
 name: skill-style-guide
-description: Trigger: crear skill, refactorizar skill, auditar skill, revisar SKILL.md, frontmatter de skill, secciones canónicas, body budget, Output Contract, hard rules, decision gates, anti-patterns tabulados. Aplica la disciplina de authoring de Gentleman-Programming (gentle-ai, engram): frontmatter prescrito, body budget con números, secciones canónicas en orden fijo, Output Contract obligatorio, hard rules con verbos prohibidos listados, anti-patterns en tabla Symptom/Fix.
+description: 'Trigger: crear skill, refactorizar skill, auditar skill, revisar SKILL.md, frontmatter de skill, secciones canónicas, body budget, Output Contract, hard rules, decision gates, anti-patterns tabulados. Aplica la disciplina de authoring de Gentleman-Programming (gentle-ai, engram): frontmatter prescrito, body budget con números, secciones canónicas en orden fijo, Output Contract obligatorio, hard rules con verbos prohibidos listados, anti-patterns en tabla Symptom/Fix.'
 license: Apache-2.0
 metadata:
   author: Andrés Román

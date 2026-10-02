@@ -1,6 +1,6 @@
 ---
 name: capability-docs
-description: Trigger: capability docs, business rules, what the app does, regression-proof specs, migration-ready docs, generate SDDs from docs. Reverse-engineers features into SDD-grade, platform-agnostic docs with code as source of truth.
+description: 'Trigger: capability docs, business rules, what the app does, regression-proof specs, migration-ready docs, generate SDDs from docs. Reverse-engineers features into SDD-grade, platform-agnostic docs with code as source of truth.'
 license: Apache-2.0
 metadata:
   author: "Andrés Román"

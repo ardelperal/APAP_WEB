@@ -1,6 +1,6 @@
 ---
 name: access-vba-tdd-fundamentos
-description: Trigger: pruebas VBA, TDD Access, contrato JSON del runner, manifest de tests de Dysflow, Reglas de oro, contrato del runner JSON, contrato Dysflow, puerta de fixture, esquema-primero, convención de nombres, aislamiento entre tests, estructura de módulo, auditoría pre-compilación, protocolo de firma. Cargar al implementar TDD, helpers testeables, o debatir la forma del test. Patrones de código en references/tdd-patterns.md.
+description: 'Trigger: pruebas VBA, TDD Access, contrato JSON del runner, manifest de tests de Dysflow, Reglas de oro, contrato del runner JSON, contrato Dysflow, puerta de fixture, esquema-primero, convención de nombres, aislamiento entre tests, estructura de módulo, auditoría pre-compilación, protocolo de firma. Cargar al implementar TDD, helpers testeables, o debatir la forma del test. Patrones de código en references/tdd-patterns.md.'
 license: Apache-2.0
 metadata:
   author: Andrés Román

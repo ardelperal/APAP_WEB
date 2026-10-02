@@ -1,6 +1,6 @@
 ---
 name: telefonica-brand-design
-description: Trigger: Telefonica brand, Mistica tokens, design system. Apply Telefónica Brand Factory and Mística design-system guidance to frontend projects, React apps, Next.js apps, static HTML/CSS corporate websites, landing pages, design systems, emails, decks, or documentation. Use when asked to make a project look like Telefónica, create a Telefónica/corporate website or página web corporativa, apply Telefónica/Telefonica/Mística/Mistica brand tokens, configure @telefonica/mistica with the Telefónica skin, create CSS variables/theme tokens, style components with Telefónica colors/typography/buttons/cards/forms/nav/hero/footer, review Spanish copy against Telefónica tone of voice, or implement dark mode with Telefónica tokens.
+description: 'Trigger: Telefonica brand, Mistica tokens, design system. Apply Telefónica Brand Factory and Mística design-system guidance to frontend projects, React apps, Next.js apps, static HTML/CSS corporate websites, landing pages, design systems, emails, decks, or documentation. Use when asked to make a project look like Telefónica, create a Telefónica/corporate website or página web corporativa, apply Telefónica/Telefonica/Mística/Mistica brand tokens, configure @telefonica/mistica with the Telefónica skin, create CSS variables/theme tokens, style components with Telefónica colors/typography/buttons/cards/forms/nav/hero/footer, review Spanish copy against Telefónica tone of voice, or implement dark mode with Telefónica tokens.'
 metadata:
   author: Andrés Román
   version: 1.0

@@ -1,6 +1,6 @@
 ---
 name: fleet-registry-curator
-description: Trigger: change consumer active_branch, add a consumer repo to the fleet, disable a consumer, rename a consumer's owner/name, dry-run distribution for a consumer. Curate the central fleet registry (fleet/registry.json) of consumer repositories for the skill-fleet propagation system. Add, remove, or update consumer entries; toggle enabled; change active_branch or bot_branch; produce a per-consumer dry-run showing which artifacts from the catalog would apply given current metadata.distribution. Changes are direct commits to team-skills/main after strict validation.
+description: 'Trigger: change consumer active_branch, add a consumer repo to the fleet, disable a consumer, rename a consumer''s owner/name, dry-run distribution for a consumer. Curate the central fleet registry (fleet/registry.json) of consumer repositories for the skill-fleet propagation system. Add, remove, or update consumer entries; toggle enabled; change active_branch or bot_branch; produce a per-consumer dry-run showing which artifacts from the catalog would apply given current metadata.distribution. Changes are direct commits to team-skills/main after strict validation.'
 license: Apache-2.0
 metadata:
   author: ardelperal

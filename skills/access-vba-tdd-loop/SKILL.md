@@ -1,6 +1,6 @@
 ---
 name: access-vba-tdd-loop
-description: Trigger: implementar feature nueva con TDD, escribir el primer test, ejecutar runner, abrir PR con tests, manifest de dysflow. Contiene §8 (TDD Loop para la IA), §9 (Checklist Legacy), §8.3 (dónde van los tests). Load cuando se arranca un fix o feature nueva, o se debate manifests vs allowlist.
+description: 'Trigger: implementar feature nueva con TDD, escribir el primer test, ejecutar runner, abrir PR con tests, manifest de dysflow. Contiene §8 (TDD Loop para la IA), §9 (Checklist Legacy), §8.3 (dónde van los tests). Load cuando se arranca un fix o feature nueva, o se debate manifests vs allowlist.'
 license: Apache-2.0
 metadata:
   author: Andrés Román

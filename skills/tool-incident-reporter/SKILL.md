@@ -1,6 +1,6 @@
 ---
 name: tool-incident-reporter
-description: Trigger: tool gap, dysflow friction, codegraph-vba friction, maintainer escalation, upstream issue. Detects friction in a tool the consumer uses (especially Dysflow/CodeGraph-VBA) and files a single GitHub issue per independent problem at the tool's upstream repo, with a TDD-disciplined maintainer prompt as the body. Uses issue-creation mechanics for the remote side; preserves working behavior and no-touch rules. Reporter does NOT repair, release, or align.
+description: 'Trigger: tool gap, dysflow friction, codegraph-vba friction, maintainer escalation, upstream issue. Detects friction in a tool the consumer uses (especially Dysflow/CodeGraph-VBA) and files a single GitHub issue per independent problem at the tool''s upstream repo, with a TDD-disciplined maintainer prompt as the body. Uses issue-creation mechanics for the remote side; preserves working behavior and no-touch rules. Reporter does NOT repair, release, or align.'
 license: Apache-2.0
 metadata:
   author: ardelperal

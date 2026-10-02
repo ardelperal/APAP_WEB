@@ -1,6 +1,6 @@
 ---
 name: cadete-workflow
-description: Trigger: Cadete PR workflow, state transitions. Flujo de estados para PRs e Issues en GitHub. Trigger: cambiar estado de PR/issue, rechazar, aprobar, mergear, registrar histórico.
+description: 'Trigger: Cadete PR workflow, state transitions. Flujo de estados para PRs e Issues en GitHub. Trigger: cambiar estado de PR/issue, rechazar, aprobar, mergear, registrar histórico.'
 license: Apache-2.0
 metadata:
   author: cadete-team

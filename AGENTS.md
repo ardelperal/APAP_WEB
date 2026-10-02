@@ -135,7 +135,7 @@ Las 33 reglas de AGENTS (numeradas §1-§33) viven ahora en `docs/codebase/`. Es
 | Gate e2e en producción | [`docs/runbooks/e2e-production.md`](docs/runbooks/e2e-production.md) | Ciclo de encendido, baterías e2e y apagado contra producción como release gate (épica #909). |
 | Hardening del arnés de calidad | [`docs/quality/hardening-roadmap.md`](docs/quality/hardening-roadmap.md) | Estado de los gates automáticos. |
 
-<!-- personal-skills:slice:APAP_WEB @ v985a74e -->
+<!-- personal-skills:slice:APAP_WEB @ v8bdb1bb -->
 # slices/partials/web.md
 
 ## Manera de trabajar en proyectos web
@@ -143,6 +143,14 @@ Las 33 reglas de AGENTS (numeradas §1-§33) viven ahora en `docs/codebase/`. Es
 > Aplica a todo `primary_type: web` del catálogo. Las invariantes de ciclo de vida de PR aquí enunciadas se complementan con las skills universalmente activas — véase `personal-skills/AGENTS.md` raíz para el sistema de propagación, `propagate-team-skills.ps1` para la mecánica de distribución, y el bloque de partials específicos del consumer para las convenciones del proyecto concreto.
 >
 > Este partial enuncia invariantes. Los procedimientos asociados viven en sus skills respectivas — no se duplican aquí.
+
+### Arranque (invariante)
+
+- **Ningún trabajo empieza sin sincronizar la rama base.** Antes de leer, decidir o tocar un fichero: `git fetch origin && git switch <active_branch> && git pull --ff-only`. Un checkout atrasado muestra gobernanza, CI y skills que **ya no rigen**.
+- **Señal de alarma, no conclusión.** Si un documento o fichero citado por la gobernanza del consumer **parece no existir**, o **contradice** el modelo vigente, la lectura correcta es "estoy en un checkout atrasado": sincronizar y volver a mirar. Nunca "el repo tiene un hueco" ni "la regla cambió sin avisar".
+- **Gobernanza viva, no copiada.** Las issues se leen del tracker (`gh issue view <n>`), nunca de una copia pegada; el `AGENTS.md` y el documento de flujo del consumer se leen **en el SHA sincronizado**.
+- **El workspace del runner de CI no es un clon de desarrollo.** Se trabaja en un worktree o clon propio (ver §Worktree y rama remota).
+- **Una copia global de skill desactualizada tapa la del repo** (ver §Carga de skills): si una skill del repo contradice a la global, gana la del repo, y la global está pidiendo actualización.
 
 ### Forma del ciclo
 
@@ -205,6 +213,7 @@ Cada invariante de este partial se ancla a una skill específica del catálogo o
 - Anti-slop → upstream `gentle-ai-ai-slop-discipline` (T1 universal).
 - CodeGraph preflight → upstream `engineering-workflow` líneas 64-71; `codegraph-usage` HR-1, HR-2.
 - Conventional commits + castellano peninsular en artefactos + sin atribución IA → `personal-skills/AGENTS.md` raíz de flota.
+- Arranque sin checkout atrasado (sincronizar la rama base antes de leer, decidir o tocar) → `personal-skills/AGENTS.md` raíz de flota (§Lectura obligatoria). Invariante de flota sin skill fuente.
 
 ### Cómo auditar este partial usted mismo
 
@@ -216,6 +225,7 @@ Procedimiento de validación periódica (mensual o por release de skill fuente):
 
 ### Antipatrones
 
+- "El documento no existe / la regla cambió" concluido desde el checkout local sin haber sincronizado la rama base — primero `git pull --ff-only`, después la conclusión.
 - "Esperar a que CI esté verde para mergear" sin rebasear contra la base actual — el verde contra base obsoleta es stale-green.
 - "Borrar la rama remota post-merge porque ya está mergeada" — destruye la granularidad por unidad de trabajo que el flujo pretende crear.
 - "PR con 600 líneas porque el feature lo requiere" — partir primero, encadenar después; `size:exception` es el último recurso, no la primera opción.
