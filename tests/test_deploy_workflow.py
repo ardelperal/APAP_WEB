@@ -364,3 +364,58 @@ def test_deploy_still_needs_the_gate_and_the_gate_is_read_only() -> None:
     assert _workflow_yaml.needs(deploy) == ["evidence", "release-e2e-gate", "ui-e2e-gate"]
     assert _SMOKE_JOB not in _workflow_yaml.needs(deploy), "the smoke runs after deploy, not before"
     assert set(_workflow_yaml.permissions(_deploy_job(_GATE_JOB)).values()) == {"read"}
+
+
+def test_deploy_installs_cosign_with_a_direct_pinned_download_not_the_installer() -> None:
+    """Issue #1222: sigstore/cosign-installer renders its download URL with
+    ``envsubst`` (gettext-base), which the fleet's pool runners do not ship —
+    run 37037386528 died with exit 127 (``envsubst: command not found``).
+    The job must install cosign via a direct pinned download with sha256
+    verification (the actionlint pattern), self-sufficient on any runner.
+    """
+    deploy_job = _deploy_job("deploy")
+    run_scripts = [str(step.get("run", "")) for step in _workflow_yaml.steps(deploy_job)]
+
+    assert not any("cosign-installer" in script for script in run_scripts), (
+        "the third-party installer pulls in envsubst (gettext-base)"
+    )
+    assert not any("envsubst" in script for script in run_scripts), (
+        "envsubst must not be a deploy dependency"
+    )
+
+    install = _workflow_yaml.find_step(deploy_job, "Install Cosign")
+    assert install.get("uses") is None, "cosign comes from a run step, not an action"
+    env = install.get("env") or {}
+    assert env.get("COSIGN_VERSION") == "v3.1.3"
+    run = str(install.get("run", ""))
+    assert "https://github.com/sigstore/cosign/releases/download/" in run
+    assert "sha256sum --check --strict" in run, "the binary must be checksum-verified"
+
+
+def test_deploy_preflight_fails_loud_naming_missing_host_tools() -> None:
+    """Issue #1222: a missing host tool must fail loud naming the tool and
+    the Debian package that provides it, before the job starts real work —
+    never again an opaque exit 127 deep inside third-party tooling.
+    """
+    deploy_job = _deploy_job("deploy")
+    preflight = _workflow_yaml.find_step(deploy_job, "Preflight")
+    run = str(preflight.get("run", ""))
+
+    # The preflight must gate every host tool the deploy job actually needs:
+    # docker + buildx (image build/publish/promote), jq (metadata parsing),
+    # curl (cosign download). cosign, python and trivy are self-provisioned
+    # (downloaded in-job, composite action, container image respectively).
+    for tool, package in (
+        ("docker", "docker.io"),
+        ("jq", "jq"),
+        ("curl", "curl"),
+    ):
+        assert f"check {tool} {package}" in run
+    assert "docker buildx version" in run, "the buildx plugin is checked separately"
+    assert "docker-buildx-plugin" in run
+    assert "::error::MISSING TOOL:" in run
+    assert "exit 1" in run or "exit \"$missing\"" in run, "missing tool must fail the job"
+
+    # And it must run before the first tool use (the Docker daemon check).
+    names = [str(step.get("name", "")) for step in _workflow_yaml.steps(deploy_job)]
+    assert names.index(str(preflight["name"])) < names.index("Check Docker daemon")
