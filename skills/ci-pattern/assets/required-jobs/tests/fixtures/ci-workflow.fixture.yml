@@ -1,0 +1,37 @@
+# Fixture for the parity test (DysTelefonica/team-skills#132): the shape of a
+# consumer CI workflow that ends in the required-jobs aggregator. Minimal on
+# purpose; only the structure the parity test reads is real.
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo lint
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo compile
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo smoke
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo unit
+  full:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo full
+  required:
+    name: required (aggregator)
+    needs: [lint, compile, smoke, unit, full]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo gate

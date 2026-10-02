@@ -1,13 +1,9 @@
----
-name: ci-pattern-incidents
-description: "Ejemplo destilado de hotfix y post-mortem blameless sobre un incidente real de pérdida de datos (Cadete, 2026-09-23). Patrón de referencia para HR-19 a HR-22; no es el RCA completo."
----
-
 # Incidents — ejemplo destilado: pérdida de datos (Cadete, 2026-09-23)
 
 Este doc es el patrón de ejemplo de la capa release/hotfix/post-mortem
 (HR-19 a HR-22). Es una destilación, no el RCA completo: el post-mortem íntegro
-vive en el repositorio del consumer, bajo `docs/postmortems/`.
+vive en la ruta de post-mortems del consumer (parámetro 9 de
+`assets/parameters.md`).
 
 ## Resumen del incidente
 
@@ -26,9 +22,9 @@ vive en el repositorio del consumer, bajo `docs/postmortems/`.
 3. Deploy inmediato tras el merge.
 4. Release hotfix `v1.0.0`: tag anotado, GitHub Release marcada `Latest` y
    notas concisas que enlazan al issue; el RCA nunca vivió dentro de las notas.
-5. Post-mortem blameless en `docs/postmortems/` del consumer con secciones
-   Timeline (UTC) / Impact / Root cause / What worked / What failed; causas de
-   sistema, sin personas.
+5. Post-mortem blameless en la ruta de post-mortems del consumer (parámetro 9)
+   con secciones Timeline (UTC) / Impact / Root cause / What worked / What
+   failed; causas de sistema, sin personas.
 6. Action items abiertos como issues de GitHub con owner: automatización de
    backups de MySQL como brecha sistémica.
 
