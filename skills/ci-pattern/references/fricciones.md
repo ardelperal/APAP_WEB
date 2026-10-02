@@ -3,8 +3,13 @@
 Fuente única: épica ardelperal/APAP_WEB#935 (2026-09-29/30) y el friction log
 de la auditoría de origen (fuente de trabajo de la skill, no versionada en el
 catálogo). Los registros acumulativos de Engram citados abajo se perdieron por
-upsert y se recuperaron como entradas nuevas (HR-12). Salvo indicación de
-repositorio, todo `#N` se refiere a `ardelperal/APAP_WEB`. Cada entrada: la
+upsert y se recuperaron como entradas nuevas (HR-12). La entrada D1 no procede
+de la épica: se destila de la lectura del código del agregador de origen
+(DysTelefonica/team-skills#133); la entrada D2 tampoco: se destila de la
+lectura del código de origen del patrón (DysTelefonica/team-skills#134);
+ambas están marcadas «derivada del código» y no se han ejercitado en vivo.
+Salvo indicación
+de repositorio, todo `#N` se refiere a `ardelperal/APAP_WEB`. Cada entrada: la
 fricción en una línea y su antídoto, con la regla de la skill que lo codifica.
 
 | # | Fricción (evidencia) | Antídoto |
@@ -34,6 +39,8 @@ fricción en una línea y su antídoto, con la regla de la skill que lo codifica
 | — | `gh pr edit` y `gh variable get` rotos en la versión instalada; PATCH de settings lee de vuelta valores obsoletos | API REST directa y lectura de vuelta antes de concluir (HR-17) |
 | — | 18 fallos falsos al ejecutar los tests de main contra un deploy anterior (test-vs-deploy skew) | Batería desde worktree en la revisión desplegada; veredicto sobre el SHA de `/healthz` (HR-10) |
 | — | `actionlint` cazó `services.minio.command`, clave inexistente en Actions (`ci.yml:1251`) | Drift guard mecánico del propio workflow (benchmark T3) |
+| D1 | Un job cableado en `needs` y ausente del conjunto conocido del evaluador no entra en ningún cubo del informe: si falla, el agregador sale limpio; a la inversa, un job añadido al workflow sin cablear nunca se evalúa (DysTelefonica/team-skills#133; derivada del código, no ejercitada en vivo) | Paridad three-way obligatoria: `jobs(workflow) − {agregador}` = `needs` = conjunto conocido; una clave de `needs` desconocida es violación y no se ignora; la exclusión a propósito se declara como dato con su motivo (HR-29) |
+| D2 | Un evento que no evalúa el PR (`push`, `workflow_dispatch`, `schedule`) publica los nombres de checks requeridos en verde sobre el mismo SHA: el job de tamaño reporta total=0 y termina con éxito, y el agregador acepta el skip de issue-spec fuera de `pull_request` (DysTelefonica/team-skills#134; derivada del código, no ejercitada en vivo) | Los nombres requeridos se publican solo desde un evento que evalúa el PR; en cualquier otro, otro nombre de contexto o fallo — nunca éxito sin evaluación; el fallback manual resuelve el PR desde el SHA o no publica nombres requeridos (HR-30, HR-17) |
 
 Regla de lectura: una fricción solo existe con incidente citado. La segunda
 ocurrencia de cualquiera de estas entradas se automatiza; no se arregla a mano

@@ -5,7 +5,7 @@ extrayendo estos valores primero; ninguna regla de la skill depende de los
 valores concretos del consumer de origen (`ardelperal/APAP_WEB`), que figuran
 solo como ejemplo verificado.
 
-## Los trece parámetros
+## Los quince parámetros
 
 | # | Parámetro | Valor en ardelperal/APAP_WEB (consumer de origen; ejemplo verificado) | Dónde vive | Quién lo lee |
 |---|---|---|---|---|
@@ -22,6 +22,8 @@ solo como ejemplo verificado.
 | 11 | Runbook e2e de producción | `docs/runbooks/e2e-production.md` | `docs/runbooks/` | Exclusión de §1; registro del veredicto (HR-10) |
 | 12 | Skills locales de testing y seguridad | `apap-testing-strategy`, `apap-security` | Catálogo local del consumer | Exclusiones de §1 |
 | 13 | Runner de tests | `pytest` | Configuración de la suite local | HR-4 (paridad de preflight); §6 |
+| 14 | Eventos autorizados a publicar checks requeridos | `pull_request` (el único evento que evalúa el PR); `push`, `workflow_dispatch` y `schedule` publican bajo otro nombre de contexto o fallan | Disparadores del workflow de cada gate | HR-30 (publicación de nombres requeridos); HR-17 (fallback manual) |
+| 15 | Dato mutable → disparador o reevaluación en merge | Cuerpo del PR → sin disparador (editar el cuerpo no dispara el gate); etiquetas del PR → `labeled`/`unlabeled`; estado y etiquetas de la issue enlazada → sin disparador en el host: reevaluar en el momento del merge | Disparadores de los workflows de los gates + procedimiento de merge | HR-31 (verde sobre datos mutables); HR-6 (higiene del autor) |
 
 Parámetros secundarios documentados en las fuentes: host de producción, versión
 de Python y lista de checks requeridos (tres en este repo: `branch-name`,
