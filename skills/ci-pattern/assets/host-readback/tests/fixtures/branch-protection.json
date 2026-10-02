@@ -1,0 +1,1 @@
+{"enforce_admins": {"enabled": true}, "required_linear_history": {"enabled": true}, "required_conversation_resolution": {"enabled": false}, "allow_force_pushes": {"enabled": false}, "allow_deletions": {"enabled": false}, "required_status_checks": {"contexts": ["branch-name", "required"], "checks": []}}
