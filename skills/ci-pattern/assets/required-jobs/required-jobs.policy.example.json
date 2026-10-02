@@ -1,0 +1,23 @@
+{
+  "required_jobs": [
+    "lint",
+    "compile",
+    "smoke",
+    "unit",
+    "full"
+  ],
+  "events": {
+    "pull_request": {
+      "accepted_skips": ["full"]
+    },
+    "push": {
+      "accepted_skips": []
+    },
+    "schedule": {
+      "accepted_skips": []
+    },
+    "workflow_dispatch": {
+      "accepted_skips": []
+    }
+  }
+}

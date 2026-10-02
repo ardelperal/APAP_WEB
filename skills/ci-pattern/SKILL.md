@@ -1,12 +1,15 @@
 ---
 name: ci-pattern
-description: "Trigger: CI perfecto, patrón CI, gates, preflight, issue-spec, ratchet, evidencia SHA, adoptar CI, aplicar el patrón en un repositorio nuevo, gate de adopción, porting guide, presupuesto de revisión, chain:partial. Distila el patrón de CI del repo (gates deterministas, presupuesto de revisión, evidencia por SHA, cadena de PRs encadenados y protocolo de mejora continua), gobierna su adopción en otro repositorio (GATE DE ADOPCIÓN STOP + porting guide) y enseña a auditarlo."
+description: "Trigger: CI perfecto, patrón CI, gates, preflight, issue-spec, ratchet, evidencia SHA, adoptar CI, aplicar el patrón en un repositorio nuevo, gate de adopción, porting guide, presupuesto de revisión, chain:partial. Distila el patrón de CI del repo (gates deterministas, presupuesto de revisión, evidencia por SHA, cadena de PRs encadenados y protocolo de mejora continua), gobierna su adopción en otro repositorio (GATE DE ADOPCIÓN STOP + references/porting-guide.md) y enseña a auditarlo."
 license: Apache-2.0
 metadata:
   author: ardelperal
-  version: "0.2"
+  version: "0.3"
   last_verified: 2026-10-01
-  based_on: "odd/skill-ci-portable/ @ ardelperal/APAP_WEB (épica #935, 2026-09-29/30)"
+  based_on: "auditoría issue→merge de ardelperal/APAP_WEB (épica ardelperal/APAP_WEB#935, 2026-09-29/30)"
+  scope: ['universal', 'ops']
+  auto_invoke: ['adopt the CI pattern in another repo', 'apply the CI pattern in a new repo', 'audit a CI pipeline', 'deterministic quality gates', 'PR review budget', 'SHA evidence', 'CI adoption gate', 'porting guide']
+  tiers: ['universal', 'ops']
 ---
 
 # Patrón de CI — gates deterministas y evidencia por SHA
@@ -41,31 +44,35 @@ destiló sobre un incidente real de pérdida de datos
 HR-28) se destiló del tramo final de la misma épica (2026-10-01): watch de
 sesión, colisión de shared-checkout, prescripciones obsoletas, toolchain sin
 pinear, settings paywalled y el `.env` local. El GATE DE ADOPCIÓN del §1 se
-destiló de la adopción fallida del patrón en Cadete (2026-09-30/10-01): se
-aplicó sin el checklist de pre-vuelo y produjo 18 fallos falsos de batería,
-3 diagnósticos erróneos (issue #1130 cerrada con corrección), 5 prescripciones
-rotas, una premisa de propagación falsa y una colisión de shared-checkout.
-El catálogo destilado y el veredicto de gates viven en
-`references/`; los parámetros portables, en `assets/parameters.md`. Los scripts de
-implementación de referencia están versionados en este repo bajo `scripts/`.
+destiló de la adopción fallida en Cadete (2026-09-30/10-01): se aplicó el
+patrón SIN el checklist de pre-vuelo y produjo 18 fallos falsos de batería,
+3 diagnósticos erróneos (issue ardelperal/APAP_WEB#1130 cerrada con
+corrección), 5 prescripciones rotas, una premisa de propagación falsa y una
+colisión de shared-checkout; el checklist fase por fase vive en
+`references/porting-guide.md`. El catálogo destilado y el
+veredicto de gates viven en `references/`; los parámetros portables, en
+`assets/parameters.md`. La
+ubicación actual de los scripts de implementación de referencia se declara en
+`assets/parameters.md`.
 
 ## §1 Activation
 
 ### ⛔ GATE DE ADOPCIÓN (STOP)
 
 Antes de aplicar este patrón en un repositorio NUEVO: completar
-`references/porting-guide.md` fase por fase: inventario read-only →
-auditoría del mecanismo de propagación REAL → aislamiento de entorno →
-gobierno viejo y nuevo en el MISMO PR → contratos cableados → primer PR real
-como acceptance test. Sin ese checklist completado y verificado: NO se lanza
-ningún worker, NO se toca el repo destino, NO se abre PR. Excepción: ninguna.
+`references/porting-guide.md` fase por fase (inventario read-only → auditoría
+del mecanismo de propagación REAL → aislamiento de entorno → gobierno viejo y
+nuevo en el MISMO PR → contratos cableados → primer PR real como acceptance
+test). Sin ese checklist completado y verificado: NO se lanza ningún worker,
+NO se toca el repo destino, NO se abre PR. Excepción: ninguna.
 
 Anclaje: la adopción en Cadete (2026-09-30/10-01) aplicó el patrón sin el
 checklist y produjo 18 fallos falsos de batería, 3 diagnósticos erróneos
-(issue #1130 cerrada con corrección), 5 prescripciones rotas, una premisa de
-propagación falsa y una colisión de shared-checkout (post-mortem:
-`docs/postmortems/2026-09-30-ci-pattern-adoption-cadete.md`). Este gate
-existe para que ese modo de fallo sea estructuralmente imposible.
+(issue ardelperal/APAP_WEB#1130 cerrada con corrección), 5 prescripciones
+rotas, una premisa de propagación falsa y una colisión de shared-checkout
+(post-mortem: `docs/postmortems/2026-09-30-ci-pattern-adoption-cadete.md` en
+`ardelperal/APAP_WEB`). Este gate existe para que ese modo de fallo sea
+estructuralmente imposible.
 
 Cargue esta skill cuando:
 
@@ -85,36 +92,38 @@ Cargue esta skill cuando:
 
 No la cargue cuando:
 
-- Escriba tests de aplicación o decida su capa (eso es `apap-testing-strategy`).
-- Toque auth, CSRF o secretos de la aplicación (eso es `apap-security`).
-- Ejecute la batería e2e de producción (eso es `docs/runbooks/e2e-production.md`;
-  esta skill solo gobierna cómo se registra el veredicto).
+- Escriba tests de aplicación o decida su capa (eso es la skill local de testing
+  del consumer, parámetro 12).
+- Toque auth, CSRF o secretos de la aplicación (eso es la skill local de
+  seguridad del consumer, parámetro 12).
+- Ejecute la batería e2e de producción (eso es el runbook e2e del consumer,
+  parámetro 11; esta skill solo gobierna cómo se registra el veredicto).
 
 Fuentes normativas:
 
-- `skills/ci-pattern/references/fricciones.md` — catálogo destilado con antídoto.
-- Porting guide de la adopción (`references/porting-guide.md`; canónico en el
-  catálogo DysTelefonica/team-skills) — checklist de pre-vuelo fase por fase;
-  su cumplimiento es lo que el GATE DE ADOPCIÓN exige.
-- `skills/ci-pattern/references/gate-verdicts.md` — veredicto por gate con evidencia.
-- `skills/ci-pattern/references/benchmark-gentle-ai.md` — ideas contrastadas de otro CI.
-- `skills/ci-pattern/assets/parameters.md` — los parámetros que se extraen por repo.
-- `skills/ci-pattern/references/incidents.md` — ejemplo destilado de hotfix y
+- `references/fricciones.md` — catálogo destilado con antídoto.
+- `references/porting-guide.md` — checklist de pre-vuelo de la adopción, fase
+  por fase; su cumplimiento es lo que el GATE DE ADOPCIÓN exige.
+- `references/gate-verdicts.md` — veredicto por gate con evidencia.
+- `references/benchmark-gentle-ai.md` — ideas contrastadas de otro CI.
+- `assets/parameters.md` — los parámetros que se extraen por repo.
+- `references/incidents.md` — ejemplo destilado de hotfix y
   post-mortem blameless sobre un incidente real.
 
 ## §2 Hard Rules
 
 - **HR-1 — Los gates `MUST` leer datos estructurados** (nombre de rama, etiquetas,
-  campos de la API, campos del cuerpo del PR) y ``MUST NOT` deducir nada de prosa,
+  campos de la API, campos del cuerpo del PR) y `MUST NOT` deducir nada de prosa,
   gestos ni etiquetas aplicadas tarde. (evidencia: R2; fricciones F-004, B4)
 - **HR-2 — Todo gate nuevo que toque producción `MUST` ejecutarse una vez real**
   contra el entorno antes de darlo por terminado; ninguna prueba de escritorio lo
   sustituye. (evidencia: R3; fricción B1)
-- **HR-3 — Un gate `MUST` fallar en voz alta cuando no ha medido** y ``MUST NOT`
+- **HR-3 — Un gate `MUST` fallar en voz alta cuando no ha medido** y `MUST NOT`
   imprimir «OK» sin ejecución real detrás. (evidencia: R4; fricción A9)
 - **HR-4 — Todo lo que el CI ejecuta `MUST` reproducirse en local con un solo
   comando** (paridad de preflight), y el autor `MUST` ejecutarlo completo antes de
-  cada push; la suite de pytest no ejecuta los pasos de lint. (evidencia: R5; F-001, B3)
+  cada push; la suite de tests local del consumer (parámetro 13) no ejecuta los
+  pasos de lint. (evidencia: R5; F-001, B3)
 - **HR-5 — Tras corregir el primer paso rojo de un job, el autor `MUST` reproducir
   también todos los pasos posteriores** antes de empujar: el runner se detiene en
   el primer fallo y los pasos posteriores nunca se han visto verdes. (R12; playbook regla 7)
@@ -123,23 +132,27 @@ Fuentes normativas:
 - **HR-7 — Solo el PR punta de una cadena `MUST` llevar `Closes #<issue>`**; los
   intermedios llevan `Refs` más la etiqueta de cadena, la rama se nombra
   `<tipo>/<N>-<slug>`, el autor `MUST` verificar `closingIssuesReferences` tras
-  crear el PR y ``MUST NOT` escribir palabras de cierre en el título. (R2; B11; playbook reglas 3-4)
+  crear el PR y `MUST NOT` escribir palabras de cierre en el título. (R2; B11; playbook reglas 3-4)
 - **HR-8 — Toda excepción de presupuesto `MUST` declararse como campo de datos**
   en el cuerpo del PR (`size-exception-reason:`, una sola línea, una sola
-  aparición, sin marcador de plantilla) y ``MUST NOT` depender de etiquetas. (#1141; R2)
-- **HR-9 — Ningún agente ``MUST NOT` mantener procesos vivos sondeando CI**: arme
+  aparición, sin marcador de plantilla). El campo del cuerpo es el invariante:
+  sin él, la excepción no existe. Una etiqueta adicional como `size:exception`
+  es mecanismo opcional del consumer (parámetro 3) que `MUST NOT` sustituir al
+  campo. (ardelperal/APAP_WEB#1141; R2)
+- **HR-9 — Ningún agente `MUST NOT` mantener procesos vivos sondeando CI**: arme
   auto-merge y siga con otra cosa; para verificar el re-disparo tras actualizar
   la rama use una sonda a los dos minutos, nunca un bucle. (R14; vigías zombis del 2026-09-29)
 - **HR-10 — La evidencia de deploy o batería `MUST` registrarse sobre el SHA de la
-  revisión desplegada** (estado de commit por SHA) y ``MUST NOT` colgar de una
-  variable global ni de la rama por defecto. (R6; #1082)
+  revisión desplegada** (estado de commit por SHA) y `MUST NOT` colgar de una
+  variable global ni de la rama por defecto. (R6; ardelperal/APAP_WEB#1082)
 - **HR-11 — Toda fricción `MUST` registrarse con evidencia (PR, issue, run o
   `fichero:línea`)**, arreglarse por el pipeline normal y destilarse en regla con
   su ternario completo; la segunda ocurrencia `MUST` disparar automatización, no
   otro arreglo manual. (R14; protocolo de mejora continua)
 - **HR-12 — Los registros acumulativos de varias sesiones `MUST` guardarse sin
   clave de upsert** (una observación nueva por entrada): el upsert sustituye el
-  contenido y destruye el histórico. (R9; pérdida de #4368)
+  contenido y destruye el histórico. (R9; pérdida del registro acumulativo de
+  Engram por upsert; `references/fricciones.md`)
 - **HR-13 — Los mensajes de un gate `MUST` describir la causa real** y, cuando el
   fallo depende de un dato que el autor no puede corregir, `MUST` decirlo y ofrecer
   una vía manual auditable. (R10; B4, B11)
@@ -151,7 +164,8 @@ Fuentes normativas:
   necesita `MUST` viajar en ese slice. (T2; playbook regla 12)
 - **HR-16 — Las huellas de secretos y las baselines de gates `MUST` anclarse a
   identificadores estables** (SHA de contenido o ruta), nunca a números de línea
-  mutables que rompen el gate en el primer reordenado. (seguimiento #1112)
+  mutables que rompen el gate en el primer reordenado. (seguimiento
+  ardelperal/APAP_WEB#1112)
 - **HR-17 — La actualización de rama `MUST` seguir la secuencia determinista**
   (PUT `update-branch`, verificar run fresco sobre el nuevo SHA a los dos
   minutos, fallback `workflow_dispatch` sobre el SHA), y tras cualquier PATCH de
@@ -173,7 +187,7 @@ Fuentes normativas:
   rama paralela ni esperar al próximo release regular. (incidente de pérdida de
   datos; `references/incidents.md`)
 - **HR-21 — Todo incidente de producción `MUST` cerrar con post-mortem
-  blameless** en el doc dedicado del consumer (`docs/postmortems/<date>-<slug>.md`;
+  blameless** en la ruta de post-mortems del consumer (parámetro 9;
   secciones: Timeline UTC / Impact / Root cause / What worked / What failed),
   con causas de sistema y nunca de personas, y cada action item `MUST`
   abrirse como issue de GitHub con owner. (canon del sector, precedente GitLab
@@ -227,7 +241,7 @@ Fuentes normativas:
 
 | Condición | Acción |
 |---|---|
-| Va a adoptar el patrón en un repo nuevo | ⛔ GATE DE ADOPCIÓN del §1: complete el porting guide fase por fase y verifique cada gate de salida antes de lanzar workers, tocar el repo destino o abrir PR. Sin checklist: nada. |
+| Va a adoptar el patrón en un repo nuevo | ⛔ GATE DE ADOPCIÓN del §1: complete `references/porting-guide.md` fase por fase y verifique cada gate de salida antes de lanzar workers, tocar el repo destino o abrir PR. Sin checklist: nada. |
 | El diff supera el presupuesto de líneas | Parta por unidad de trabajo; después encadene PRs; `size-exception-reason:` en el cuerpo es el último recurso. |
 | Va a abrir un PR intermedio de una cadena (`chain:partial`) | Palabras de cierre (`Closes`, `Fixes`, `Resolves`) NUNCA en el título ni en el cuerpo del intermedio: solo el PR punta cierra la issue. Intermedios con `Refs #<N>` + etiqueta de cadena; verifique `closingIssuesReferences` tras crear (HR-7). |
 | GitHub no registró `closingIssuesReferences` tras crear el PR | Etiqueta de cadena más excepción declarada en el cuerpo; cierre la issue a mano tras el merge con comentario que lo documente. |
@@ -260,7 +274,7 @@ Fuentes normativas:
    pasos de CI que nadie ejecuta en local. Sin cifra no hay decisión de gates.
 3. **Instale.** Extraiga los parámetros del repo (`assets/parameters.md`,
    incluido el policy file de gates dormibles), adapte los scripts de
-   referencia (`scripts/` de este repo), configure la
+   referencia (ubicación declarada en `assets/parameters.md`), configure la
    protección de rama (checks requeridos, `strict`, sin force-push) y el
    preflight canónico que lee los pasos del job de lint del propio workflow.
 4. **Valide en real.** Ejecute de verdad cada gate que toque producción (HR-2) y
@@ -284,9 +298,9 @@ Fuentes normativas:
    API; empuje los fixes; rerun solo para transitorios (HR-9, gates del §3).
 7. Merge con auto-merge y commit de fusión, sin borrar la rama remota; con
    `strict`, actualice la rama con la secuencia determinista de HR-17.
-8. Deploy: registre el veredicto de la batería sobre el SHA de `/healthz` de la
-   revisión desplegada (HR-10); apague cualquier flag de prueba al terminar,
-   también si la batería falla.
+8. Deploy: registre el veredicto de la batería sobre la URL de salud del
+   parámetro 6 de la revisión desplegada (HR-10); apague cualquier flag de
+   prueba al terminar, también si la batería falla.
 
 ### Release, hotfix y post-mortem
 
@@ -311,9 +325,9 @@ Fuentes normativas:
 3. Despliegue inmediatamente tras el merge y registre el veredicto sobre el
    SHA desplegado (HR-10).
 4. Corte el release PATCH con notas que enlacen al issue (HR-19).
-5. Escriba el post-mortem blameless en `docs/postmortems/<date>-<slug>.md` con
-   secciones Timeline (UTC) / Impact / Root cause / What worked / What failed;
-   causas de sistema, nunca personas (HR-21).
+5. Escriba el post-mortem blameless en la ruta de post-mortems del consumer
+   (parámetro 9) con secciones Timeline (UTC) / Impact / Root cause / What
+   worked / What failed; causas de sistema, nunca personas (HR-21).
 6. Abra cada action item como issue de GitHub con owner asignado y verifique
    que no queden solo en el doc (HR-21).
 
@@ -352,7 +366,7 @@ Fuentes normativas:
 |---|---|
 | Etiquetas aplicadas después de crear el PR y el gate queda rojo | Etiquete en `gh pr create --label`; si ya creó el PR, use la API REST y espere rerun o push. |
 | `Closes` en el título o en un tramo intermedio cierra la issue antes de tiempo | Palabras de cierre solo en el cuerpo del PR punta; intermedios con `Refs` y etiqueta de cadena (#1138). |
-| Verde en local y rojo en CI por un paso de lint que pytest no ejecuta | Preflight canónico que reproduce el job completo; ejecútelo antes de cada push. |
+| Verde en local y rojo en CI por un paso de lint que el runner de tests local no ejecuta (parámetro 13) | Preflight canónico que reproduce el job completo; ejecútelo antes de cada push. |
 | Gate que imprime «`OK (0 hallazgos)`» sin haber corrido el herramienta | Fail-loud: el gate falla si el herramienta no está instalado o no midió (HR-3). |
 | Un rojo de raíz enmascarado como N fallos en el agregador | El agregador separa causa raíz de skips en cascada y agrupa las consecuencias. |
 | Bucle de sondeo de CI o vigía que sobrevive a la sesión | Auto-merge más una sonda única a los dos minutos; sin procesos vivos (HR-9). |
@@ -366,11 +380,6 @@ Fuentes normativas:
 | Causa raíz enterrada en las notas de release o en el cuerpo del PR | Notas concisas con enlace; el post-mortem vive en su doc dedicado (HR-19, HR-21). |
 | Fix de incidente viviendo solo en una rama paralela esperando el release regular | Hotfix aterriza en main, deploy inmediato y release PATCH (HR-20). |
 | Post-mortem que nombra personas como causa | Blameless: causas de sistema; falló el proceso, no la persona (HR-21). |
-| Rojo de CI diagnosticado grepeando logs del runner en vez de pedir la evidencia por paso | `gh api repos/<org>/<repo>/actions/jobs/<id>` separa el paso que falla; el log del runner equivocado (hosted frente a self-hosted) fabricó el diagnóstico «Docker daemon» ×3 en Cadete (C2 del porting guide). |
-| Baseline o conteo medido con una toolchain distinta de la que juzga en CI | Pin de versiones en la stack de medición o re-medición por la toolchain del juez; cobertura local 11503 frente a runner 11559 por xdebug sin pinear (C7 del porting guide). |
-| Prescripción del orquestador ejecutada de memoria, sin verificarla en vivo | SHA, conteos, rutas y superficies son hipótesis: verifíquelos contra el repo real y reutilice lo existente; las prescripciones rotas de Cadete (formato de issue, rama ilegal, ruta de tests inexistente) lo pagaron (C3 del porting guide). |
-| Premisa de propagación o de gobernanza del destino tomada de su documentación | Audite el mecanismo real en vivo (hooks, reconciliador, markers, manifest) antes de depender de él; la premisa falsa dejó espejos stale medio tramo (C4 del porting guide). |
-| Adopción del patrón lanzada sin el checklist de pre-vuelo | GATE DE ADOPCIÓN del §1: sin porting guide completado no hay workers, ni toques al repo destino, ni PR (anclaje: Cadete, 2026-09-30/10-01). |
 | Deploy sin imagen de rollback capturada | Capture la imagen de rollback en el playbook antes de aplicar (HR-22). |
 | Bucle `--watch`, watcher de sesión o vigía IA esperando CI | Mecanismo primero: auto-merge armado más `allow_update_branch`; donde no hay mecanismo, script versionado con deadline y fallback (HR-23). |
 | Dos workers sobre el mismo working tree | Un worktree por actor concurrente; el síntoma es el commit sobre la rama ajena a mitad de vuelo (HR-24). |
@@ -378,32 +387,51 @@ Fuentes normativas:
 | Medición local comparada contra el juez de CI sin toolchain pineada | Pin de versiones en la stack de medición o re-medición por la toolchain del juez (HR-26). |
 | PATCH de settings dado por bueno por su 200 OK | Read-back doble con delay y verificación del plan: paywalled se descarta sin error (HR-27). |
 | Suite que solo pasa con el `.env` del desarrollador delante | Aísle el entorno de tests del `.env` local y documente los rojos ambientales conocidos (HR-28). |
+| Rojo de CI diagnosticado grepeando logs del runner en vez de pedir la evidencia por paso | `gh api repos/<org>/<repo>/actions/jobs/<id>` separa el paso que falla; el log del runner equivocado (hosted frente a self-hosted) fabricó el diagnóstico «Docker daemon» ×3 (C2 del porting-guide). |
+| Premisa de propagación o de gobernanza del destino tomada de su documentación | Audite el mecanismo real en vivo (hooks, reconciliador, markers, manifest) antes de depender de él; la premisa falsa dejó espejos stale medio tramo (C4 del porting-guide). |
+| Adopción del patrón lanzada sin el checklist de pre-vuelo | GATE DE ADOPCIÓN del §1: sin `references/porting-guide.md` completado no hay workers, ni toques al repo destino, ni PR (anclaje: Cadete, 2026-09-30/10-01). |
 
 ## §7 Companion skills
 
-| Skill | Cargar junto cuando |
-|---|---|
-| `branch-pr` | Vaya a abrir o fusionar el PR de una unidad de trabajo bajo este patrón. |
-| `chained-pr` | El diff supera el presupuesto y va a encadenar PRs. |
-| `work-unit-commits` | Vaya a planificar los commits del PR por unidad de trabajo. |
-| `repository-delivery-governance` | Vaya a auditar o cambiar la protección de rama, checks requeridos o política de merge. |
-| `documentation-alan-style` | Vaya a actualizar la documentación del CI para que refleje el código (regla P3). |
+| Skill | Qué posee | Cargar junto cuando |
+|---|---|---|
+| `repository-delivery-governance` | Auditoría genérica del repositorio y matriz de enforcement (policy documentado, validado en local, CI, host, manual) | Vaya a auditar o cambiar la protección de rama, checks requeridos o política de merge. |
+| `deterministic-quality-harness` | Ratchets, identidad estable de hallazgos y assets de gates (p. ej. `check_pr_size.py`, policy files) | Vaya a instalar o ajustar el motor de un gate. El qué y cuándo de la operación es esta skill. |
+| `ci-pattern` (esta skill) | Operación por unidad de trabajo, evidencia por SHA, cadena de PRs y release | — |
+| `branch-pr` | Ciclo de apertura y fusión del PR | Vaya a abrir o fusionar el PR de una unidad de trabajo bajo este patrón. |
+| `chained-pr` | Encadenado de PRs cuando el diff supera el presupuesto | El diff supera el presupuesto y va a encadenar PRs. |
+| `work-unit-commits` | Partición de commits por unidad de trabajo | Vaya a planificar los commits del PR por unidad de trabajo. |
+| `documentation-alan-style` | Documentación que refleja el código real | Vaya a actualizar la documentación del CI para que refleje el código. |
+
+Frontera con `deterministic-quality-harness`: su asset `check_pr_size.py` exige
+la etiqueta `size:exception` además del campo del cuerpo. Eso es una
+instanciación consumer que añade el mecanismo opcional de HR-8, no una
+contradicción: el campo `size-exception-reason:` del cuerpo sigue siendo el
+invariante obligatorio (coherente con `slices/partials/web.md`, donde el campo
+es obligatorio y la etiqueta es mecanismo opcional por consumer).
 
 ## §8 References
 
+- `assets/required-jobs/` — primer asset ejecutable de la skill: agregador
+  fail-closed de jobs requeridos con política externa (sin nombres de jobs,
+  eventos ni skips en el código), política de ejemplo y suite con test de
+  paridad workflow↔política; el `README.md` del asset documenta el destino
+  en el consumer y el cableado de `toJSON(needs)`.
 - `assets/parameters.md` — los parámetros que se extraen por repo, con los
-  valores de este repo como ejemplo, el policy file de gates dormibles (HR-18)
-  y los scripts de referencia indicados.
+  valores del consumer de origen como ejemplo, el policy file de gates dormibles
+  (HR-18) y la ubicación de los scripts de referencia.
 - `references/fricciones.md` — catálogo destilado: fricción, antídoto y evidencia.
 - `references/porting-guide.md` — checklist de pre-vuelo de la adopción fase
-  por fase; cada fase declara hard gates y cita el incidente real de Cadete
-  (2026-09-30/10-01) que lo justifica. Exigido por el GATE DE ADOPCIÓN del §1.
+  por fase; cada gate cita el incidente real de Cadete (2026-09-30/10-01) que
+  lo justifica. Exigido por el GATE DE ADOPCIÓN del §1.
 - `references/gate-verdicts.md` — veredicto de cada gate del inventario con su base.
 - `references/benchmark-gentle-ai.md` — ideas transferibles y rechazadas de otro CI.
 - `references/incidents.md` — ejemplo destilado de hotfix, post-mortem y
   release sobre un incidente real de pérdida de datos.
-- Implementación de referencia versionada en este repo: `scripts/preflight.py`,
-  `scripts/check_pr_size.py`, `scripts/check_issue_specs.py`,
-  `scripts/check_required_jobs.py`, `scripts/check_release_evidence.py`,
-  `scripts/check_release_e2e_required.py`, `scripts/production_smoke.py` y
-  `.github/release-e2e-paths.txt`.
+- Implementación de referencia del resto del patrón: versionada hoy en
+  `ardelperal/APAP_WEB` (`scripts/preflight.py`, `scripts/check_issue_specs.py`,
+  `scripts/check_release_evidence.py`, `scripts/check_release_e2e_required.py`,
+  `scripts/production_smoke.py` y `.github/release-e2e-paths.txt`), pendiente
+  de publicarse como asset portátil de esta skill; el agregador de jobs
+  requeridos ya vive aquí (`assets/required-jobs/`). Detalles en
+  `assets/parameters.md`.

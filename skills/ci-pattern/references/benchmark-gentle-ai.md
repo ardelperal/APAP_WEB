@@ -2,9 +2,8 @@
 
 Resumen del informe de investigación (2026-09-30, HEAD de gentle-ai =
 `717087b`, clon shallow, consultas read-only de metadatos públicos). El
-informe completo vive en
-`odd/skill-ci-portable/gentle-ai-ci-research-report.md` (fuente de trabajo de
-la skill, no versionada en este PR).
+informe completo fue fuente de trabajo de la destilación y no se versiona en
+el catálogo; este doc conserva las ideas con su evidencia.
 
 ## Ideas transferibles (T1-T9)
 
@@ -15,17 +14,17 @@ la skill, no versionada en este PR).
 | T3 — Drift guard con `test -list` antes de todo manifest | Un selector que no matchea nada es un agujero silencioso | Adoptado para el propio workflow (actionlint, nombres de paso) |
 | T4 — Preflight de release como scripts versionados reusables | `require-ci-success.sh`, `release-preflight.sh`, verificación de lo publicado | Parcialmente adoptado (preflight canónico); leer de vuelta lo publicado sigue abierto |
 | T5 — No-gate documentada | La suite separada documenta en su comentario por qué no bloquea y cuándo vuelve | Adoptable: toda decisión de no bloquear queda visible y fechada |
-| T6 — Sharding de suite por coste medido | Shards balanceados por segundos medidos, no por alfabeto | Pendiente (#939); método recomendado |
+| T6 — Sharding de suite por coste medido | Shards balanceados por segundos medidos, no por alfabeto | Pendiente (ardelperal/APAP_WEB#939); método recomendado |
 | T7 — `workflow_dispatch` para rerun tras cambio de workflow | Documenta que `rerun` rechaza runs con el workflow cambiado | Adoptado (HR-17, fallback del §3) |
 | T8 — Contrato versionado + bundle firmado | `CONTRACT_SEMVER` en repo, asset firmado aparte | No aplica aún: sin API pública |
-| T9 — Documento por tarea con secciones fijas | `odd/tasks/<n>-<slug>.md`: Claimed, Root-cause, Tasks, Evidence | Adoptado: es el formato de `odd/tasks/` de este repo |
+| T9 — Documento por tarea con secciones fijas | Cada tarea produce un doc: Claimed, Root-cause, Tasks, Evidence | Adoptado: el formato de documento por tarea con secciones fijas |
 
 ## Patrones de colaboración humano-IA (COL1-COL5)
 
 | Patrón | Idea | Estado |
 |---|---|---|
 | COL1 | Cada operación pide su autorización explícita; la skill no sondea credenciales | Principio adoptado |
-| COL2 | Recibo por issue (no por épica) con timeline de runs | Adoptado en `odd/tasks/` |
+| COL2 | Recibo por issue (no por épica) con timeline de runs | Adoptado en el formato de documento por tarea con secciones fijas |
 | COL3 | Sin atribución de IA como política declarada, aplicada por revisión humana | Adoptado (HR-14) |
 | COL4 | Un solo parse reusado por consumidores posteriores en el mismo workflow | Adoptable; evita re-escanear datos ya validados |
 | COL5 | Doble enforcement: regla en el ruleset + explicación en la skill | Adoptado: gates + skills versionadas |
