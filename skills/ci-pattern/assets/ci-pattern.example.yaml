@@ -1,0 +1,25 @@
+# ci-pattern.yaml — ejemplo verificado con los valores del origen
+# (ardelperal/APAP_WEB, inventario 2026-10-01). Los parámetros obligatorios
+# (P18, P21, P45) carecen de default seguro; el resto puede omitirse y el
+# adoptante hereda el default del esquema.
+#
+# Formato de clave: P<NN>_<name>, exactamente como en
+# personal/ardelperal/ci-pattern/assets/parameters.schema.json.
+
+P01_branch_name_pattern: "^(?:(chore|feat|fix|perf|refactor|docs|ci|test)/[0-9]+-[a-z0-9-]+|archive/.+|main)$"
+P06_review_budget_lines: 400
+P09_labels_type:
+  bug_report.yml: type:bug
+  documentation.yml: type:docs
+  feature_request.yml: type:feature
+  maintenance.yml: type:chore
+  refactor.yml: type:refactor
+P10_label_approval: status:approved
+P11_label_chain_partial: chain:partial
+P18_health_url_var: APAP_DEPLOY_HEALTH_URL
+P21_smoke_user_agent: "apap-production-smoke/1 (+https://github.com/ardelperal/APAP_WEB)"
+P23_required_jobs: [pr-size, issue-spec, lint, security, security-deep, mutation, typecheck, test, integration, verify-fallback-ready, build, e2e, ui-detection]
+P28_required_status_contexts: [ci / required, pr-name / branch-name, pr-size / pr-size]
+P30_python_version: "3.12.11"
+P32_coverage_floor: 85
+P45_deploy_image: ghcr.io/ardelperal/apap-web
