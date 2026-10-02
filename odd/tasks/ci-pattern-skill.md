@@ -1,5 +1,12 @@
 # Skill ci-pattern — destilación de la épica de CI (§8 del handoff)
 
+> **Retirado (2026-10-01, #1233):** el espejo `skills/ci-pattern/` se eliminó de
+> este repo — `ci-pattern` es una herramienta con interfaz de skill, no una
+> convención a vendorizar; se usa a demanda por su CLI
+> (`~/.agents/skills/ci-pattern/assets/bin/ci-pattern`, contrato en
+> `references/cli-spec.md` del canónico). Este documento se conserva como
+> registro histórico de su creación y de los PRs de sync que motivaron la baja.
+
 **Claimed:** 2026-09-30. Escritura de `skills/ci-pattern/` con su registro en
 AGENTS.md y skills/README.md, cerrando el entregable §8 de
 `odd/HANDOFF-ci-2026-09-30.md`.
