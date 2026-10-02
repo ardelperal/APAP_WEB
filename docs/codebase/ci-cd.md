@@ -119,7 +119,10 @@ El job `issue-spec` comprueba que cada referencia de cierre apunta a una
 [spec de issue](issue-specifications.md) completa y aprobada. `required` agrega su resultado.
 ## Dependencias y artefacto
 
-Python 3.12.11, `uv==0.9.28`, `uv.lock` y `npm ci` fijan el entorno. El setup
+Python 3.12.14 — fuente única en [`.python-version`](../../.python-version),
+consumida por la CI (`python-version-file`) y por `ARG PYTHON_VERSION` del
+Dockerfile (issue #1087) —, `uv==0.9.28`, `uv.lock` y `npm ci` fijan el entorno.
+El setup
 compartido vive en [`.github/actions/setup-python`](../../.github/actions/setup-python/action.yml).
 
 El deploy construye una imagen ARM64 candidata. Publica el digest con `SBOM` y
