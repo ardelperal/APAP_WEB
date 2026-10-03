@@ -31,4 +31,11 @@ new form templates.
 
 Issue created 2026-10-02: https://github.com/ardelperal/APAP_WEB/issues/1217
 (labels `status:approved` + `type:chore`; passes `issue_contract_errors` with 0 errors).
-Not started: message test (RED/GREEN) + preflight.
+Implemented 2026-10-03: `issue_contract_errors` appends a contract-naming error
+(`the issue contract requires all six canonical sections: ...`) whenever any canonical
+section is missing; per-section errors keep their actionable detail. RED observed
+(test asserted every `REQUIRED_SECTIONS` entry appears in the failure output), GREEN
+after the change; the existing exact-list expectation was extended in the same round.
+The optional CONTRIBUTING note was skipped to avoid overlapping #1216's CONTRIBUTING
+edits (chained PRs would conflict); the failure message itself now carries the
+authoring guidance.
