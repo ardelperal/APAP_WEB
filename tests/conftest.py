@@ -52,7 +52,17 @@ os.environ.setdefault("APAP_MODE", "test")
 # tests/test_magic_link_flag.py, which forces the env var per test.
 os.environ.setdefault("APAP_AUTH_ENABLE_MAGIC_LINK", "true")
 
-from app.core.config import get_settings  # noqa: E402  (must follow the env set)
+# Issue #1218: ``Settings`` reads ``env_file=".env"`` (resolved against the
+# CWD), so a developer-local ``.env`` at the repo root poisoned every
+# ``Settings()``/``get_settings()`` the suite constructs: reds appeared
+# locally that stayed green in CI, where no ``.env`` exists. The suite
+# default is therefore NO dotenv file at all; tests that intentionally
+# exercise dotenv-driven configuration construct ``Settings(_env_file=...)``
+# explicitly. Environment variables keep their normal precedence.
+
+from app.core.config import Settings, get_settings  # noqa: E402  (must follow the env set)
+
+Settings.model_config["env_file"] = None  # issue #1218: suite-level dotenv isolation
 from app.core.di.local_postgres_di import get_local_postgres_executor_dep  # noqa: E402
 from app.core.local_backend.db import LocalPostgresExecutor  # noqa: E402
 from app.core.session import read_session, session_cookie_name  # noqa: E402
