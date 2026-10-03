@@ -29,6 +29,34 @@ Out of scope: app runtime config; tests that explicitly exercise dotenv reading
 3. Full suite green with AND without a repo-root `.env` (guard against tests that silently
    depended on the local `.env`).
 
+## Outcome (2026-10-03)
+
+Implemented. `tests/conftest.py` pins the no-dotenv suite contract:
+`Settings.model_config["env_file"] = None` right after the `APAP_MODE`/magic-link env
+setup and before the `app.main` import. Mechanism chosen over per-test monkeypatching
+because `Settings` construction happens at conftest import time (`app.main` module-level
+`app`), where fixtures cannot reach.
+
+Test-first evidence:
+
+- RED: `tests/test_config.py::test_suite_settings_ignore_cwd_env_file` fails against
+  clean `main` (`- APAP_WEB / + env-poison-probe`) via an isolated-CWD `.env`, without
+  touching a real developer `.env`.
+- GREEN: same test passes after the conftest pin.
+- A real repo-root `.env` exists on this machine; the issue-named suites
+  (test_config, test_magic_link_flag, test_trusted_proxies, test_rawsql_auth,
+  test_startup_config_validation) run 83 passed with it present.
+- Wide slice: `pytest tests/ --ignore=tests/e2e --ignore=tests/e2e_ci` →
+  5319 passed, 21 skipped, 0 failed.
+- Gates: ruff clean, `check_rules` clean, mypy 0 errors (377 files), module/route
+  size OK, docstring coverage 87.31% (floor 73%), import cycles OK.
+
+Incidental local finding (same "red only local" class, fixed on the spot):
+`tests/test_repository_secrets_ignore.py::test_root_gitignore_ignores_atl_receipts_but_...
+failed on clean main because an untracked, self-ignoring `.atl/.gitignore` (content `*`,
+tool residue) shadowed the root `!.atl/skill-registry.md` exemption. Removed the local
+residue; no repo change needed (root `.gitignore` already ignores the cache file).
+
 ## Cross-references
 
 - Skill half: DysTelefonica/team-skills#155 (checklist item 12) — dual-issue directive
@@ -39,4 +67,4 @@ Out of scope: app runtime config; tests that explicitly exercise dotenv reading
 
 Issue created 2026-10-02: https://github.com/ardelperal/APAP_WEB/issues/1218
 (labels `status:approved` + `type:bug`; passes `issue_contract_errors` with 0 errors).
-Not started.
+Implemented 2026-10-03 — see Outcome.
