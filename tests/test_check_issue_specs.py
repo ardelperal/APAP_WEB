@@ -116,8 +116,30 @@ def test_issue_contract_rejects_empty_section_and_missing_approval() -> None:
 
     assert check_issue_specs.issue_contract_errors(issue) == [
         "missing or empty section: Plan de validación",
+        "the issue contract requires all six canonical sections: "
+        + "; ".join(check_issue_specs.REQUIRED_SECTIONS),
         "requires status:approved",
     ]
+
+
+def test_issue_contract_failure_names_all_six_canonical_sections() -> None:
+    """Issue #1217: the failure names the full six-section contract.
+
+    An author who created the issue via `gh issue create --body` (bypassing
+    the form templates, which expose the six fields) discovers the contract
+    red, section by section, unless the failure message itself enumerates
+    the six canonical sections.
+    """
+    issue = _issue(
+        body=_body(**{"Plan de validación": "_No response_"}),
+        labels=["type:feature", "status:approved"],
+    )
+
+    joined = "\n".join(check_issue_specs.issue_contract_errors(issue))
+
+    assert "missing or empty section: Plan de validación" in joined
+    for section in check_issue_specs.REQUIRED_SECTIONS:
+        assert section in joined, f"the message must name the contract section: {section}"
 
 
 def test_issue_contract_requires_exactly_one_supported_type() -> None:

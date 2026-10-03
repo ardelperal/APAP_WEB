@@ -170,7 +170,16 @@ def body_contract_errors(body: str) -> list[str]:
 
 def issue_contract_errors(issue: Mapping[str, Any]) -> list[str]:
     """Return actionable contract violations for one GitHub issue."""
-    errors = [f"missing or empty section: {heading}" for heading in body_contract_errors(issue.get("body") or "")]
+    missing_sections = body_contract_errors(issue.get("body") or "")
+    errors = [f"missing or empty section: {heading}" for heading in missing_sections]
+    if missing_sections:
+        # Issue #1217: authors who bypass the form templates (`gh issue create
+        # --body`) discover the contract red, section by section, unless the
+        # failure itself names the full six-section contract.
+        errors.append(
+            "the issue contract requires all six canonical sections: "
+            + "; ".join(REQUIRED_SECTIONS)
+        )
     labels = {
         label["name"] if isinstance(label, Mapping) else str(label)
         for label in issue.get("labels", [])
