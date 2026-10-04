@@ -68,7 +68,15 @@ def _post_create_schedule(client: SqlExecutor, actuacion: ActuacionSanitaria) ->
     try:
         schedule_periodic_task(client, actuacion, _list_catalogos_periodicidad(client))
     except Exception as exc:
-        log_safe("sanidad.post_create_schedule", level="warning", exc=exc)
+        # Non-fatal boundary (issue #1069): the actuation is already committed, so scheduling
+        # must never block the operator response. The guard is deliberately broad by design,
+        # but it names the REAL exception type (§32.P4) - never the class string; the message
+        # may carry operator data, so only the type is recorded (§9 log_safe).
+        log_safe(
+            "sanidad.post_create_schedule",
+            level="warning",
+            error=exc.__class__.__name__,
+        )
 
 
 @dataclass(frozen=True, slots=True)
