@@ -38,12 +38,14 @@ __all__ = ["real_app_harness"]
 
 pytestmark = pytest.mark.integration
 
-# NOTE (issue #1032 boundary): a ghost DB rol cannot be observed
-# end-to-end here — the per-request revalidation resolves the user via
-# ``AuthorizedUser.from_row``, which silently promotes an unknown rol
-# string to ``key_user`` before the route guard runs. The ghost-rol
-# guard matrix is therefore pinned at the ``require_authorized_user``
-# seam in ``tests/test_1019_ghost_role_guard_matrix.py`` (unit level).
+# NOTE (issue #1032, fixed 2026-10-03): a ghost DB rol used to be
+# unobservable end-to-end here because the per-request revalidation
+# resolved the user via ``AuthorizedUser.from_row``, which silently
+# promoted an unknown rol string to ``key_user`` before the route guard
+# ran. ``from_row`` now fails closed to ``READER``, so the ghost-rol
+# matrix is equivalently pinned at both the ``require_authorized_user``
+# seam (``tests/test_1019_ghost_role_guard_matrix.py``) and the entity
+# constructor (``tests/test_auth_domain_user.py``).
 
 # Route inventory of issue #1019: (method, path) → expected status for a
 # reader session on the write routes after the fix. ``{id}`` placeholders
