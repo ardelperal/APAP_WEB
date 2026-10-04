@@ -112,6 +112,18 @@ class Permission(StrEnum):
     READ_CESIONES = "read:cesiones"
     WRITE_CESIONES = "write:cesiones"
 
+    # Contratos (DOC-01, issue #1109): generated PDFs for the four
+    # contract-source entities (entrada, adopcion, acogida, cesion).
+    # WRITE_CONTRATOS is granted to the same roles that already hold
+    # WRITE on the contract-source entities, so an operator who can
+    # create an entry / adoption / foster stay / surrender can also
+    # generate the contract PDF for that entity. READ_CONTRATOS follows
+    # the same mapping (read-only reviewers may download the stored
+    # PDF). Mapping choice: it lives next to PERMISSIONS so the role
+    # matrix has a single source of truth.
+    READ_CONTRATOS = "read:contratos"
+    WRITE_CONTRATOS = "write:contratos"
+
     # Materiales: catalog resource
     READ_MATERIALES = "read:materiales"
     WRITE_MATERIALES = "write:materiales"
@@ -149,6 +161,8 @@ PERMISSIONS: dict[Role, frozenset[Permission]] = {
         Permission.WRITE_ENTRADAS,
         Permission.READ_CESIONES,
         Permission.WRITE_CESIONES,
+        Permission.READ_CONTRATOS,
+        Permission.WRITE_CONTRATOS,
         Permission.READ_MATERIALES,
         Permission.WRITE_MATERIALES,
         Permission.READ_SALUD,
@@ -180,6 +194,7 @@ _LEGACY_READ_MATRIX: dict[str, frozenset[Permission]] = {
         Permission.READ_CASAS_ACOGIDA,
         Permission.READ_ENTRADAS,
         Permission.READ_CESIONES,
+        Permission.READ_CONTRATOS,
         Permission.READ_MATERIALES,
         Permission.READ_SALUD,
         Permission.READ_REPORTES,
@@ -192,6 +207,7 @@ _LEGACY_READ_MATRIX: dict[str, frozenset[Permission]] = {
         Permission.READ_CASAS_ACOGIDA,
         Permission.READ_ENTRADAS,
         Permission.READ_CESIONES,
+        Permission.READ_CONTRATOS,
         Permission.READ_MATERIALES,
         Permission.READ_SALUD,
         Permission.READ_REPORTES,
@@ -204,6 +220,7 @@ _LEGACY_READ_MATRIX: dict[str, frozenset[Permission]] = {
         Permission.READ_CASAS_ACOGIDA,
         Permission.READ_ENTRADAS,
         Permission.READ_CESIONES,
+        Permission.READ_CONTRATOS,
         Permission.READ_MATERIALES,
         Permission.READ_SALUD,
         Permission.READ_REPORTES,
