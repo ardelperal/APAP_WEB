@@ -142,6 +142,18 @@ def test_release_e2e_gate_fails_closed_on_api_errors() -> None:
     assert "refusing to guess the serving revision" in section
 
 
+def test_release_e2e_gate_script_defines_every_variable_it_uses() -> None:
+    """Regression (run 37186798899): the selection rewrite removed the
+    api= definition while the statuses query still referenced ${api}; the
+    step died with 'api: unbound variable' before evaluating verdicts."""
+    section = _gate_section()
+
+    if "${api}" in section:
+        assert re.search(r"^\s*api=", section, flags=re.MULTILINE), (
+            "the gate script must define every variable it references"
+        )
+
+
 def test_release_e2e_gate_has_least_privilege_pinned_actions_and_no_gh() -> None:
     section = _gate_section()
 
