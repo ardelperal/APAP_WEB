@@ -13,11 +13,14 @@ No SQL mocking needed — all tests are pure unit tests.
 
 from __future__ import annotations
 
+import logging
 from datetime import date, timedelta
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from app.modules.sanidad import periodicity as periodicity_module
 from app.modules.sanidad.periodicity import (
     PeriodicidadRule,
     _fallback_add_months,
@@ -26,6 +29,7 @@ from app.modules.sanidad.periodicity import (
     find_periodicity_rule,
     generate_next_tarea,
 )
+from app.modules.sanidad.scheduling import schedule_periodic_task
 
 # --- PeriodicidadRule -------------------------------------------------------
 
@@ -255,3 +259,83 @@ class TestFallbackAddMonths:
         result = _fallback_add_months(date(2025, 1, 31), 1)
         # Fallback: month=1+1=2, day=min(31,28)=28
         assert result == date(2025, 2, 28)
+
+
+# --- schedule_periodic_task error logging (issue #1069) ---------------------
+
+
+class _SchedulingClient:
+    """Fake executor answering the two catalog/animal SELECTs."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def execute_sql(self, query: str, params: object = None) -> list[dict[str, object]]:
+        normalized = " ".join(query.split())
+        self.calls.append(normalized)
+        if "FROM catalogos_pruebas" in normalized:
+            return [{"codigo": "VACUNA-RABIA"}]
+        if "FROM animales" in normalized:
+            return [{"especie": "CANINA"}]
+        return []
+
+
+def _actuacion(fecha: str) -> Any:
+    return SimpleNamespace(
+        id="act-1", animal_id="animal-1", tipo_actuacion_id="tipo-1", fecha=fecha
+    )
+
+
+_CATALOG = [
+    {"codigo": "VACUNA-RABIA", "especie": "CANINA", "periodicidad_meses": 12}
+]
+
+
+class TestSchedulePeriodicTaskErrorLogging:
+    """Issue #1069: the three non-fatal branches log the REAL exception
+    type, never the ``"<class 'Exception'>"`` class string, and scheduling
+    stays non-fatal."""
+
+    def test_non_iso_fecha_logs_the_real_type(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.INFO, logger="app"):
+            schedule_periodic_task(_SchedulingClient(), _actuacion("10/03/2026"), _CATALOG)
+
+        records = [r for r in caplog.records if "compute_error" in r.getMessage()]
+        assert records, "a bad fecha must emit sanidad.periodicity.compute_error"
+        assert records[0]._caller_fields["error"] == "ValueError"
+        assert "<class 'Exception'>" not in str(records[0].__dict__)
+
+    def test_bad_rule_logs_the_real_type(self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch) -> None:
+        class _ExplodingRule:
+            def is_recurring(self) -> bool:
+                return True
+
+            def next_due_date(self, last: date) -> date:
+                raise ValueError("bad rule")
+
+        monkeypatch.setattr(
+            periodicity_module, "find_periodicity_rule", lambda *a, **k: _ExplodingRule()
+        )
+        with caplog.at_level(logging.INFO, logger="app"):
+            schedule_periodic_task(_SchedulingClient(), _actuacion("2026-03-10"), _CATALOG)
+
+        records = [r for r in caplog.records if "compute_error" in r.getMessage()]
+        assert records, "a rule failure must emit sanidad.periodicity.compute_error"
+        assert records[0]._caller_fields["error"] == "ValueError"
+        assert "<class 'Exception'>" not in str(records[0].__dict__)
+
+    def test_task_create_failure_logs_the_real_type_and_stays_non_fatal(
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def _explode(**kwargs: object) -> None:
+            raise ValueError("forced task failure")
+
+        monkeypatch.setattr("app.modules.tasks.crear_tarea", _explode)
+        with caplog.at_level(logging.INFO, logger="app"):
+            # Must NOT raise: the actuation was already committed.
+            schedule_periodic_task(_SchedulingClient(), _actuacion("2026-03-10"), _CATALOG)
+
+        records = [r for r in caplog.records if "task_create_error" in r.getMessage()]
+        assert records, "a crear_tarea failure must emit task_create_error"
+        assert records[0]._caller_fields["error"] == "ValueError"
+        assert "<class 'Exception'>" not in str(records[0].__dict__)

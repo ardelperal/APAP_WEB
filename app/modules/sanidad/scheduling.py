@@ -17,6 +17,8 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
+from app.core.data_access import BackendError
+
 if TYPE_CHECKING:
     from app.core.data_access import SqlExecutor
     from app.modules.sanidad.service import ActuacionSanitaria
@@ -72,21 +74,24 @@ def schedule_periodic_task(
     # --- validate + compute next due date -----------------------------------
     try:
         fecha_date = date.fromisoformat(actuacion.fecha)
-    except Exception:
+    except ValueError as exc:
+        # Issue #1069: log the REAL exception type, never str(Exception)
+        # (the class string "<class 'Exception'>"); the message may carry
+        # operator data, so only the type name is recorded (§9 log_safe).
         log_safe(
             "sanidad.periodicity.compute_error",
             actuacion_id=actuacion.id,
-            error=str(Exception),
+            error=type(exc).__name__,
         )
         return
 
     try:
-        rule.next_due_date(fecha_date)  # validate; raises on bad rule
-    except Exception:
+        rule.next_due_date(fecha_date)  # validate; raises ValueError on bad rule
+    except ValueError as exc:
         log_safe(
             "sanidad.periodicity.compute_error",
             actuacion_id=actuacion.id,
-            error=str(Exception),
+            error=type(exc).__name__,
         )
         return
 
@@ -120,11 +125,14 @@ def schedule_periodic_task(
             animal_id=actuacion.animal_id,
             next_due_date=task_params["vencimiento_at"],
         )
-    except Exception:
+    except (ValueError, BackendError) as exc:
+        # Issue #1069: crear_tarea raises ValueError (validation) and the
+        # executor raises BackendError; anything else is a programming bug
+        # and must surface (the non-fatal boundary lives in the callers).
         log_safe(
             "sanidad.periodicity.task_create_error",
             actuacion_id=actuacion.id,
-            error=str(Exception),
+            error=type(exc).__name__,
         )
 
 
