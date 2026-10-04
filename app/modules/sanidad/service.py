@@ -68,10 +68,9 @@ def _post_create_schedule(client: SqlExecutor, actuacion: ActuacionSanitaria) ->
     try:
         schedule_periodic_task(client, actuacion, _list_catalogos_periodicidad(client))
     except Exception as exc:
-        # Non-fatal boundary (issue #1069): the actuation is already committed, so scheduling
-        # must never block the operator response. The guard is deliberately broad by design,
-        # but it names the REAL exception type (§32.P4) - never the class string; the message
-        # may carry operator data, so only the type is recorded (§9 log_safe).
+        # Non-fatal boundary (issue #1069): the actuation is already committed, so scheduling must
+        # never block the operator response. The guard is deliberately broad by design, but it names
+        # the REAL exception type (§32.P4), not the class string; only the type is recorded (§9).
         log_safe(
             "sanidad.post_create_schedule",
             level="warning",
@@ -291,6 +290,8 @@ def _required_text(params: dict[str, Any], field: str) -> str:
         raise ValueError(f"{field} is required and cannot be empty")
     return value
 
+_today = date.today  # issue #1097: injectable clock seam (monkeypatch in tests)
+
 
 def _validate_fecha_d24(fecha: str) -> str | None:
     """Pure D-24 reglas 1+2 validation: format + future-date.
@@ -317,8 +318,8 @@ def _validate_fecha_d24(fecha: str) -> str | None:
         parsed = date.fromisoformat(fecha)
     except ValueError:
         return "fecha debe tener formato YYYY-MM-DD"
-    if parsed > date.today():
-        return f"fecha no puede ser futura (hoy es {date.today().isoformat()})"
+    if parsed > _today():
+        return f"fecha no puede ser futura (hoy es {_today().isoformat()})"
     return None
 
 

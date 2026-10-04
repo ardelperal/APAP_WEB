@@ -225,10 +225,14 @@ def generate_next_tarea(
     }
 
 
-def _priority_from_date(due_date: date) -> str:
-    """Assign a business priority based on how overdue the task is."""
-    today = date.today()
-    days_overdue = (today - due_date).days
+def _priority_from_date(due_date: date, today: date | None = None) -> str:
+    """Assign a business priority based on how overdue the task is.
+
+    Issue #1097: ``today`` is injectable so tests pin the clock instead
+    of reading the wall (HR-10: no unit test may depend on datetime.now).
+    """
+    reference = today or date.today()
+    days_overdue = (reference - due_date).days
     if days_overdue > 30:
         return "urgente"
     if days_overdue > 7:
