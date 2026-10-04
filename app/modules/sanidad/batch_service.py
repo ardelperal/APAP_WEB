@@ -207,8 +207,19 @@ def commit_batch(
 
     _audit_log_committed(len(inserted), records, actor_user_id=actor_user_id)
     # HEALTH-05 (#54): schedule periodic tasks for each committed actuation.
+    # Non-fatal boundary (issue #1069): the batch already committed, so a
+    # scheduling failure must not fail the endpoint; the guard names the
+    # REAL exception type (§32.P4), never the class string.
     for actuacion in inserted:
-        schedule_periodic_task(client, actuacion, _list_catalogos_periodicidad(client))
+        try:
+            schedule_periodic_task(client, actuacion, _list_catalogos_periodicidad(client))
+        except Exception as exc:
+            log_safe(
+                "sanidad.batch.schedule_error",
+                level="warning",
+                error=type(exc).__name__,
+                actuacion_id=actuacion.id,
+            )
     return BatchResult(inserted=tuple(inserted))
 
 
