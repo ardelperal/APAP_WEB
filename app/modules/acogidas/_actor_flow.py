@@ -18,7 +18,7 @@ from fastapi import HTTPException, status
 
 import app.modules.acogidas.service as acogidas_service
 from app.core._module_helpers._actor import actor_user_id
-from app.core.data_access import SqlExecutor, TransactionalSqlExecutor
+from app.core.data_access import TransactionalSqlExecutor
 from app.modules.animals import ActorRequiredError
 
 
@@ -38,7 +38,7 @@ def create_acogida_with_actor(
 
 
 def close_acogida_or_403(
-    client: SqlExecutor, acogida_id: str, user: object
+    client: TransactionalSqlExecutor, acogida_id: str, user: object
 ) -> acogidas_service.Acogida | None:
     """Close a stay, mapping a missing actor to an HTTP 403.
 
