@@ -19,7 +19,7 @@
 
   {# Issue #823 — wizard is create-flow only; `not error` keeps it off the edit-error rerender (routes.py:472 hardcodes form_action="/animales" for both). #}
   {% if form_action == '/animales' and not error %}
-    <form method="post" action="{{ form_action | safe }}" class="bg-surface rounded-card shadow-card p-6 space-y-6"
+    <form method="post" action="{{ form_action }}" class="bg-surface rounded-card shadow-card p-6 space-y-6"
           data-stepper="true" data-step-current="1"
           data-step-validate='[
             {"step": 1, "selector": "#NCHIP,#NombreAnimal,#Especie,#Sexo,#FNacimiento", "required": true},
@@ -207,7 +207,7 @@
     </form>
     <script src="/static/js/form-stepper.js" defer></script>
   {% else %}
-    <form method="post" action="{{ form_action | safe }}" class="bg-surface rounded-card shadow-card p-6 space-y-6">
+    <form method="post" action="{{ form_action }}" class="bg-surface rounded-card shadow-card p-6 space-y-6">
       {# PR-5B2: CSRF defense-in-depth (REQ-AH-7). #}
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
