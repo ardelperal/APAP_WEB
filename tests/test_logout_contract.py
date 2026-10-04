@@ -12,15 +12,20 @@ side. The browser-side issue (if it persists) is a separate problem
 and likely related to ``Set-Cookie`` attribute compatibility
 (``Path`` / ``Domain`` / ``Secure`` mismatch between create and clear).
 
-The contract this test pins:
-1. ``/logout`` returns 302 to ``/`` (NOT to /login directly — the
-   middleware handles the redirect).
-2. ``/logout`` includes a ``Set-Cookie: apap_session=""; Max-Age=0``
+The contract this test pins (issue #1076: logout is a CSRF-protected POST):
+1. ``POST /logout`` with a valid CSRF token returns 302 to ``/`` (NOT to
+   /login directly — the middleware handles the redirect).
+2. ``POST /logout`` includes a ``Set-Cookie: apap_session=""; Max-Age=0``
    header that matches the create-time cookie attributes
    (``Path=/``, ``HttpOnly``, ``Secure``, ``SameSite=strict``).
-3. After ``/logout``, the session cookie is treated as empty by
+3. ``GET /logout`` is NOT served (405) and clears nothing: a cross-site
+   top-level navigation must not be able to log the user out.
+4. ``POST /logout`` without a valid CSRF token answers 403 and clears
+   nothing.
+5. After ``/logout``, the session cookie is treated as empty by
    the middleware (``payload is None``), so the next protected
-   request redirects to /login.
+   request redirects to /login. Server-side session revocation is
+   deliberately NOT implemented — see ``docs/codebase/security.md``.
 """
 
 from __future__ import annotations
@@ -67,14 +72,101 @@ def stub_local_backend():
 async def test_logout_returns_302_to_root(
     client: httpx.AsyncClient, stub_local_backend: _StubLocalBackend
 ) -> None:
-    """``GET /logout`` MUST 302 to ``/`` (not to /login directly).
+    """``POST /logout`` with a valid CSRF token MUST 302 to ``/``.
 
-    The middleware bounces the next request to /login. The /logout
-    handler itself just clears the cookie and returns.
+    Issue #1076: logout is a state-changing action, so it is POST-only
+    and CSRF-protected. The middleware bounces the next request to
+    /login. The /logout handler itself just clears the cookie and
+    returns.
     """
-    r = await client.get("/logout", follow_redirects=False)
+    from app.core.config import get_settings
+    from app.core.session import session_cookie_name, write_session
+
+    settings = get_settings()
+    token = write_session(
+        {
+            "email": "ana@example.com",
+            "rol": "key_user",
+            "user_id": "u-ana",
+            "is_authorized": True,
+            "csrf_token": "session-csrf-token",
+        },
+        secret=settings.session_secret,
+    )
+    client.cookies.set(session_cookie_name(), token)
+
+    r = await client.post(
+        "/logout",
+        headers={"X-CSRFToken": "session-csrf-token"},
+        follow_redirects=False,
+    )
     assert r.status_code == 302
     assert r.headers["location"] == "/"
+
+
+async def test_get_logout_is_not_served_and_clears_nothing(
+    client: httpx.AsyncClient, stub_local_backend: _StubLocalBackend
+) -> None:
+    """Issue #1076: ``GET /logout`` is cross-site logout bait.
+
+    A top-level navigation from another site (a link or redirect to
+    ``https://<host>/logout``) is a GET and must NOT clear the session
+    cookie. The route is POST-only; GET answers 405 with no
+    ``Set-Cookie`` at all.
+    """
+    from app.core.config import get_settings
+    from app.core.session import session_cookie_name, write_session
+
+    settings = get_settings()
+    token = write_session(
+        {
+            "email": "ana@example.com",
+            "rol": "key_user",
+            "user_id": "u-ana",
+            "is_authorized": True,
+            "csrf_token": "session-csrf-token",
+        },
+        secret=settings.session_secret,
+    )
+    client.cookies.set(session_cookie_name(), token)
+
+    r = await client.get("/logout", follow_redirects=False)
+
+    assert r.status_code == 405
+    assert not any(
+        c.startswith(f"{session_cookie_name()}=")
+        for c in r.headers.get_list("set-cookie")
+    ), "GET /logout must not clear the session cookie (issue #1076)"
+
+
+async def test_post_logout_without_csrf_token_is_403(
+    client: httpx.AsyncClient, stub_local_backend: _StubLocalBackend
+) -> None:
+    """Issue #1076: a POST without a valid CSRF token is refused before
+    the handler runs, and clears nothing."""
+    from app.core.config import get_settings
+    from app.core.session import session_cookie_name, write_session
+
+    settings = get_settings()
+    token = write_session(
+        {
+            "email": "ana@example.com",
+            "rol": "key_user",
+            "user_id": "u-ana",
+            "is_authorized": True,
+            "csrf_token": "session-csrf-token",
+        },
+        secret=settings.session_secret,
+    )
+    client.cookies.set(session_cookie_name(), token)
+
+    r = await client.post("/logout", follow_redirects=False)
+
+    assert r.status_code == 403
+    assert not any(
+        c.startswith(f"{session_cookie_name()}=")
+        for c in r.headers.get_list("set-cookie")
+    )
 
 
 async def test_session_cookie_path_matches_logout_clearing_path(
@@ -102,15 +194,20 @@ async def test_session_cookie_path_matches_logout_clearing_path(
     # round-trip works.
     settings = get_settings()
     token = write_session(
-        {"email": "u@e.com", "is_authorized": True},
+        {"email": "u@e.com", "is_authorized": True, "csrf_token": "session-csrf-token"},
         secret=settings.session_secret,
     )
-    client.cookies.set(session_cookie_name(), token, path="/auth/callback")
+    client.cookies.set(session_cookie_name(), token)
 
     # The clearing cookie MUST have the same Path. The httpx
     # CookieJar does its own matching; if the paths match, the
     # cookie is deleted and the next request has no apap_session.
-    r = await client.get("/logout", follow_redirects=False)
+    client.cookies.set(session_cookie_name(), token)
+    r = await client.post(
+        "/logout",
+        headers={"X-CSRFToken": "session-csrf-token"},
+        follow_redirects=False,
+    )
     set_cookie = r.headers.get("set-cookie", "")
     assert "Path=/" in set_cookie or "path=/" in set_cookie, (
         f"clearing cookie must have Path=/, got: {set_cookie!r}"
@@ -214,9 +311,34 @@ async def test_logout_then_protected_route_redirects_to_login(
     ``test_logout_clearing_cookie_attributes_match_creation``.
     """
     # /logout must redirect to /, which the middleware then bounces
-    # to /login.
-    r = await client.get("/logout", follow_redirects=True)
-    assert str(r.url).rstrip("/") == "http://testserver/login", (
-        f"after /logout (follow_redirects=True), the final URL must be "
-        f"/login; got: {r.url!r} (status {r.status_code})"
+    # to /login. Issue #1076: the logout itself is a CSRF-protected POST.
+    from app.core.config import get_settings
+    from app.core.session import session_cookie_name, write_session
+
+    settings = get_settings()
+    token = write_session(
+        {
+            "email": "ana@example.com",
+            "rol": "key_user",
+            "user_id": "u-ana",
+            "is_authorized": True,
+            "csrf_token": "session-csrf-token",
+        },
+        secret=settings.session_secret,
+    )
+    client.cookies.set(session_cookie_name(), token)
+    r = await client.post(
+        "/logout",
+        headers={"X-CSRFToken": "session-csrf-token"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 302 and r.headers["location"] == "/"
+    # A real browser honors the Max-Age=0 Set-Cookie; httpx's jar is not
+    # reliable for that (the test docstring above), so simulate the
+    # browser-side deletion explicitly before the follow-up request.
+    client.cookies.delete(session_cookie_name())
+    r = await client.get("/", follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"].startswith("/login"), (
+        f"after POST /logout, GET / must bounce to /login; got "
+        f"{r.status_code} -> {r.headers.get('location')!r}"
     )

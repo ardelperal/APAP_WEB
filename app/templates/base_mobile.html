@@ -107,7 +107,8 @@
           {% if user is defined and user %}
             <p class="font-medium text-text">{{ user.email }}</p>
             <p class="text-text-muted text-xs">Rol: {{ user.role }}</p>
-            <form method="get" action="/logout" class="mt-2">
+            <form method="post" action="/logout" class="mt-2">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
               <button type="submit" class="w-full px-3 py-2 rounded border border-border text-text-muted hover:text-primary hover:border-primary transition-colors">
                 Salir
               </button>

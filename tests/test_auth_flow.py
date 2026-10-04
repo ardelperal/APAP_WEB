@@ -432,8 +432,29 @@ async def test_callback_apap_session_cookie_uses_samesite_strict(
 async def test_logout_clears_session_cookie_and_redirects_home(
     client: httpx.AsyncClient,
 ) -> None:
-    """``GET /logout`` clears the session cookie and redirects to /."""
-    response = await client.get("/logout", follow_redirects=False)
+    """``POST /logout`` (CSRF-protected, issue #1076) clears the session
+    cookie and redirects to /."""
+    from app.core.config import get_settings
+    from app.core.session import session_cookie_name, write_session
+
+    settings = get_settings()
+    token = write_session(
+        {
+            "email": "ana@example.com",
+            "rol": "key_user",
+            "user_id": "u-ana",
+            "is_authorized": True,
+            "csrf_token": "session-csrf-token",
+        },
+        secret=settings.session_secret,
+    )
+    client.cookies.set(session_cookie_name(), token)
+
+    response = await client.post(
+        "/logout",
+        headers={"X-CSRFToken": "session-csrf-token"},
+        follow_redirects=False,
+    )
 
     assert response.status_code == 302
     assert response.headers["location"] == "/"
