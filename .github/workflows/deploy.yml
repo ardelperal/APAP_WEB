@@ -97,10 +97,10 @@ jobs:
     # blocks the next deploy until the operator rolls back or records
     # success/bypass. The previous SHA is exposed as an output so
     # release-e2e-record can decide whether this range needs the e2e battery.
-    # It runs no e2e suite and holds no secret.
+    # It runs no e2e suite and holds no secret. Issue #1221: it no longer
+    # consults the Actions API, so it holds no Actions-read scope either.
     permissions:
       contents: read
-      actions: read
       statuses: read
     outputs:
       previous_sha: ${{ steps.gate.outputs.previous_sha }}
@@ -118,24 +118,30 @@ jobs:
         id: gate
         env:
           GH_TOKEN: ${{ github.token }}
+          DEPLOY_HEALTH_URL: ${{ vars.APAP_DEPLOY_HEALTH_URL }}
         run: |
           set -euo pipefail
-          api="https://api.github.com/repos/${GITHUB_REPOSITORY}"
-          runs=$(mktemp)
-          code=$(curl -sS -o "$runs" -w '%{http_code}' --max-time 30 \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "${api}/actions/workflows/deploy.yml/runs?branch=main&status=success&per_page=5")
-          if [ "$code" != "200" ]; then
-            echo "::error::the previous-deploy query failed (HTTP ${code})."
-            exit 1
+          # Issue #1221: the previous revision is the one ACTUALLY serving
+          # traffic, resolved from the same health endpoint the deploy job
+          # verifies against post-deploy (`/healthz` -> `.revision`). The old
+          # heuristic (head_sha of the most recent successful deploy.yml run,
+          # from the non-transactional Actions search index) selected the
+          # third-most-recent revision in silence once (run 37028750019).
+          prev_sha=""
+          if [ -n "$DEPLOY_HEALTH_URL" ]; then
+            if ! body=$(curl -fsS --max-time 30 "$DEPLOY_HEALTH_URL"); then
+              echo "::error::the health endpoint did not answer; refusing to guess the serving revision."
+              exit 1
+            fi
+            prev_sha=$(printf '%s' "$body" | jq -r '.revision // empty' || true)
+            if [ -z "$prev_sha" ]; then
+              echo "::error::the health payload carries no .revision; refusing to guess the serving revision."
+              exit 1
+            fi
           fi
-          prev_sha=$(jq -r --arg run "$GITHUB_RUN_ID" \
-            '[.workflow_runs[] | select((.id | tostring) != $run)][0].head_sha // empty' "$runs")
           echo "previous_sha=${prev_sha}" >> "$GITHUB_OUTPUT"
           if [ -z "$prev_sha" ]; then
-            echo "::notice::release-e2e-gate: no previous successful deploy found (first deploy); nothing to verify."
+            echo "::notice::release-e2e-gate: APAP_DEPLOY_HEALTH_URL is not configured (first deploy); nothing to verify."
             exit 0
           fi
 

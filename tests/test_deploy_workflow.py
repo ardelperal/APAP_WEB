@@ -68,13 +68,48 @@ def test_release_e2e_gate_blocks_deploy_and_no_longer_reads_the_variable() -> No
 
 
 def test_release_e2e_gate_evaluates_the_previous_deployed_revision() -> None:
+    """Issue #1221: the gate resolves the revision ACTUALLY serving traffic.
+
+    The old heuristic picked `[0].head_sha` from the Actions runs search
+    index — a non-transactional index that already selected the
+    third-most-recent revision in silence (run 37028750019 verified
+    `460c56f1` while production served `9816c974`). The serving revision
+    comes from the same health endpoint the deploy itself verifies against
+    (`vars.APAP_DEPLOY_HEALTH_URL` → `/healthz` → `.revision`), so the gate
+    can never verify a revision that is not serving production.
+    """
     section = _gate_section()
 
-    assert "actions/workflows/deploy.yml/runs?branch=main&status=success" in section
-    assert "GITHUB_RUN_ID" in section, "the current run must be excluded"
+    assert (
+        "actions/workflows/deploy.yml/runs" not in section
+    ), "the Actions runs index is not a source of truth for what is deployed (issue #1221)"
+    assert "APAP_DEPLOY_HEALTH_URL" in section
+    assert ".revision" in section, "the serving revision is read from the health payload"
     assert "commits/${prev_sha}/status" in section
     assert "python scripts/check_release_evidence.py --sha" in section
+
+
+def test_release_e2e_gate_fails_closed_when_health_endpoint_is_unusable() -> None:
+    """Issue #1221: an unusable health endpoint fails the gate, never falls
+    back to the runs index and never passes in silence."""
+    section = _gate_section()
+
+    assert "::error::" in section
+    assert "exit 1" in section
+
+
+def test_release_e2e_gate_bootstrap_escape_is_the_unconfigured_health_url() -> None:
+    """Issue #1221: the only notice-only escape is a not-configured health
+    URL (first-deploy bootstrap); once configured, the gate is strict."""
+    section = _gate_section()
+
     assert "first deploy" in section, "no previous deploy must pass explicitly"
+    first_output = _gate_text_output_position(section)
+    assert first_output < section.index("first deploy"), "the output is written before any early exit"
+
+
+def _gate_text_output_position(section: str) -> int:
+    return section.index('echo "previous_sha=${prev_sha}" >> "$GITHUB_OUTPUT"')
 
 
 def test_release_e2e_gate_requires_both_release_contexts_of_the_previous_sha() -> None:
@@ -96,17 +131,23 @@ def test_release_e2e_gate_requires_both_release_contexts_of_the_previous_sha() -
 
 
 def test_release_e2e_gate_fails_closed_on_api_errors() -> None:
+    """Issue #1221: every unusable input fails the gate loudly: an
+    unreachable health endpoint, a payload without a revision, and a failed
+    verdict query."""
     section = _gate_section()
 
-    assert section.count('!= "200"') >= 2
+    assert "::error::" in section
     assert "exit 1" in section
+    assert '!= "200"' in section, "a failed verdict query must fail the gate"
+    assert "refusing to guess the serving revision" in section
 
 
 def test_release_e2e_gate_has_least_privilege_pinned_actions_and_no_gh() -> None:
     section = _gate_section()
 
     assert "statuses: read" in section
-    assert "actions: read" in section
+    # Issue #1221: the gate no longer consults the Actions API at all.
+    assert "actions: read" not in section
     assert "contents: read" in section
     assert ": write" not in section
     assert "secrets." not in section
