@@ -525,8 +525,9 @@ def validate_pr_event(
     if CHAIN_PARTIAL_LABEL in links.labels and closes_branch_issue:
         violations.append(
             f"PR has {CHAIN_PARTIAL_LABEL} but GitHub would close #{issue_number} on merge: "
-            f"remove the closing keyword for #{issue_number} from the PR (use Refs) or drop "
-            f"the {CHAIN_PARTIAL_LABEL} label if this is the final slice"
+            f"remove the closing keyword for #{issue_number} from the PR body AND title "
+            f"(closing keywords in either location create the reference; use Refs #N in "
+            f"prose) or drop the {CHAIN_PARTIAL_LABEL} label if this is the final slice"
         )
     elif CHAIN_PARTIAL_LABEL not in links.labels and not closes_branch_issue:
         violations.append(
