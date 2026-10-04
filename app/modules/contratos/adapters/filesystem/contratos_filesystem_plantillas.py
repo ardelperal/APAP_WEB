@@ -42,7 +42,6 @@ from pathlib import Path
 
 from app.modules.contratos.domain.plantilla import (
     Plantilla,
-    PlantillaInvalidaError,
     PlantillaNoDisponibleError,
     validar_gramatica,
 )
@@ -135,13 +134,10 @@ class FilesystemContratosPlantillas:
             return cached
         slug = _resolve_slug(tipo)
         body = _read_template(self._templates_dir, slug)
-        try:
-            validar_gramatica(body)
-        except PlantillaInvalidaError:
-            # Surface the diagnostic verbatim: a broken template file
-            # is a hard error and the operator must see the engine
-            # diagnostic (line number, offending token) on CI.
-            raise
+        # PlantillaInvalidaError propagates verbatim: a broken template
+        # file is a hard error and the operator must see the engine
+        # diagnostic (line number, offending token) on CI.
+        validar_gramatica(body)
         plantilla = Plantilla(tipo=tipo, cuerpo=body)
         self._cache[tipo] = plantilla
         return plantilla
