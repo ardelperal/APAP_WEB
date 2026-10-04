@@ -22,6 +22,10 @@ if not payload.get("is_authorized", False):
     redirect("/unauthorized")
 ```
 
+## Sesión: logout sin revocación en servidor (issue #1076)
+
+`POST /logout` (protegido por `CsrfMiddleware`; `GET /logout` responde 405 y no borra nada — una navegación cross-site no puede cerrar la sesión) elimina la cookie del navegador, pero la sesión es una cookie firmada sin estado válida siete días: una copia obtenida antes del logout sigue siendo aceptada hasta que caduca, mientras el email siga autorizado en `usuarios_autorizados`. **La vía de revocación real** es retirar al usuario de `usuarios_autorizados` (la revalidación por request de `require_authorized_user` lo deniega en la siguiente petición, sujeta a la TTL del cache de auth — ver Regla 29) más la expiración natural de la cookie. No existe almacén de sesiones ni lista de revocación; introducirlos requiere una decisión de arquitectura separada.
+
 ## Regla 11 — Gate de cobertura para `CRITICAL_HELPERS`
 
 Los helpers en `app/` (funciones que matchean el regex `_row_to_*` + la lista explícita `{_redirect, _render_form, _is_duplicate_error, _validate_create_params, _build_insert_params}`) deben tener 100% de cobertura de líneas. Si añade un nuevo helper que contiene lógica de producto testeable, añádalo a `CRITICAL_HELPERS` en el mismo PR.

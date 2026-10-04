@@ -10,7 +10,7 @@ of issue #17 (Fase 1 — esqueleto) and #16 (Fase 2 — auth). It exposes:
 - ``GET /auth/google``   → starts the LocalBackend-hosted Google OAuth flow (public)
 - ``GET /auth/callback`` → exchanges the ``oauth_code`` (or legacy ``code``)
                              for an LocalBackend JWT and issues a session cookie
-- ``GET /logout``        → clears the session cookie (any user)
+- ``POST /logout``     → clears the session cookie (any user; CSRF-protected per issue #1076)
 - ``GET /unauthorized``  → friendly access-denied page (auth required,
                              including deactivated sessions so they see the
                              friendly copy instead of being bounced to /login)

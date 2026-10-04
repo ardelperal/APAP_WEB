@@ -20,7 +20,7 @@ Esta página posee el catálogo de superficies que expone el sistema (HTTP, OAut
 | Login `/login` | [`app/main.py`](../../app/main.py) | Public | Renderiza la página de login de APAP. |
 | OAuth `/auth/google` | [`app/core/auth_flow.py`](../../app/core/auth_flow.py) | Public | Inicia el flujo OAuth mediante el port de aplicación. |
 | OAuth callback `/auth/callback` | [`app/main.py`](../../app/main.py) | Public | Intercambia `oauth_code` (o `code`) por JWT y emite cookie de sesión. |
-| Logout `/logout` | [`app/main.py`](../../app/main.py) | Any user | Limpia la cookie de sesión. |
+| Logout `/logout` | [`app/main.py`](../../app/main.py) | Any user | Limpia la cookie de sesión (POST con CSRF, issue #1076). |
 | Unauthorized `/unauthorized` | [`app/main.py`](../../app/main.py) | Auth required | Página de acceso denegado; usuarios desactivados ven el copy amigable. |
 | Admin `/admin` | [`app/main.py`](../../app/main.py) | Developer only | Panel de gestión de usuarios desarrolladores. |
 | Estáticos `/static/*` | [`app/main.py`](../../app/main.py) | Public | CSS compilado y otros assets. |

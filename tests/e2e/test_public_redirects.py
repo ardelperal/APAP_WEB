@@ -91,28 +91,20 @@ def test_animales_redirects_to_login_without_session(
     )
 
 
-def test_logout_clears_session_and_redirects_to_root(
-    page: Page, base_url: str
-) -> None:
-    """GET /logout clears the session cookie and redirects away via 302.
+def test_get_logout_is_not_served(page: Page, base_url: str) -> None:
+    """Issue #1076: ``GET /logout`` is not served — it answers 405.
 
-    Issue #124: the logout handler clears the session cookie and redirects
-    to /. This test verifies the redirect chain at browser level.
-    Final-response semantics per issue #1153.
+    Logout is a state-changing POST + CSRF action; the GET form was the
+    cross-site logout hazard. There is no redirect chain anymore: the
+    raw first response is the assertion (``max_redirects=0`` semantics
+    per issue #1153).
     """
     _skip_if_oauth_not_configured(page, base_url)
     response = page.goto(f"{base_url}/logout", wait_until="domcontentloaded")
     assert response is not None
-    assert response.status == 200, (
-        f"/logout should land on a rendered page (final response of the "
-        f"redirect chain), got {response.status} @ {response.url}"
-    )
-    assert page.url.endswith("/") or page.url.endswith("/login"), (
-        f"/logout should redirect to / or /login, got: {page.url}"
-    )
-    assert response.request.redirected_from is not None, (
-        "/logout must reach its target through a server redirect, not a "
-        "client-side bounce"
+    assert response.status == 405, (
+        f"GET /logout must answer 405 (POST-only route, issue #1076); "
+        f"got {response.status} @ {response.url}"
     )
 
 
