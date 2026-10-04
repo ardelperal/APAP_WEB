@@ -1,6 +1,6 @@
 """Postgres executor for the local backend (M0 of self-host-backend-coolify, issue #641).
 
-The local FastAPI router (``app.core.local_backend.api``) uses this
+The local FastAPI router (``app.core.local_backend.rawsql``, token-protected since issue #680) uses this
 executor to run SQL against the same Postgres instance that the
 integration tests use. The shape of the return value matches what
 ``InsForgeClient.execute_sql`` expects (``list[dict]``) so the rest of
@@ -182,7 +182,7 @@ class LocalPostgresExecutor:
         # via ``_run_on_cursor``/``_to_client_placeholders`` (issue #944).
         # A failed connect() (bad DSN, network down) has no sqlstate: it
         # must still surface as ``DatabaseError`` per this class's documented
-        # contract, so ``app.core.local_backend.api`` maps it to HTTP 5xx
+        # contract, so ``app.core.local_backend.rawsql`` maps it to HTTP 5xx
         # instead of an unhandled ``psycopg.OperationalError`` (issue #932).
         try:
             connection = self._connect()
