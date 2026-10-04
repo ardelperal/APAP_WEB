@@ -273,6 +273,22 @@ def test_chain_partial_with_closing_reference_to_branch_issue_fails() -> None:
     assert "would close" in violations[0]
 
 
+def test_premature_close_failure_names_body_and_title() -> None:
+    """Issue #1216: the premature-close failure names body AND title.
+
+    #1138's TITLE contained a closing keyword and the chain tip's issue was
+    closed by the intermediate leg: closing keywords in either location
+    create real closingIssuesReferences, so the failure message must name
+    both as locations to clean.
+    """
+    client = StubClient({42: _issue()}, closing=(42,), labels=frozenset({"chain:partial"}))
+
+    violations = check_issue_specs.validate_pr_event(_event("fix/42-some-slug"), client)
+
+    assert "body" in violations[0]
+    assert "title" in violations[0]
+
+
 def test_chain_partial_without_closing_reference_passes() -> None:
     client = StubClient({42: _issue()}, closing=(), labels=frozenset({"chain:partial"}))
 
