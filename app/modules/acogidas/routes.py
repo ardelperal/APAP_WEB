@@ -468,7 +468,7 @@ def close_acogida_view(
     acogida_id: str,
     _request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))],
-    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
+    client: Annotated[TransactionalSqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Close the stay: ``fecha_final = current_date``, ``activo`` stays true.
 

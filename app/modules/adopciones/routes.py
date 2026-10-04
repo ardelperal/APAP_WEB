@@ -303,7 +303,7 @@ def update_adopcion_view(
     request: Request,
     form: Annotated[AdopcionForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ADOPCIONES))],
-    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
+    client: Annotated[TransactionalSqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Update an existing adopción; redirect to detail on success.
 
