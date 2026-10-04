@@ -48,6 +48,23 @@ class PlantillaInvalidaError(ValueError):
     """
 
 
+class PlantillaNoDisponibleError(ValueError):
+    """Raised when no template body is available for a contract type.
+
+    The port returns a :class:`Plantilla` for each
+    :class:`~app.modules.contratos.domain.tipos_contrato.TipoContrato`
+    value; this error is the contract the port uses when the request
+    asks for a type the source has no body for (unknown string,
+    missing template file, or ASCII-slug mapping without a file on
+    disk). The CP-2 use case translates it into a 404 / 422 at the
+    HTTP boundary; transport-free callers see the message as-is.
+
+    Subclasses :class:`ValueError` to keep symmetry with
+    :class:`PlantillaInvalidaError` and the slice convention that
+    domain errors derive from ``ValueError``.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class Plantilla:
     """A contract template body keyed by ``TipoContrato``.
@@ -209,4 +226,9 @@ def _is_integer_literal(token: str) -> bool:
     return bool(token) and token.lstrip("-").isdigit()
 
 
-__all__ = ["Plantilla", "PlantillaInvalidaError", "validar_gramatica"]
+__all__ = [
+    "Plantilla",
+    "PlantillaInvalidaError",
+    "PlantillaNoDisponibleError",
+    "validar_gramatica",
+]
