@@ -114,6 +114,18 @@ def _seed_e2e_default_user() -> None:
         add_authorized_user(
             client, email, "developer", added_by="00000000-0000-0000-0000-000000000000"
         )
+    # Issue #1109 (DOC-01 SLICE 3): optional reader seeding for the
+    # contratos-auth e2e gate. Mirrors the ``add_authorized_user``
+    # call above and the existing ``APAP_E2E_READER_EMAIL`` pattern
+    # in ``tests/e2e/test_cesiones_auth.py`` / ``test_sanidad_auth.py``.
+    # When the env var is unset (the default for the e2e CI), no
+    # reader row is created and the reader-403 atoms skip cleanly.
+    reader_email = os.environ.get("APAP_E2E_READER_EMAIL")
+    if reader_email and get_user_by_email(client, reader_email) is None:
+        add_authorized_user(
+            client, reader_email, "reader",
+            added_by="00000000-0000-0000-0000-000000000000",
+        )
 
 
 @pytest.fixture
