@@ -467,7 +467,11 @@ arriba (`success` real o `skipped:<motivo>`).
 The retired repository variable `APAP_E2E_GATE_EVIDENCE` and the
 variable-based `release-e2e-gate` (issue #908) no longer exist: it blocked
 every deploy before the validation could run and, once filled, approved every
-later release. The current `release-e2e-gate` reads per-SHA evidence instead. `rm` in Step 6 is confined to the gitignored `.auth/` scratch file;
+later release. The current `release-e2e-gate` reads per-SHA evidence instead.
+Since issue #1221 it resolves that SHA the same way this runbook does: from
+the `revision` field of the configured health endpoint (`/healthz`), not from
+the Actions runs search index (a non-transactional index that selected the
+third-most-recent revision in silence once, run 37028750019). `rm` in Step 6 is confined to the gitignored `.auth/` scratch file;
 it touches nothing else.
 
 ## Copyable checklist

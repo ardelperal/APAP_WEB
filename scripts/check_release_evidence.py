@@ -134,10 +134,14 @@ def evaluate(payload: object, sha: str, context: str = STATUS_CONTEXT) -> Verdic
                 f"bypass on {sha} records no reason; use skipped:<reason>.",
             )
         return Verdict(
-            ok=True, code="bypass", message=f"e2e validation skipped for {sha}: {reason}"
+            ok=True,
+            code="bypass",
+            # Issue #1221: name the evaluated context — a smoke bypass must
+            # not read as an e2e verdict in the audit trail.
+            message=f"{context} validation skipped for {sha}: {reason}",
         )
     return Verdict(
-        ok=True, code="success", message=f"production e2e validation recorded for {sha}."
+        ok=True, code="success", message=f"{context} validation recorded for {sha}."
     )
 
 

@@ -178,6 +178,36 @@ def test_custom_context_is_evaluated_and_named_in_messages() -> None:
     assert SHA in pending.message
 
 
+def test_bypass_and_success_messages_name_the_evaluated_context() -> None:
+    """Issue #1221: smoke-context verdicts must not read as e2e verdicts.
+
+    The bypass mechanism is context-agnostic, but the messages hardcoded
+    "e2e validation skipped" / "production e2e validation recorded"; a
+    smoke bypass printed an e2e claim, muddying the audit trail.
+    """
+    bypass = cre.evaluate(
+        _payload(
+            _status(
+                "success",
+                "skipped:bootstrap - deployed before smoke existed (#1133)",
+                context=SMOKE,
+            )
+        ),
+        SHA,
+        context=SMOKE,
+    )
+    assert (bypass.ok, bypass.code) == (True, "bypass")
+    assert "e2e" not in bypass.message.lower()
+    assert SMOKE in bypass.message
+
+    success = cre.evaluate(
+        _payload(_status("success", "smoke ok", context=SMOKE)), SHA, context=SMOKE
+    )
+    assert (success.ok, success.code) == (True, "success")
+    assert "e2e" not in success.message.lower()
+    assert SMOKE in success.message
+
+
 def test_status_of_another_context_is_ignored() -> None:
     payload = _payload(_status("success"))  # only release/e2e-production
 
