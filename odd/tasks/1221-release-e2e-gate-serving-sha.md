@@ -47,4 +47,11 @@ while the fix lands).
 
 ## Status
 
-In progress 2026-10-03 (issue approved and labeled this session).
+Implemented 2026-10-03: the gate resolves `previous_sha` from the serving
+revision's `/healthz` (`.revision`), dropping the Actions runs-index query and its
+`actions: read` scope; fail-closed on an unreachable endpoint or a payload without a
+revision; the only notice-only escape is the not-configured health URL (first-deploy
+bootstrap). `check_release_evidence.py` verdict messages are now context-aware, and the
+runbook documents the gate's new selection source (the smoke bootstrap path already
+existed in the runbook — acceptance (b) via the documented route). RED observed on both
+rewritten gate pins and the context-aware message test.
