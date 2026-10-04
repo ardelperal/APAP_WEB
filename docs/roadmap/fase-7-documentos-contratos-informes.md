@@ -8,14 +8,16 @@ Esta página posee el estado de la Fase 7: anexos, motor de plantillas documenta
 
 en curso — PR 1 de DOC-01 (#56) mergeado en `main` (commit `28614e1`); template engine puro con pin arquitectónico y 35 tests verdes. Pendiente: PR 2 (storage adapter + object storage), PR 3 (route handler + DI), PR 4 (E2E). DOC-02..04 y REPORT-01..05 sin tocar.
 
+> **Issue #1109 (DOC-01 SLICE 1, 2, 3)** — la versión contemporánea del trabajo DOC-01 (#1109) avanza en la rama `feat/1109-contratos-plantillas-port` (sin mergear a `main`): SLICE 1 commit `4ef5bc8` (puerto de plantillas + adaptador filesystem + 8 plantillas con marcador + ADR d-45); SLICE 2 commit `5e67716` (composition root + ruta + DI + RBAC + queries seam); SLICE 3 pendiente de merge (batería E2E en `tests/e2e_ci/`). Los textos heredados de las 8 plantillas quedan pendientes de portar del legacy de forma verbatim (criterio de aceptación 2 de #1109); las plantillas cargadas en disco conservan la cabecera `TEXTO PENDIENTE DE PORTAR DEL LEGACY` pineada por test unitario, conforme al ADR d-45. El portado verbatim depende de una sesión con dysflow sobre la máquina del Access o de los `.docx` legacy; las cláusulas no se inventan. Los slices 1 y 2 cierran lo ya mergeable; el slice 3 cierra la batería E2E y queda en cola del merge.
+
 ## Slices
 
 | Sub-fase | Slice | Estado | Issue |
 |---|---|---|---|
 | 7a documentos | DOC-01 PR 1 — template engine puro | **cerrado** (`28614e1`) | #56 |
-| 7a documentos | DOC-01 PR 2 — storage adapter + object storage | pendiente | #56 |
-| 7a documentos | DOC-01 PR 3 — route handler + DI wiring | pendiente | #56 |
-| 7a documentos | DOC-01 PR 4 — batería E2E (`test_contratos_pdf.py`, `test_contratos_auth.py`) | pendiente | #56 |
+| 7a documentos | DOC-01 SLICE 1 — puerto de plantillas + adaptador + marcador legacy (issue #1109) | **cerrado en `feat/1109-contratos-plantillas-port`** (`4ef5bc8`) | #1109 |
+| 7a documentos | DOC-01 SLICE 2 — composition root + ruta + DI + RBAC + queries seam (issue #1109) | **cerrado en `feat/1109-contratos-plantillas-port`** (`5e67716`) | #1109 |
+| 7a documentos | DOC-01 SLICE 3 — batería E2E (`test_contratos_pdf.py`, `test_contratos_auth.py`) (issue #1109) | **en curso en `feat/1109-contratos-plantillas-port`** (sin mergear) | #1109 |
 | 7a documentos | DOC-02 signed-upload registration | pendiente | #57 |
 | 7a documentos | DOC-03 polymorphic attachments | pendiente | #58 |
 | 7a documentos | DOC-04 legacy-to-object-storage migration | pendiente | #59 |
@@ -30,6 +32,7 @@ en curso — PR 1 de DOC-01 (#56) mergeado en `main` (commit `28614e1`); templat
 ## Issues abiertas relacionadas
 
 - #56 DOC-01 contract-PDF generation (PR 1 cerrado en `28614e1`; PR 2..4 pendientes).
+- #1109 DOC-01 SLICE 1..3 (rama `feat/1109-contratos-plantillas-port`, sin mergear): SLICE 1 `4ef5bc8`; SLICE 2 `5e67716`; SLICE 3 en curso (batería E2E).
 - #57 DOC-02 signed-upload registration.
 - #58 DOC-03 polymorphic attachments.
 - #59 DOC-04 legacy-to-object-storage migration.
@@ -76,11 +79,11 @@ Baterías E2E con Playwright para cada sub-slice de Fase 7. Las baterías se esc
 
 | Fichero E2E | Casos | Slice |
 |---|---|---|
-| `test_contratos_pdf.py` | Generar PDF desde plantilla; descargar; verificar contenido | `contratos` ❌ pendiente |
+| `test_contratos_pdf.py` | Generar PDF desde plantilla; descargar; verificar contenido | `contratos` ⚠️ en `feat/1109-contratos-plantillas-port` (SLICE 3, sin mergear) |
 | `test_contratos_upload.py` | Upload contrato firmado; registrar en DB; verificar en lista | `contratos` ❌ pendiente |
 | `test_anexos_polimorfico.py` | Adjuntar anexo a cesión, adopción, acogida; verificar linking correcto | `anexos` ❌ pendiente |
 | `test_legacy_storage_migration.py` | Migrar archivo legacy; verificar acceso vía object storage | `migración` ❌ pendiente |
-| `test_contratos_auth.py` | 302 sin sesión, 403 reader en POST/PATCH | `contratos` ❌ pendiente |
+| `test_contratos_auth.py` | 302 sin sesión, 403 reader en POST/PATCH | `contratos` ⚠️ en `feat/1109-contratos-plantillas-port` (SLICE 3, sin mergear) |
 
 ### 7b — Motor de plantillas
 
