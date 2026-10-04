@@ -58,7 +58,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from app.core.data_access import BackendError, SqlExecutor
+from app.core.data_access import BackendError, SqlExecutor, TransactionalSqlExecutor
 from app.core.forms import optional_text
 
 
@@ -318,17 +318,22 @@ def _is_unique_conflict(exc: BackendError) -> bool:
 
 
 def create_cesion(
-    client: SqlExecutor,
+    client: TransactionalSqlExecutor,
     params: dict[str, Any],
 ) -> tuple[Cesion, Contrato]:
     """Create an owner-surrender record + its linked contrato.
 
-    Validates first, then emits TWO INSERTs in this order:
+    Validates first, then emits TWO INSERTs in this order, inside ONE
+    atomic unit of work (issue #1066):
     1. ``INSERT INTO cesiones_propietario`` (satisfied alone; the FK
        UNIQUE on ``entrada_id`` is the natural idempotence guard).
     2. ``INSERT INTO contratos`` with ``cesion_id`` pointing at the row
        just created and ``tipo_contrato_id`` resolved from
        ``catalogos_tipos_contrato.codigo = 'Cesión'``.
+
+    Before issue #1066 each INSERT committed alone, so a failure between
+    them left a cesion row persisted WITHOUT its contract. Both writes
+    now run in one ``transaction()``: they commit together or not at all.
 
     Returns the persisted ``Cesion`` and its generated ``Contrato``.
 
@@ -352,42 +357,44 @@ def create_cesion(
             f"entrada_id does not reference an existing entrada: {entrada_id!r}"
         )
 
-    # 3. Resolve the contrato type FK (catalogos_tipos_contrato.codigo).
-    tipo_rows = client.execute_sql(
-        _CHECK_TIPO_CONTRATO_CESION_SQL, [CONTRATO_TIPO_CESION]
-    )
-    if not tipo_rows:
-        raise ValueError(
-            "catalogos_tipos_contrato is missing the 'Cesión' row; "
-            "re-run ensure_catalogs() or seed CATALOG-01"
-        )
-    tipo_contrato_id = str(tipo_rows[0]["id"])
+    # 3-5. Issue #1066: catalog read + both INSERTs are ONE atomic unit —
+    # they commit together or not at all, so a contrato failure can never
+    # leave an orphan cesion row behind.
+    with client.transaction() as tx:
+        # Resolve the contrato type FK (catalogos_tipos_contrato.codigo).
+        tipo_rows = tx.execute_sql(_CHECK_TIPO_CONTRATO_CESION_SQL, [CONTRATO_TIPO_CESION])
+        if not tipo_rows:
+            raise ValueError(
+                "catalogos_tipos_contrato is missing the 'Cesión' row; "
+                "re-run ensure_catalogs() or seed CATALOG-01"
+            )
+        tipo_contrato_id = str(tipo_rows[0]["id"])
 
-    # 4. INSERT the cesion. UNIQUE conflicts become CesionConflictError.
-    try:
-        cesion_rows = client.execute_sql(
-            _INSERT_CESION_SQL, _build_cesion_insert_params(params)
-        )
-    except BackendError as exc:
-        if _is_unique_conflict(exc):
-            raise CesionConflictError(
-                "ya existe una cesión para esta entrada"
-            ) from exc
-        raise
-    cesion = _row_to_cesion(cesion_rows[0])
+        # INSERT the cesion. UNIQUE conflicts become CesionConflictError.
+        try:
+            cesion_rows = tx.execute_sql(
+                _INSERT_CESION_SQL, _build_cesion_insert_params(params)
+            )
+        except BackendError as exc:
+            if _is_unique_conflict(exc):
+                raise CesionConflictError(
+                    "ya existe una cesión para esta entrada"
+                ) from exc
+            raise
+        cesion = _row_to_cesion(cesion_rows[0])
 
-    # 5. INSERT the contrato linked to the cesion. fecha defaults to the
-    #    cesion day; the legacy contract number (CPxxxx) carries over
-    #    verbatim from ``numero_contrato``.
-    fecha_param = (
-        optional_text(params, "fecha_cesion")
-        or (cesion.fecha_alta or "")[:10]
-    )
-    contrato_rows = client.execute_sql(
-        _INSERT_CONTRATO_SQL,
-        [tipo_contrato_id, cesion.numero_contrato, fecha_param, cesion.id],
-    )
-    contrato = _row_to_contrato(contrato_rows[0])
+        # INSERT the contrato linked to the cesion. fecha defaults to the
+        # cesion day; the legacy contract number (CPxxxx) carries over
+        # verbatim from ``numero_contrato``.
+        fecha_param = (
+            optional_text(params, "fecha_cesion")
+            or (cesion.fecha_alta or "")[:10]
+        )
+        contrato_rows = tx.execute_sql(
+            _INSERT_CONTRATO_SQL,
+            [tipo_contrato_id, cesion.numero_contrato, fecha_param, cesion.id],
+        )
+        contrato = _row_to_contrato(contrato_rows[0])
 
     return cesion, contrato
 

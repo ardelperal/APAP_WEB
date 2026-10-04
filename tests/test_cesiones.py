@@ -36,6 +36,19 @@ class _ErrorResponse:
         self.body = body
 
 
+class _FakeBoundExecutor:
+    """Executor bound to the fake transaction, journaling tx-scope queries."""
+
+    def __init__(self, parent: _FakeSqlExecutor) -> None:
+        self._parent = parent
+
+    def execute_sql(
+        self, query: str, params: list[object] | None = None
+    ) -> list[dict[str, object]]:
+        self._parent.tx_queries.append(" ".join(query.split()))
+        return self._parent.execute_sql(query, params)
+
+
 class _FakeSqlExecutor:
     """Minimal ``SqlExecutor`` Protocol implementation for unit tests."""
 
@@ -43,6 +56,12 @@ class _FakeSqlExecutor:
         self.calls: list[tuple[str, list[object]]] = []
         self._responses: list[list[dict[str, object]]] = []
         self._handler: Callable[[str, list[object]], Any] | None = None
+        # Issue #1066: transaction recording + fault injection.
+        self.fail_on: str | None = None
+        self.transaction_opened = False
+        self.committed = False
+        self.rolled_back = False
+        self.tx_queries: list[str] = []
 
     def set_response(self, rows: list[dict[str, object]]) -> None:
         self._responses = [rows]
@@ -60,6 +79,10 @@ class _FakeSqlExecutor:
     ) -> list[dict[str, object]]:
         self.calls.append((query, list(params or [])))
         bound_params = list(params or [])
+        # Issue #1066 fault injection: a forced failure models the
+        # mid-unit crash whose damage the transaction must undo.
+        if self.fail_on is not None and self.fail_on in " ".join(query.split()):
+            raise RuntimeError(f"forced failure on {self.fail_on!r} (issue #1066)")
         if self._handler is not None:
             result = self._handler(query, bound_params)
             if isinstance(result, _ErrorResponse):
@@ -69,6 +92,29 @@ class _FakeSqlExecutor:
         if self._responses:
             return self._responses.pop(0)
         return []
+
+    def transaction(self) -> Any:
+        """Open the fake atomic unit and yield a bound recording executor.
+
+        Mirrors the ``_FakeTransactionalExecutor`` pattern of
+        ``tests/test_animals_chip_cascade_saga.py``: every statement the
+        service issues through the yielded executor is journaled in
+        ``tx_queries`` so tests can pin that both the cesion and the
+        contrato INSERTs travelled through one ``transaction()`` block,
+        and ``__exit__`` records commit vs rollback.
+        """
+        self.transaction_opened = True
+        return self
+
+    def __enter__(self) -> _FakeBoundExecutor:
+        return _FakeBoundExecutor(self)
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+        if exc_type is not None:
+            self.rolled_back = True
+            return False
+        self.committed = True
+        return False
 
     def close(self) -> None:
         pass  # no-op for fake
@@ -507,3 +553,58 @@ def test_create_cesion_links_contrato_to_cesion_via_cesion_id() -> None:
     assert "ces-link-test" in params, (
         f"contrato INSERT must carry cesion_id='ces-link-test'; got {params}"
     )
+
+
+# --- transactional unit (issue #1066) ---------------------------------------
+
+
+def test_create_cesion_persists_both_rows_in_one_transaction() -> None:
+    """Issue #1066: the cesion INSERT and its contrato INSERT are ONE
+    atomic unit of work — both statements travel through the same
+    ``transaction()`` block, so a mid-unit failure can never leave a
+    cesion row persisted without its contract.
+    """
+    cesion_row = _full_cesion_row(id="ces-xyz")
+    contrato_row = _full_contrato_row(id="ctr-abc", cesion_id="ces-xyz")
+    client, _captured = _make_client(
+        _build_handler(
+            entradas_row={"id": "ent-abc"},
+            tipo_contrato_row={"id": "tip-ces"},
+            insert_cesion_rows=[cesion_row],
+            insert_contrato_rows=[contrato_row],
+        )
+    )
+
+    cesiones_service.create_cesion(client, _valid_params())
+
+    assert client.transaction_opened is True
+    assert client.committed is True
+    assert client.rolled_back is False
+
+    joined = "\n".join(client.tx_queries)
+    assert "INSERT INTO cesiones_propietario" in joined, (
+        "the cesion INSERT must travel inside the transaction"
+    )
+    assert "INSERT INTO contratos" in joined, (
+        "the contrato INSERT must travel inside the same transaction"
+    )
+
+
+def test_contrato_insert_failure_rolls_back_the_cesion() -> None:
+    """Issue #1066: a contrato INSERT failure must not leave the cesion
+    persisted: the unit rolls back and the error propagates.
+    """
+    client, _captured = _make_client(
+        _build_handler(
+            entradas_row={"id": "ent-abc"},
+            tipo_contrato_row={"id": "tip-ces"},
+            insert_cesion_rows=[_full_cesion_row(id="ces-xyz")],
+        )
+    )
+    client.fail_on = "INSERT INTO contratos"
+
+    with pytest.raises(RuntimeError, match="forced failure"):
+        cesiones_service.create_cesion(client, _valid_params())
+
+    assert client.rolled_back is True
+    assert client.committed is False
