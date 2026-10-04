@@ -12,7 +12,9 @@ the real backend (lived: PR #1138). Generic per-column type checking is
 not feasible in this fake: the handler contract carries no schema, so
 there is no column-type information to validate against. Services whose
 correctness depends on database-side type enforcement need integration
-coverage against real Postgres (tests/integration/) before merge.
+coverage against real Postgres (tests/integration/) before merge. The
+criteria for when that is required live in
+``docs/quality/real-postgres-test-guide.md`` (issue #1205).
 """
 
 from __future__ import annotations
