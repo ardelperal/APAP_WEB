@@ -108,14 +108,16 @@ class AuthorizedUser:
             try:
                 rol_value = Rol(str(rol_raw))
             except ValueError:
-                # Source SQL returned an unknown role (e.g. a legacy row
-                # from before the CHECK constraint was dropped). Default
-                # to KEY_USER so the template renders a valid display
-                # rather than crashing; the audit gap is logged at the
-                # adapter layer, not here.
-                rol_value = Rol.KEY_USER
+                # Issue #1032: an unknown role (a legacy row from before the
+                # CHECK constraint was dropped, or a typo like ``kay_user``)
+                # must NOT gain KEY_USER's write permissions — this entity is
+                # the identity object authorization layers consume. Fail
+                # closed to READER: read-only capabilities, valid display.
+                rol_value = Rol.READER
         else:
-            rol_value = Rol.KEY_USER
+            # Same fail-closed contract for an incomplete row: the shell
+            # renders, but carries no write capability.
+            rol_value = Rol.READER
         return cls(
             id=str(row.get("id", "")),
             email=str(row.get("email", "")),
