@@ -92,11 +92,23 @@ required; every server-side action goes through the Coolify API.
 
 5. **Target reachable.** `https://apap.romancaba.com/healthz` reports the
    revision under validation before starting.
-6. **Default E2E user seeded in the database (issue #1073).** The login
+6. **E2E seed row verified in the database (issues #1073, #1223).** The login
    endpoint resolves the target email against `usuarios_autorizados` —
    the DB is the single allowlist and the role is read from the database.
-   `e2e@apap.local` (rol `developer`) is confirmed seeded in production;
-   verify it before a gate run if the user table was touched:
+   The `e2e@apap.local` (rol `developer`) row is mutable production state:
+   no automation guarantees it, and it HAS drifted before (on 2026-10-02
+   the row was missing and had to be re-inserted by hand during a gate
+   battery; no reset or restore was ever documented — the timeline is
+   unconfirmed). Verify the precondition fail-loud before a gate run:
+
+   ```bash
+   python scripts/check_e2e_seed.py --dsn "${APAP_LOCAL_DB_URL}"
+   ```
+
+   Exit 0 means exactly one active `developer` row exists; exit 1 means
+   the precondition is unmet and names what to fix (missing, inactive,
+   wrong role, or duplicated); exit 2 means the check could not run. A
+   raw read-only inspection also works, but it does not fail loudly:
 
    ```bash
    psql "${APAP_LOCAL_DB_URL}" -c \
