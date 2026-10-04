@@ -111,15 +111,25 @@ _edit_terapia_form: Any = partial(
 
 _render_terapia_form = _render_form  # noqa: F811 — alias preserves the historical name
 
+_TERAPIAS_BASE = "/terapias"  # single source for the module prefix (issue #1070)
+
 
 def _render_terapia_form_error(
     request: Request,
     user: AuthenticatedUser,
     params: dict[str, Any],
-    exc: Exception,
+    exc: ValueError | BackendError,
     form_action: str,
 ) -> HTMLResponse:
-    """Render the terapia form with an error message derived from ``exc``."""
+    """Render the terapia form with an error message derived from ``exc``.
+
+    Issue #1070: only the two expected domain/transport error kinds reach
+    this helper. A ``ValueError`` is service validation (422); a
+    ``BackendError`` is transport (503 + ``salud.terapia.backend_error``).
+    Programming bugs (``TypeError``, ``KeyError``, ...) are NOT caught by
+    the routes anymore, so they reach the 500 handler instead of posing
+    as "backend unreachable".
+    """
     if isinstance(exc, ValueError):
         return _render_terapia_form(
             request, user, params,
@@ -179,7 +189,7 @@ def new_terapia_form(
     if (early := return_early_if_response(user)) is not None:
         return early
     return _render_terapia_form(
-        request, user, {}, None, "/terapias", status.HTTP_200_OK
+        request, user, {}, None, _TERAPIAS_BASE, status.HTTP_200_OK
     )
 
 
@@ -213,9 +223,11 @@ def create_terapia_view(
             params,
             actor_user_id=_actor_user_id(user),
         )
-    except Exception as exc:
+    except (ValueError, BackendError) as exc:
+        # Issue #1070: name the expected errors; programming bugs must
+        # not pose as "backend unreachable".
         return _render_terapia_form_error(
-            request, user, params, exc, "/terapias"
+            request, user, params, exc, _TERAPIAS_BASE
         )
     return RedirectResponse(
         url=f"/terapias/{terapia.id}", status_code=status.HTTP_303_SEE_OTHER
@@ -294,7 +306,9 @@ def update_terapia_view(
             params,
             actor_user_id=_actor_user_id(user),
         )
-    except Exception as exc:
+    except (ValueError, BackendError) as exc:
+        # Issue #1070: name the expected errors; programming bugs must
+        # not pose as "backend unreachable".
         return _render_terapia_form_error(
             request, user, params, exc, f"/terapias/{terapia_id}/update"
         )
@@ -347,7 +361,7 @@ def delete_terapia_view(
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return RedirectResponse(
-        url="/terapias", status_code=status.HTTP_303_SEE_OTHER
+        url=_TERAPIAS_BASE, status_code=status.HTTP_303_SEE_OTHER
     )
 
 
