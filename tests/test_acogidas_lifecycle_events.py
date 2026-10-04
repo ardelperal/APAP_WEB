@@ -53,8 +53,9 @@ lifecycle contract that LIFECYCLE-02 adds on top of the existing CRUD.
 from __future__ import annotations
 
 import json
-from contextlib import nullcontext
 from typing import Any
+
+import pytest
 
 from app.modules.acogidas import service as acogidas_service
 from app.modules.animals.lifecycle_events import LifecycleEventType
@@ -70,6 +71,19 @@ ANIMAL_UUID = "11111111-1111-1111-1111-111111111111"
 #: Fixed actor UUID for tests (issue #945: ``create_acogida`` /
 #: ``close_acogida`` require an acting user's UUID before any write).
 ACTOR_UUID = "00000000-0000-4000-8000-000000000001"
+
+
+class _FakeBoundExecutor:
+    """Executor bound to the fake transaction, journaling tx-scope queries."""
+
+    def __init__(self, parent: FakeSqlExecutor) -> None:
+        self._parent = parent
+
+    def execute_sql(
+        self, query: str, params: list[Any] | None = None
+    ) -> list[dict[str, Any]]:
+        self._parent.tx_queries.append(" ".join(query.split()))
+        return self._parent.execute_sql(query, params)
 
 
 class FakeSqlExecutor:
@@ -102,6 +116,12 @@ class FakeSqlExecutor:
         self.calls: list[tuple[str, list[Any]]] = []
         self._insert_row = insert_row
         self._update_row = update_row
+        # Issue #1067: transaction recording + fault injection.
+        self.fail_on: str | None = None
+        self.transaction_opened = False
+        self.committed = False
+        self.rolled_back = False
+        self.tx_queries: list[str] = []
 
     def execute_sql(
         self, query: str, params: list[Any] | None = None
@@ -109,6 +129,11 @@ class FakeSqlExecutor:
         normalized = query.strip()
         params_list = list(params or [])
         self.calls.append((normalized, params_list))
+
+        # Issue #1067 fault injection: a forced failure models the
+        # mid-unit crash whose damage the transaction must undo.
+        if self.fail_on is not None and self.fail_on in normalized:
+            raise RuntimeError(f"forced failure on {self.fail_on!r} (issue #1067)")
 
         # FK validation SELECTs — the service layer checks each
         # referenced id is active before issuing the INSERT / UPDATE.
@@ -133,10 +158,27 @@ class FakeSqlExecutor:
 
 
     def transaction(self) -> Any:
-        """Yield this fake unchanged: unit tests exercise one round-trip at a
-        time, so every ``execute_sql`` call inside the service's
-        ``transaction()`` block hits this same recording fake."""
-        return nullcontext(self)
+        """Open the fake atomic unit and yield a bound recording executor.
+
+        Mirrors the ``_FakeTransactionalExecutor`` pattern of
+        ``tests/test_animals_chip_cascade_saga.py``: every statement the
+        service issues through the yielded executor is journaled in
+        ``tx_queries`` so tests can pin that the whole unit travelled
+        through one ``transaction()`` block, and ``__exit__`` records
+        commit vs rollback.
+        """
+        self.transaction_opened = True
+        return self
+
+    def __enter__(self) -> _FakeBoundExecutor:
+        return _FakeBoundExecutor(self)
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+        if exc_type is not None:
+            self.rolled_back = True
+            return False
+        self.committed = True
+        return False
 
 def _default_insert_row() -> dict[str, Any]:
     """Canonical returned row for the ``INSERT INTO acogidas`` mock."""
@@ -507,3 +549,50 @@ def test_lifecycle_event_metadata_is_serialised_as_json_string() -> None:
     )
     assert json.loads(params[8]) == {"legacy_pk": 42}
 
+
+
+# --- close_acogida: transactional unit (issue #1067) -----------------------
+
+
+def test_close_acogida_runs_close_event_and_refresh_in_one_transaction() -> None:
+    """Issue #1067: the close UPDATE, the FOSTER_RETURNED event INSERT and
+    the ``animal_current_state`` refresh are ONE atomic unit of work.
+
+    Without the transaction, each ``execute_sql`` committed alone: a
+    failure between the close and the event INSERT left the stay closed
+    while the event log and the state cache went stale.
+    """
+    executor = FakeSqlExecutor()
+
+    result = acogidas_service.close_acogida(
+        executor, ACOGIDA_UUID, actor_user_id=ACTOR_UUID
+    )
+
+    assert result is not None
+    assert executor.transaction_opened is True
+    assert executor.committed is True
+    assert executor.rolled_back is False
+
+    joined = "\n".join(executor.tx_queries)
+    assert "UPDATE acogidas" in joined, "the close UPDATE must travel inside the transaction"
+    assert (
+        "INSERT INTO animal_lifecycle_events" in joined
+    ), "the event INSERT must travel inside the transaction"
+    assert (
+        "INSERT INTO animal_current_state" in joined
+    ), "the cache refresh must travel inside the transaction"
+
+
+def test_close_acogida_event_failure_rolls_back_the_close() -> None:
+    """Issue #1067: a mid-unit failure undoes the close — the stay does
+    not survive as closed without its FOSTER_RETURNED event."""
+    executor = FakeSqlExecutor()
+    executor.fail_on = "INSERT INTO animal_lifecycle_events"
+
+    with pytest.raises(RuntimeError, match="forced failure"):
+        acogidas_service.close_acogida(
+            executor, ACOGIDA_UUID, actor_user_id=ACTOR_UUID
+        )
+
+    assert executor.rolled_back is True
+    assert executor.committed is False

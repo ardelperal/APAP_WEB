@@ -466,7 +466,7 @@ def update_acogida(
 
 
 def close_acogida(
-    client: SqlExecutor,
+    client: TransactionalSqlExecutor,
     acogida_id: str,
     *,
     actor_user_id: str | None = None,
@@ -491,26 +491,33 @@ def close_acogida(
     # Issue #945 (A-13): FOSTER_RETURNED needs the acting user's UUID;
     # reject before the UPDATE runs without one.
     created_by = require_actor(actor_user_id)
-    sql, params = acogidas_queries.build_acogida_close(acogida_id)
-    rows = client.execute_sql(sql, params)
-    if not rows:
-        return None
-    closed = _row_to_acogida(rows[0])
-    log_safe("foster.acogida.closed", acogida_id=closed.id)
+    # Issue #1067: the close UPDATE, the FOSTER_RETURNED event INSERT and
+    # the animal-state refresh are ONE atomic unit of work (same shape as
+    # the #914 A-02 create path). Without it each ``execute_sql`` committed
+    # alone, so a mid-flow failure left the stay closed while the event log
+    # and the state cache went stale.
+    with client.transaction() as tx:
+        sql, params = acogidas_queries.build_acogida_close(acogida_id)
+        rows = tx.execute_sql(sql, params)
+        if not rows:
+            return None
+        closed = _row_to_acogida(rows[0])
+        log_safe("foster.acogida.closed", acogida_id=closed.id)
 
-    # LIFECYCLE-02 (issue #32): emit FOSTER_RETURNED so the event
-    # log records the transition out of the foster stay, then refresh
-    # the animal-current-state cache.
-    record_event(
-        client,
-        animal_id=closed.animal_id,
-        event_type=LifecycleEventType.FOSTER_RETURNED,
-        event_timestamp=closed.fecha_final or str(date.today()),
-        created_by=created_by,
-        source_entity_type=_ACOGIDA_ENTITY_TYPE,
-        source_entity_id=closed.id,
-    )
-    actualizar_estado_animal(client, animal_id=closed.animal_id)
+        # LIFECYCLE-02 (issue #32): emit FOSTER_RETURNED so the event
+        # log records the transition out of the foster stay, then refresh
+        # the animal-current-state cache. The transaction commits all of
+        # it together — or nothing at all (issue #1067).
+        record_event(
+            tx,
+            animal_id=closed.animal_id,
+            event_type=LifecycleEventType.FOSTER_RETURNED,
+            event_timestamp=closed.fecha_final or str(date.today()),
+            created_by=created_by,
+            source_entity_type=_ACOGIDA_ENTITY_TYPE,
+            source_entity_id=closed.id,
+        )
+        actualizar_estado_animal(tx, animal_id=closed.animal_id)
 
     return closed
 
