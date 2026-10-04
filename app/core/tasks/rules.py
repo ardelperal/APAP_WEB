@@ -76,7 +76,10 @@ def rule_vacuna_vencimiento(ctx: Context) -> list[TareaDraft]:
     """
     vacunas: list[dict] = ctx.get("vacunas", [])
     drafts: list[TareaDraft] = []
-    threshold = date.today() + timedelta(days=7)
+    # Issue #1097: the reference date is injectable via ctx["today"] so
+    # tests (and callers) pin the clock instead of reading the wall.
+    today: date = ctx.get("today") or date.today()
+    threshold = today + timedelta(days=7)
 
     for vacuna in vacunas:
         vencimiento_str = vacuna.get("fecha_vencimiento")
@@ -98,7 +101,7 @@ def rule_vacuna_vencimiento(ctx: Context) -> list[TareaDraft]:
                     vinculo_id=vacuna.get("animal_id"),
                     metadata={
                         "vacuna_tipo": vacuna.get("vacuna_tipo"),
-                        "dias_hasta_vencimiento": (vencimiento - date.today()).days,
+                        "dias_hasta_vencimiento": (vencimiento - today).days,
                     },
                 )
             )
@@ -119,6 +122,8 @@ def rule_seguimiento_post_adopcion(ctx: Context) -> list[TareaDraft]:
     adopciones: list[dict] = ctx.get("adopciones", [])
     seguimientos: list[dict] = ctx.get("seguimientos", [])
     threshold_days = 30
+    # Issue #1097: injectable reference date (ctx["today"]).
+    today: date = ctx.get("today") or date.today()
 
     # Build a set of adopcion_ids that have a follow-up after the threshold
     followed_adopcion_ids: set[str] = set()
@@ -144,7 +149,7 @@ def rule_seguimiento_post_adopcion(ctx: Context) -> list[TareaDraft]:
         except ValueError:
             continue
 
-        days_since = (date.today() - fecha_adopcion).days
+        days_since = (today - fecha_adopcion).days
         if days_since >= threshold_days and adopcion["id"] not in followed_adopcion_ids:
             drafts.append(
                 TareaDraft(
@@ -179,6 +184,8 @@ def rule_esterilizacion_pendiente(ctx: Context) -> list[TareaDraft]:
     animales: list[dict] = ctx.get("animales", [])
     esterilizaciones: list[dict] = ctx.get("esterilizaciones", [])
     threshold_years = 1
+    # Issue #1097: injectable reference date (ctx["today"]).
+    today: date = ctx.get("today") or date.today()
 
     # Build set of animal_ids that have been sterilized
     sterilized_ids: set[str] = {e["animal_id"] for e in esterilizaciones if e.get("animal_id")}
@@ -194,7 +201,7 @@ def rule_esterilizacion_pendiente(ctx: Context) -> list[TareaDraft]:
             continue
 
         # Skip if younger than threshold
-        age_years = (date.today() - fnac).days / 365.25
+        age_years = (today - fnac).days / 365.25
         if age_years < threshold_years:
             continue
 
