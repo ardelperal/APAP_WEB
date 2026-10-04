@@ -48,11 +48,21 @@ class TestMinioStorageHealth:
         payload = response.json()
         assert payload["status"] == "ok"
         assert "storage" in payload
-        # With MinIO running: "up".  Without credentials: "unconfigured".
-        # "down" means credentials are set but MinIO is unreachable.
-        assert payload["storage"] in ("up", "unconfigured", "down"), (
-            f"Unexpected storage status: {payload['storage']}"
-        )
+        # Issue #894: when MinIO is configured (credentials present, as in
+        # the CI e2e job), the health check must report "up" — "unconfigured"
+        # or "down" means a broken endpoint/service and must fail the e2e
+        # instead of passing as absent storage. Without credentials (local
+        # dev), "unconfigured" is the expected state.
+        if os.environ.get("APAP_S3_ACCESS_KEY"):
+            assert payload["storage"] == "up", (
+                f"MinIO is configured but health reports storage={payload['storage']!r}: "
+                f"an invalid endpoint or unreachable service must fail the e2e "
+                f"(issue #894)"
+            )
+        else:
+            assert payload["storage"] in ("up", "unconfigured"), (
+                f"Unexpected storage status: {payload['storage']}"
+            )
 
     def test_healthz_returns_200(
         self,
