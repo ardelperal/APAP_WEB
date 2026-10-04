@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
+from fastapi import Path as FastAPIPath  # aliased: pathlib.Path is imported above
 from fastapi.responses import (
     HTMLResponse,
     JSONResponse,
@@ -38,6 +39,15 @@ from app.core.auth_dependencies import (  # noqa: E402
     require_authorized_user,  # noqa: F401  - re-export for tests/test_auth_session_is_authorized.py
     return_early_if_response,
 )
+
+# Issue #1077: the animal id is validated as a UUID at the path
+# boundary (422 before any handler or port lookup runs) while staying
+# a str for the port contract.
+_UUID_PATH_PATTERN = (
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+AnimalIdPath = Annotated[str, FastAPIPath(pattern=_UUID_PATH_PATTERN)]
+_ANIMALES_BASE = "/animales"  # single source for the module prefix (issue #1077)
 
 # Alias for backward compat with test fixtures.
 from app.core.csrf import csrf_token_context_processor  # noqa: E402
@@ -87,7 +97,7 @@ from app.modules.animals.route_helpers import (  # noqa: E402
 # en los bodies de los handlers.
 from app.modules.sanidad import get_resumen_sanitario  # noqa: E402
 
-router = APIRouter(prefix="/animales", tags=["animales"])
+router = APIRouter(prefix=_ANIMALES_BASE, tags=["animales"])
 _require_write_animales = require_permission(Permission.WRITE_ANIMALES)
 
 
@@ -190,7 +200,7 @@ def new_animal_form(
             "error": None,
             "especies": [e.value for e in DomainEspecie],
             "sexos": [s.value for s in DomainSexo],
-            "form_action": "/animales",
+            "form_action": _ANIMALES_BASE,
         },
     )
 
@@ -248,7 +258,7 @@ def create_animal_view(
 
 @router.get("/{animal_id}", response_class=HTMLResponse)
 def animal_detail(
-    animal_id: str,
+    animal_id: AnimalIdPath,
     request: Request,
     user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ANIMALES))],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
@@ -271,7 +281,7 @@ def animal_detail(
 
 @router.get("/{animal_id}/salud/resumen", response_class=JSONResponse)
 def animal_salud_resumen(
-    animal_id: str,
+    animal_id: AnimalIdPath,
     user: Annotated[Response | dict, Depends(require_permission(Permission.READ_SALUD))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
@@ -311,7 +321,7 @@ def animal_salud_resumen(
 
 @router.get("/{animal_id}/edit", response_class=HTMLResponse)
 def edit_animal_form(
-    animal_id: str,
+    animal_id: AnimalIdPath,
     request: Request,
     user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ANIMALES))],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
@@ -341,7 +351,7 @@ def edit_animal_form(
 
 @router.post("/{animal_id}/update")
 def update_animal_view(
-    animal_id: str,
+    animal_id: AnimalIdPath,
     request: Request,
     form: Annotated[AnimalForm, Form()],
     user: Annotated[Response | dict, Depends(_require_write_animales)],
@@ -378,7 +388,7 @@ def update_animal_view(
 
 @router.post("/{animal_id}/delete", response_class=HTMLResponse)
 def delete_animal_view(
-    animal_id: str,
+    animal_id: AnimalIdPath,
     _request: Request,
     user: Annotated[Response | dict, Depends(require_permission(Permission.DELETE_ANIMALES))],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
@@ -389,7 +399,7 @@ def delete_animal_view(
     if port.delete_animal(animal_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return RedirectResponse(
-        url="/animales", status_code=status.HTTP_303_SEE_OTHER
+        url=_ANIMALES_BASE, status_code=status.HTTP_303_SEE_OTHER
     )
 
 
@@ -398,7 +408,7 @@ def delete_animal_view(
 
 @router.patch("/{animal_id}/chip", response_model=dict[str, Any])
 def change_chip_view(
-    animal_id: str,
+    animal_id: AnimalIdPath,
     payload: ChipChangePayload,
     user: Annotated[Response | dict, Depends(_require_write_animales)],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
@@ -428,7 +438,7 @@ def change_chip_view(
 
 @router.get("/{animal_id}/foto")
 def animal_foto(
-    animal_id: str,
+    animal_id: AnimalIdPath,
     user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ANIMALES))],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
@@ -458,7 +468,7 @@ def _render_animal_form_error(
     form_data: dict[str, Any],
     error: str,
     *,
-    form_action: str = "/animales",
+    form_action: str = _ANIMALES_BASE,
 ) -> Response:
     """Render the shared animal form error response.
 
@@ -521,7 +531,7 @@ def _render_animal_conflict(
             "error": "Ya existe un animal con ese NCHIP. Compruebalo.",
             "especies": [item.value for item in DomainEspecie],
             "sexos": [item.value for item in DomainSexo],
-            "form_action": "/animales",
+            "form_action": _ANIMALES_BASE,
         },
         status_code=status.HTTP_409_CONFLICT,
     )

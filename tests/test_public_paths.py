@@ -70,7 +70,7 @@ PII_ROUTES_PARAMETRIZE: tuple[str, ...] = (
     "/voluntarios",
     "/voluntarios/abc-123",
     "/animales",
-    "/animales/abc-123/foto",
+    "/animales/abc12345-0000-4000-8000-000000000001/foto",
     "/entradas",
 )
 

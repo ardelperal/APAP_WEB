@@ -227,8 +227,8 @@ async def test_get_auth_magic_verify_is_not_403(
         ("POST", "/voluntarios"),
         ("POST", "/entradas"),
         ("POST", "/admin/users"),
-        ("PUT", "/animales/abc-123"),
-        ("DELETE", "/animales/abc-123"),
+        ("PUT", "/animales/abc12345-0000-4000-8000-000000000001"),
+        ("DELETE", "/animales/abc12345-0000-4000-8000-000000000001"),
     ],
 )
 async def test_exemption_does_not_extend_to_other_routes(

@@ -215,8 +215,8 @@ HANDLER_ROUTES: list[tuple[str, str, str]] = [
     # Animales
     ("animales_list", "GET", "/animales"),
     ("animales_new", "GET", "/animales/new"),
-    ("animales_detail", "GET", "/animales/abc-123"),
-    ("animales_edit", "GET", "/animales/abc-123/edit"),
+    ("animales_detail", "GET", "/animales/abc12345-0000-4000-8000-000000000001"),
+    ("animales_edit", "GET", "/animales/abc12345-0000-4000-8000-000000000001/edit"),
     # Entradas
     ("entradas_list", "GET", "/entradas"),
     ("entradas_new", "GET", "/entradas/new"),
