@@ -145,6 +145,7 @@ jobs:
             exit 0
           fi
 
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}"
           status=$(mktemp)
           code=$(curl -sS -o "$status" -w '%{http_code}' --max-time 30 \
             -H "Authorization: Bearer ${GH_TOKEN}" \
