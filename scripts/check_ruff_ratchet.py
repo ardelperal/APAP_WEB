@@ -106,7 +106,7 @@ BASELINE: dict[str, int] = {
     "N818": 3,
     "PLR0911": 11,  # +1 by issue #690 (check_web_to_legacy_check_only adds a PENDING return path)  # was: +1 by PR #630 (scheduling.py adds too-many-returns)  # locked in 2026-08-24: one too-many-returns site refactored away
     "PLR0912": 9,  # +1 by issue #690 (check_web_to_legacy_check_only adds a PENDING branch)  # was: bumped 8 -> 9 by Slice 3 (scripts/_ratchet_deadline.py adds 1 too-many-branches)
-    "PLR0913": 47,  # baseline was 43; violations introduced by LIFECYCLE-03 (491b279) before current epic round; calibrate to actual count
+    "PLR0913": 48,  # baseline was 43; violations introduced by LIFECYCLE-03 (491b279) before current epic round; calibrate to actual count. +1 (issue #1109, PR #1274): generate_contrato is a use-case orchestrator seam with 11 args (6 request fields + 5 injected deps); bundling into request/services objects is a registered follow-up that would ripple through the routes and route-test segments mid-merge-train, so it lands as baselined debt per the #1146 amend-up policy instead.
     "PLR0915": 2,  # VOL-04 added new site
     # PLR0915 fue retirado del baseline al completarse el triaje del issue #390
     # (1 -> 0). El sitio era ``MigrationReport.to_markdown`` en
