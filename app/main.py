@@ -155,9 +155,18 @@ async def lifespan(_: FastAPI):
     # MinIO / S3-compatible storage for photos.
     # PhotoStorageClient handles the None case gracefully (fallback to
     # placeholder); the app does not fail to start when MinIO is unreachable.
-    from app.core.local_backend.s3 import PhotoStorageClient  # lazy-import: only needed when S3 credentials are configured  # noqa: I001
+    from app.core.local_backend.s3 import PhotoStorageClient, _build_minio_client  # lazy-import: only needed when S3 credentials are configured  # noqa: I001
 
     _.state.photo_storage = PhotoStorageClient()
+
+    # MinIO client for the contratos slice (DOC-01 SLICE 2, #1109).
+    # Bucket provisioning follows the same pattern as ``apap-photos``
+    # (deployment-time via ``scripts/create_minio_bucket.py``); the
+    # contracts DI reads this client lazily. The underlying minio
+    # client is None when credentials are not configured; the contratos
+    # storage adapter's behaviour is then fail-closed at the first
+    # object call, mirroring the photo pipeline's fallback.
+    _.state.contratos_storage_client = _build_minio_client()
 
     # M3.4 wiring (issue #651): magic-link port + SMTP transport +
     # session secret. Mirrors the lifespan in
