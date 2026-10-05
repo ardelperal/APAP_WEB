@@ -42,6 +42,7 @@ from dataclasses import dataclass
 from app.modules.contratos.application.render_to_pdf import render_to_pdf
 from app.modules.contratos.contratos_queries import (
     ContratoConflictError,
+    ContratoInsertInput,
     ContratoRecord,
     insert_contrato,
 )
@@ -278,11 +279,13 @@ def generate_contrato(
     #    translate it to HTTP 409.
     record = insert_contrato(
         executor,
-        tipo=tipo_enum.value,
-        entity_type=entity_type_value,
-        entity_id=entity_id,
-        numero_contrato=numero_contrato,
-        fecha=fecha,
+        insert=ContratoInsertInput(
+            tipo=tipo_enum.value,
+            entity_type=entity_type_value,
+            entity_id=entity_id,
+            numero_contrato=numero_contrato,
+            fecha=fecha,
+        ),
     )
 
     return GeneratedContrato(
