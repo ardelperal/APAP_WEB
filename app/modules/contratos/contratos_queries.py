@@ -87,6 +87,25 @@ class ContratoConflictError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class ContratoInsertInput:
+    """Inputs for one ``contratos`` INSERT, bundled for the seam.
+
+    Bundling keeps :func:`insert_contrato` inside its argument
+    budget (extended-ruff PLR0913, issue #380) and gives the use
+    case a single value object to hand to the queries layer. All
+    fields are validated upstream: ``tipo`` against
+    :class:`~app.modules.contratos.domain.tipos_contrato.TipoContrato`
+    and ``entity_type`` against :data:`EntityType`.
+    """
+
+    tipo: str
+    entity_type: str
+    entity_id: str
+    numero_contrato: str
+    fecha: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ContratoRecord:
     """A persisted ``contratos`` row.
 
@@ -108,6 +127,11 @@ class ContratoRecord:
 
 
 # --- SQL constants --------------------------------------------------------
+
+#: HTTP status the storage backend reports for a UNIQUE violation.
+#: Named (not inlined) so the duplicate-detection heuristic does not
+#: carry a magic number (extended-ruff PLR2004, issue #380).
+_HTTP_CONFLICT: int = 409
 
 _LOOKUP_TIPO_CONTRATO_SQL = (
     "SELECT id, codigo FROM catalogos_tipos_contrato WHERE codigo = $1"
@@ -210,11 +234,7 @@ def exists_for_entity(
 def insert_contrato(
     client: SqlExecutor,
     *,
-    tipo: str,
-    entity_type: str,
-    entity_id: str,
-    numero_contrato: str,
-    fecha: str | None = None,
+    insert: ContratoInsertInput,
 ) -> ContratoRecord:
     """Insert a new ``contratos`` row and return the persisted record.
 
@@ -229,22 +249,22 @@ def insert_contrato(
             the same ``(tipo, entity)`` pair (UNIQUE violation
             translated to a domain-meaningful exception).
     """
-    column = entity_column(entity_type)
-    tipo_contrato_id = resolve_tipo_contrato_id(client, tipo=tipo)
+    column = entity_column(insert.entity_type)
+    tipo_contrato_id = resolve_tipo_contrato_id(client, tipo=insert.tipo)
     sql = _INSERT_CONTRATO_SQL_TEMPLATE.format(entity_column=column)
     params: list[Any] = [
         tipo_contrato_id,
-        numero_contrato,
-        fecha,
-        entity_id,
+        insert.numero_contrato,
+        insert.fecha,
+        insert.entity_id,
     ]
     try:
         rows = client.execute_sql(sql, params)
     except BackendError as exc:
         if _is_duplicate(exc):
             raise ContratoConflictError(  # noqa: TRY003
-                f"ya existe un contrato de tipo {tipo!r} para "
-                f"la entidad {entity_type}={entity_id!r}"
+                f"ya existe un contrato de tipo {insert.tipo!r} para "
+                f"la entidad {insert.entity_type}={insert.entity_id!r}"
             ) from exc
         raise
     if not rows:
@@ -254,9 +274,9 @@ def insert_contrato(
         )
     return _row_to_record(
         rows[0],
-        tipo_codigo=tipo,
-        entity_type=entity_type,
-        entity_id=entity_id,
+        tipo_codigo=insert.tipo,
+        entity_type=insert.entity_type,
+        entity_id=insert.entity_id,
     )
 
 
@@ -300,7 +320,7 @@ def _is_duplicate(exc: BackendError) -> bool:
     scoped: a duplicate on a different table does NOT fire here.
     """
     body = str(exc.body).lower()
-    return exc.status_code == 409 and (
+    return exc.status_code == _HTTP_CONFLICT and (
         "contratos" in body
         or "duplicate" in body
         or "unique" in body
