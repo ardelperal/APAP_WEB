@@ -113,3 +113,14 @@ bacd2f4fb45ebbef4ae8c0b8ef753de62c06d573:tests/integration/test_magic_link_state
 01de084620a68d38ee62f6b4d3adf9ff17a793e1:tests/integration/test_magic_link_state.py:generic-api-key:334
 tests/integration/test_magic_link_state.py:generic-api-key:74
 tests/integration/test_magic_link_state.py:generic-api-key:334
+
+# 2026-10-05 — issue #1109 chain r2 (route battery, PR #1275).
+# tests/test_contratos_routes.py:458 rule `generic-api-key`: the flagged
+# value is the storage-object FILENAME the fake MinIO client stores the
+# contract PDF under ("Adopcion_ent-001.pdf" = "<tipo>_<entity_id>.pdf",
+# the exact key layout the production route computes in
+# contratos_routes.py). Same class as the #903
+# test_contratos_local_backend_storage.py entries: a fixture object name,
+# never a credential. The route test must pre-seed that exact key because
+# the download endpoint derives it from (tipo, entity_id).
+tests/test_contratos_routes.py:generic-api-key:458
