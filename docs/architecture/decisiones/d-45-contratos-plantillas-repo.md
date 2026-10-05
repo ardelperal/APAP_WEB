@@ -15,13 +15,15 @@ ficheros, valida la gramática del motor en la primera lectura y
 almacena en caché por tipo.
 
 El portado verbatim de los textos legacy (procedentes de la familia
-`RellenarContrato*` del Access) no estaba disponible en este
-entorno: ni los `.docx` originales ni el binario `.accdb` eran
-accesibles. Para que la implementación no inventase cláusulas
+`RellenarContrato*` del Access) no estaba disponible en este entorno: los `.docx` originales no eran
+accesibles, y del binario `.accdb` incluido en el checkout
+(`tests/migration/local-access/`) no se pudo extraer el VBA
+(`access-parser` no soporta su formato). Para que la implementación no inventase cláusulas
 legales, los ocho ficheros se crean con la línea de cabecera
 `<!-- CONTRATO-PLANTILLA: TEXTO PENDIENTE DE PORTAR DEL LEGACY
 (issue #1109) -->`, seguida de un esqueleto mínimo de placeholders
-dotted-path (`animal.nombre`, `persona.dni`, etc.) y un bloque
+dotted-path (`animal.nombre`, `persona.nombre`, `persona.apellidos`,
+etc.) y un bloque
 `{% if %}` / `{% endif %}` balanceado. La presencia de ese
 marcador está pineada por un test de parametrización sobre los
 ocho `TipoContrato`, de forma que un portado futuro que retire el
@@ -95,14 +97,18 @@ El problema tiene tres aristas:
   (`contratos_local_backend_pdf.py`) convierte a PDF; nada en
   este path renderiza Markdown.
 - `docs/legacy-signed-contract-flow.md` — la familia
-  `RellenarContrato*` del legacy produce ocho tipos de contrato
-  (Entrada, Acogida, Acogida Judicial, Adopcion, PreAdopcion,
-  Cesion, Reserva, Entrega) con mail-merge Word sobre la misma
-  sintaxis `{{ }}` / `{% if %}` que el motor de la slice ya
-  entiende. Los textos concretos de cada cláusula no son
-  accesibles en este entorno (los `.docx` están en la máquina
-  del operador; el `.accdb` no es parseable con `access-parser`
-  en este checkout).
+  `RellenarContrato*` del legacy produce los ocho tipos de contrato
+  con mail-merge Word (`.docx` de `Plantillas/`, registro de runtime
+  `Entorno.cls`). El motor web reproduce ese comportamiento con su
+  propia sintaxis `{{ }}` / `{% if %}` (PR 1 de #56): equivalencia
+  funcional, no sintaxis compartida. La lista de tipos y su ortograma
+  están bajo revisión en #1270 (el catálogo sembrado desde
+  `TbPlantillas` difiere del enum del slice en 7 de 8 valores); si la
+  fuente autoritativa que resuelva #1270 difiere de la aquí asumida,
+  este ADR se actualiza en la misma sesión. Los textos concretos de
+  cada cláusula no son accesibles en este entorno (los `.docx` están
+  en la máquina del operador; el `.accdb` no es parseable con
+  `access-parser` en este checkout).
 - `odd/tasks/doc-01-usable-contratos.md` — el plan de chained PR
   en tres tramos (port + adapter, composition root + ruta, E2E)
   con el portado verbatim de los textos legacy marcado como
