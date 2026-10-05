@@ -1,7 +1,7 @@
 # Feature: doc-01-usable-contratos (issue #1109)
 
 **Issue**: #1109 — feat(contratos): DOC-01 no es usable (fuente de plantillas, cableado S3, ruta con DI, E2E).
-**Estado**: en curso — slice 2 (composition root + ruta + DI) mergeado en `feat/1109-contratos-plantillas-port` (commit `5e67716`); slice 3 (batería E2E + roadmap) implementado en la misma rama, pendiente de merge a `main`.
+**Estado**: en curso — cadena r2 en tren de merges. Mergeados a `main`: #1260, #1261, #1272, #1273 (queries, `size:exception` documentada), #1274 (use case; ojo: fusionado contra base intermedia), #1280 (catch-up del caso de uso a `main`), y #1275 pendiente de merge (routes+DI+batería co-localizada por coverage-gate; `size:exception` documentada; bloqueado por infra, issue #1281). #1276 cerrado como superado por #1275. Pendientes: #1277 (e2e auth), #1278 (e2e pdf), #1279 (este doc).
 **Branch activa**: `feat/1109-contratos-plantillas-port` (sin mergear a `main` a fecha de cierre de slice 3).
 
 ## Decisiones del operador (2026-10-02, esta sesión)
