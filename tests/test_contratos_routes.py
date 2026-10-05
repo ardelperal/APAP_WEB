@@ -488,6 +488,82 @@ async def test_download_contrato_returns_404_for_unknown_tipo(
     assert response.status_code == 404
 
 
+async def test_create_contrato_unknown_tipo_returns_422(
+    client: httpx.AsyncClient,
+    route_client: _ContratosSqlSpy,
+) -> None:
+    """A ``tipo`` value outside the legacy catalog -> 422.
+
+    ``generate_contrato`` raises
+    :class:`ContratoTipoInvalidoError` before any SQL is executed;
+    the route maps it (with the other validation errors) to HTTP
+    422 per the legacy catalog-validation rule.
+    """
+    _login_as_key_user(client)
+
+    response = await make_csrf_request(
+        client, "POST", "/contratos",
+        form_data=_form_data(tipo="TipoInexistente"),
+        csrf_token="test-csrf-token-contratos",
+    )
+    assert response.status_code == 422
+    assert "no se pudo generar" in response.text
+    assert route_client.inserted == []
+
+
+async def test_create_contrato_missing_plantilla_returns_404(
+    client: httpx.AsyncClient,
+    route_client: _ContratosSqlSpy,
+) -> None:
+    """A tipo whose template file is absent -> 404.
+
+    Overrides the plantilla port with a stub that raises
+    :class:`PlantillaNoDisponibleError` so the route's mapping
+    (template source unavailable -> 404, never a 500) is exercised
+    without depending on which templates currently carry the
+    legacy-marker text.
+    """
+    from app.modules.contratos.domain.plantilla import (
+        PlantillaNoDisponibleError,
+    )
+
+    class _MissingPlantillaPort:
+        def obtener_plantilla(self, tipo: str) -> str:
+            raise PlantillaNoDisponibleError(tipo)
+
+    app.dependency_overrides[get_contratos_plantilla_port] = (
+        lambda: _MissingPlantillaPort()
+    )
+    try:
+        _login_as_key_user(client)
+        response = await make_csrf_request(
+            client, "POST", "/contratos", form_data=_form_data(),
+            csrf_token="test-csrf-token-contratos",
+        )
+    finally:
+        app.dependency_overrides.pop(get_contratos_plantilla_port, None)
+    assert response.status_code == 404
+    assert "plantilla no disponible" in response.text
+    assert route_client.inserted == []
+
+
+async def test_download_contrato_invalid_entity_type_returns_422(
+    client: httpx.AsyncClient,
+    route_client: _ContratosSqlSpy,
+) -> None:
+    """A URL ``entity_type`` outside the legacy entity set -> 422.
+
+    ``entity_column`` validates the URL segment against the legacy
+    entity whitelist before any SQL runs; the route maps the
+    ``ValueError`` to HTTP 422.
+    """
+    _login_as_key_user(client)
+
+    response = await client.get("/contratos/voluntario/ent-001/Adopcion")
+    assert response.status_code == 422
+    assert "entity_type invalido" in response.text
+
+
 async def test_contratos_route_source_contains_no_direct_execute_sql() -> None:
     """AGENTS rule 1: routes are HTTP-only. SQL lives in the queries module.
 
