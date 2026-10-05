@@ -108,13 +108,11 @@ _PROTECTED_NAMES: frozenset[str] = frozenset({
 #: paths PR #681 does not touch). Raising to 5 is the only way to keep
 #: the ratchet honest without expanding the diff into a mass delete.
 # slice-3 uses the allowlist helpers; ratchet restored (refs #1073)
-# +2 (issue #1109, PR #1261, stacked chain): 'obtener_plantilla' in the
-# contratos port + filesystem adapter reads as dead on this segment
-# because its consumer (application/generate_contrato) and its test
-# battery land in later chain segments (test/1109-plantillas-bateria,
-# feat/1109-generar-contrato). Per the #1146 amend-up/ratchet-back
-# policy: the consumer slice lowers BASELINE back to 5.
-BASELINE: int = 7
+# Ratchet-back (issue #1109, consumer slice): 'obtener_plantilla' (port +
+# filesystem adapter, raised to 7 in PR #1261 per the #1146 amend-up
+# policy) is now referenced by the generate_contrato use case and its
+# adapter test battery. Count returns to 5; lock it in.
+BASELINE: int = 5
 
 #: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). Every
 #: ratchet records its target value and target date. The vulture guard
