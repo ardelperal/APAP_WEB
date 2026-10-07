@@ -108,6 +108,10 @@ _PROTECTED_NAMES: frozenset[str] = frozenset({
 #: paths PR #681 does not touch). Raising to 5 is the only way to keep
 #: the ratchet honest without expanding the diff into a mass delete.
 # slice-3 uses the allowlist helpers; ratchet restored (refs #1073)
+# Ratchet-back (issue #1109, consumer slice): 'obtener_plantilla' (port +
+# filesystem adapter, raised to 7 in PR #1261 per the #1146 amend-up
+# policy) is now referenced by the generate_contrato use case and its
+# adapter test battery. Count returns to 5; lock it in.
 BASELINE: int = 5
 
 #: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). Every

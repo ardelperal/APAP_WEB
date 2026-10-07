@@ -18,6 +18,7 @@ from app.modules.acogidas.routes import router as acogidas_router
 from app.modules.adopciones.routes import router as adopciones_router
 from app.modules.animals.routes import router as animals_router
 from app.modules.cesiones.routes import router as cesiones_router
+from app.modules.contratos.contratos_routes import router as contratos_router
 from app.modules.entradas.batch_routes import router as entradas_batch_router
 from app.modules.entradas.routes import router as entradas_router
 from app.modules.foster.assignment_routes import (
@@ -77,6 +78,14 @@ def register_routers(app: FastAPI) -> None:
     app.include_router(foster_assignment_router)
     app.include_router(acogidas_router)
     app.include_router(cesiones_router)
+    # DOC-01 SLICE 2 (#1109): contratos_router mounted AFTER cesiones
+    # so the more specific ``/contratos/{entity_type}/{entity_id}/{tipo}``
+    # download path takes precedence over the cesiones ``/{entrada_id}``
+    # dynamic paths when both could match (they do not in practice --
+    # different prefixes -- but the order keeps FastAPI's router chain
+    # unambiguous, matching the documented ordering for every other
+    # write-router mounted in this registry).
+    app.include_router(contratos_router)
     app.include_router(voluntarios_router)
     app.include_router(adopciones_router)
     app.include_router(sanidad_router)
