@@ -330,7 +330,7 @@ def _login_as_reader(client: httpx.AsyncClient) -> None:
 def _form_data(**overrides: str) -> dict[str, str]:
     """Canonical happy-path payload for the contratos form."""
     data = {
-        "tipo": "Adopcion",
+        "tipo": "Adopción",
         "entity_type": "entrada",
         "entity_id": "ent-001",
         "numero_contrato": "CP1000",
@@ -376,12 +376,12 @@ async def test_create_contrato_redirects_to_download_and_stores_pdf(
     )
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/contratos/entrada/ent-001/Adopcion"
+    assert response.headers["location"] == "/contratos/entrada/ent-001/Adopci%C3%B3n"
     assert len(route_client.inserted) == 1
     inserted = route_client.inserted[0]
     assert inserted["entity_type"] == "entrada"
     assert inserted["entity_id"] == "ent-001"
-    assert inserted["tipo"] == "Adopcion"
+    assert inserted["tipo"] == "Adopción"
 
 
 async def test_create_contrato_rejects_reader_with_403(
@@ -419,7 +419,7 @@ async def test_create_contrato_rejects_duplicate_with_409(
     """
     _login_as_key_user(client)
     # Pre-seed a matching contrato row.
-    route_client.existing_contratos[("Adopcion", "entrada", "ent-001")] = {
+    route_client.existing_contratos[("Adopción", "entrada", "ent-001")] = {
         "id": "ctr-existing",
         "tipo_contrato_id": "tipo-1",
         "numero_contrato": "CP0999",
@@ -445,7 +445,7 @@ async def test_download_contrato_returns_stored_pdf(
     the storage adapter was given.
     """
     _login_as_key_user(client)
-    route_client.existing_contratos[("Adopcion", "entrada", "ent-001")] = {
+    route_client.existing_contratos[("Adopción", "entrada", "ent-001")] = {
         "id": "ctr-1",
         "tipo_contrato_id": "tipo-1",
         "numero_contrato": "CP1000",
@@ -455,11 +455,11 @@ async def test_download_contrato_returns_stored_pdf(
     from app.modules.contratos.di import get_contratos_storage_port
     storage = app.dependency_overrides[get_contratos_storage_port]()
     storage.put_pdf(
-        bucket="apap-contracts-test", key="Adopcion_ent-001.pdf",
+        bucket="apap-contracts-test", key="Adopción_ent-001.pdf",
         body=b"%PDF-fake-bytes",
     )
 
-    response = await client.get("/contratos/entrada/ent-001/Adopcion")
+    response = await client.get("/contratos/entrada/ent-001/Adopci%C3%B3n")
     assert response.status_code == 200
     assert response.content == b"%PDF-fake-bytes"
     assert response.headers["content-type"].startswith("application/pdf")
@@ -476,8 +476,8 @@ async def test_download_contrato_returns_404_for_unknown_tipo(
     translates ``None`` to HTTP 404.
     """
     _login_as_key_user(client)
-    # Pre-seed the contrato for "Adopcion" but ask for "Cesion" instead.
-    route_client.existing_contratos[("Adopcion", "entrada", "ent-001")] = {
+    # Pre-seed the contrato for "Adopción" but ask for "Cesion" instead.
+    route_client.existing_contratos[("Adopción", "entrada", "ent-001")] = {
         "id": "ctr-1",
         "tipo_contrato_id": "tipo-1",
         "numero_contrato": "CP1000",
@@ -559,7 +559,7 @@ async def test_download_contrato_invalid_entity_type_returns_422(
     """
     _login_as_key_user(client)
 
-    response = await client.get("/contratos/voluntario/ent-001/Adopcion")
+    response = await client.get("/contratos/voluntario/ent-001/Adopci%C3%B3n")
     assert response.status_code == 422
     assert "entity_type invalido" in response.text
 
