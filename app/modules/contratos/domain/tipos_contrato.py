@@ -38,7 +38,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from enum import StrEnum
-from typing import Final
+from typing import Final, cast
 
 __all__ = [
     "TipoContrato",
@@ -116,7 +116,6 @@ def build_tipo_contrato_enum(codigos: list[str]) -> type[StrEnum]:
     # ``StrEnum(name, members)`` builds a *class* (functional Enum API);
     # mypy infers the return as the StrEnum type, but it is in fact a
     # subclass. The cast is the documented escape hatch for this case.
-    from typing import cast
     return cast("type[StrEnum]", StrEnum("TipoContrato", members))
 
 
