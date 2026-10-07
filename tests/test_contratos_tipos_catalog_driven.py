@@ -108,3 +108,48 @@ def test_codigos_del_catalogo_returns_list() -> None:
     assert "Cesión" in codigos
     assert "Entrada" in codigos
     assert "Acogida" in codigos
+
+
+def test_enum_subset_of_catalog_seed() -> None:
+    """The module-level ``TipoContrato`` must be a subset of the catalog seed.
+
+    This test is the runtime guard that replaces the previous
+    import-time ``assert`` (#1270).  The import-time assert was
+    dropped to respect the ruff S101 ratchet (shrink-only), and the
+    test provides the same coverage: any future catalog row that is
+    not a contract type does not pollute the enum, and any future
+    contract type that is missing from the enum is caught here.
+    """
+    from app.modules.contratos.domain.tipos_contrato import TipoContrato
+
+    enum_codigos = {m.value for m in TipoContrato}
+    catalog_codigos = set(tipo_contrato_codigos_del_catalogo())
+    missing = enum_codigos - catalog_codigos
+    assert not missing, (
+        f"TipoContrato has codigos not in the catalog seed: {missing}. "
+        f"Add them to the catalog seed (app/core/catalogs.py) before adding them here."
+    )
+
+
+def test_enum_excludes_template_only_catalog_rows() -> None:
+    """The four template-only catalog rows are intentionally NOT in the enum.
+
+    ``Ficha de Seguimiento``, ``Ficha Sanitaria Gatos``, ``Ficha
+    Sanitaria Perros`` and ``Entregado a Propietario`` are Word
+    templates for non-contract documents, not signed contracts; the
+    enum covers only the four ``TbContratosAnexos``-relevant values.
+    Pinning the negative here keeps the carve-out explicit.
+    """
+    from app.modules.contratos.domain.tipos_contrato import TipoContrato
+
+    enum_codigos = {m.value for m in TipoContrato}
+    template_only = {
+        "Ficha de Seguimiento",
+        "Ficha Sanitaria Gatos",
+        "Ficha Sanitaria Perros",
+        "Entregado a Propietario",
+    }
+    assert enum_codigos.isdisjoint(template_only), (
+        f"TipoContrato carries template-only codigos: {enum_codigos & template_only}. "
+        f"The enum is for signed contracts (TbContratosAnexos); templates live in the catalog only."
+    )
