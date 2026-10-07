@@ -141,6 +141,144 @@ def test_gitleaksignore_entries_carry_a_dated_reason() -> None:
     assert re.search(r"20\d{2}-\d{2}-\d{2}", comments), "entries must carry a date"
 
 
+# ---------------------------------------------------------------------------
+# Issue #1112: bare `.gitleaksignore` entries (the two introduced by the
+# magic-link state fix in #1081) historically had no comment of their own;
+# the previous test accepted them because the *path* appears in some
+# comment and a date appears somewhere in the file. The new test pins
+# the contract that EVERY entry — pinned or bare — has an *adjacent*
+# reason comment of the form `YYYY-MM-DD` + non-empty reason, separated
+# from the entry by no other entry. The reason for the strict form: a
+# future contributor reading the file should be able to point at the
+# specific entry each comment justifies without having to scan the whole
+# file. The two shapes that need a comment block are:
+#
+#   pinned:  <40-hex-sha>:<file>:<rule>:<line>
+#   bare:    <file>:<rule>:<line>
+#
+# The runtime accepts both (the security job scans with `gitleaks dir .`
+# whose fingerprints are the bare form); the governance test now
+# governs both equally.
+# ---------------------------------------------------------------------------
+
+_DATE_RE = re.compile(r"\b(20\d{2})-(\d{2})-(\d{2})\b")
+
+
+def _is_pinned_entry(line: str) -> bool:
+    """A pinned entry is `<40-hex-sha>:<file>:<rule>:<line>`."""
+    parts = line.split(":", 1)
+    return len(parts) == 2 and bool(re.fullmatch(r"[0-9a-f]{40}", parts[0]))
+
+
+def test_gitleaksignore_every_entry_has_an_adjacent_dated_reason() -> None:
+    """Every `.gitleaksignore` entry must be part of a dated reason block.
+
+    A "reason block" is the run of consecutive comment lines that
+    immediately precedes a run of consecutive entries. Blank lines
+    inside the run are tolerated. One block can justify several
+    entries stacked underneath it (the existing #917 block lists
+    three fixtures). Issue #1112: the previous check allowed
+    entries whose *path* appeared in *some* comment somewhere in the
+    file — a reader had to extend a previous entry's comment to
+    the next one mentally. The strict adjacency check closes that.
+    """
+    if not GITLEAKSIGNORE_PATH.exists():
+        pytest.skip(".gitleaksignore not present")
+
+    lines = GITLEAKSIGNORE_PATH.read_text(encoding="utf-8").splitlines()
+    # Group consecutive entries that share a preceding reason block.
+    # An "entry" is a nonblank, non-comment line. We walk the file
+    # once and attribute every entry to the immediately-preceding run
+    # of comment lines (a blank line is allowed between the run and
+    # the entries; the run ends as soon as we see a non-comment,
+    # nonblank line).
+    entries: list[tuple[int, str]] = [
+        (idx, ln)
+        for idx, ln in enumerate(lines)
+        if ln.strip() and not ln.lstrip().startswith("#")
+    ]
+
+    # For each entry, walk back to find the most recent nonblank
+    # line. If it is a comment, that comment (and any preceding
+    # contiguous comment block) is the reason block. If it is
+    # another entry, keep walking back until we find a comment or
+    # the start of the file.
+    for idx, entry in entries:
+        adjacent_comments: list[str] = []
+        j = idx - 1
+        saw_entry = False
+        while j >= 0:
+            prev = lines[j]
+            if not prev.strip():
+                j -= 1
+                continue
+            if prev.lstrip().startswith("#"):
+                adjacent_comments.append(prev.lstrip("# ").rstrip())
+                j -= 1
+                continue
+            # prev is a nonblank, non-comment line: another entry.
+            saw_entry = True
+            j -= 1
+        adjacent_comments.reverse()
+
+        if saw_entry:
+            # We walked past another entry before finding a comment.
+            # That is fine: the same reason block is shared by both
+            # entries. Only fail if there is no comment block at all.
+            pass
+
+        assert adjacent_comments, (
+            f"entry at offset {idx} ({entry!r}) has no adjacent reason comment. "
+            f"Issue #1112: every entry needs a comment block immediately above it "
+            f"with a YYYY-MM-DD date and a non-empty reason."
+        )
+
+        reason_blob = "\n".join(adjacent_comments)
+        assert _DATE_RE.search(reason_blob), (
+            f"entry at offset {idx} ({entry!r}) has adjacent comments but no "
+            f"YYYY-MM-DD date: {adjacent_comments!r}"
+        )
+        non_date_text = " ".join(
+            line for line in adjacent_comments if not _DATE_RE.search(line)
+        )
+        assert non_date_text.strip(), (
+            f"entry at offset {idx} ({entry!r}) has a date but no reason text: "
+            f"{adjacent_comments!r}"
+        )
+
+
+def test_gitleaksignore_workflow_documents_both_entry_shapes() -> None:
+    """The ci.yml invariant comment must name both entry shapes and the trade-off.
+
+    The runtime accepts both `<commit>:<file>:<rule>:<line>` (pinned) and
+    `<file>:<rule>:<line>` (bare) entries; the documentation in the
+    security job comment previously only named the pinned shape and
+    asserted the invariant that does not hold for bare. The fixed
+    comment names both shapes and the trade-off (bare is the only
+    rebase-proof shape in `gitleaks dir .` mode).
+    """
+    if not WORKFLOW_PATH.exists():
+        pytest.skip("ci.yml not present")
+
+    workflow = _workflow()
+    # Slice to the "Scan working tree for secrets" step; that's where
+    # the allowlist invariant lives.
+    step_start = workflow.index("Scan working tree for secrets")
+    step_end = workflow.index("run: |", step_start)
+    step_comment = workflow[step_start:step_end]
+
+    assert "per-fingerprint" in step_comment or "fingerprint history" in step_comment, (
+        "the security step must still document the per-fingerprint history entry shape"
+    )
+    assert re.search(r"\bbare\b", step_comment), (
+        "the security step must name the bare entry shape explicitly (issue #1112)"
+    )
+    assert re.search(r"<file>:<rule>:<line>", step_comment), (
+        "the security step must show the bare shape `<file>:<rule>:<line>` so the "
+        "two shapes are distinguishable at a glance"
+    )
+
+
 def test_gitleaks_runs_with_a_relative_target() -> None:
     """Fingerprints are `<file>:<rule>:<line>` — the path must be relative.
 
