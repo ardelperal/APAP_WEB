@@ -5,15 +5,20 @@ the production code path keeps returning 503 from ``/login`` and
 ``/auth/google`` because the route is conditional. These tests
 exercise the conditional behaviour and the gated route itself.
 
-The in-process auth cache (``app.core.auth_cache.set_cached_auth``) is
-asserted to be pre-populated by the mock — that's what lets the very
-next request from the same browser context pass
-``require_authorized_user`` without a DB round-trip.
+The mock does NOT seed the in-process auth cache (issue #1073):
+``require_authorized_user`` is its single writer and revalidates
+against ``usuarios_autorizados`` on the first authorized request, so
+the tests below assert the cache stays empty right after the login.
 """
 from __future__ import annotations
 
+import json
+import logging
+from collections.abc import Iterator
+
+import httpx
 import pytest
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from app.core.auth_cache import (
@@ -22,16 +27,80 @@ from app.core.auth_cache import (
 )
 from app.core.config import (
     Settings,
+    get_settings,
 )
+from app.core.di.auth_dependencies_session_di import require_authorized_user
 from app.core.e2e_auth import (
-    MOCK_USER_ID,
-    MOCK_USER_ROL,
     register_e2e_auth_routes,
 )
 from app.core.session import (
     read_session,
     session_cookie_name,
 )
+from tests.sql_executor_fake import HandlerSqlExecutor
+
+SECRET = "test-secret"
+SESSION_SECRET = "test-session-secret-for-mock"
+
+
+def _executor_with_user(user: dict[str, object] | None) -> HandlerSqlExecutor:
+    """Return an executor whose ``usuarios_autorizados`` holds exactly ``user``.
+
+    ``None`` models an empty table (or, equivalently for the login
+    contract, an email that is not authorized). Any non-usuarios query
+    returns no rows.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        rows: list[dict[str, object]] = []
+        if user is not None and "usuarios_autorizados" in body["query"]:
+            rows = [user]
+        return httpx.Response(200, json={"rows": rows})
+
+    return HandlerSqlExecutor(handler)
+
+
+def _e2e_settings(**overrides: object) -> Settings:
+    """Build an enabled Settings for the mock route with a usable session secret."""
+    base: dict[str, object] = {
+        "_env_file": None,
+        # The CI E2E profile runs with APAP_DEBUG=true (loopback HTTP),
+        # which mints a non-Secure cookie — what TestClient's cookie jar
+        # (http scheme) is able to replay on the probe requests.
+        "debug": True,
+        "e2e_auth_enabled": True,
+        "e2e_auth_secret": SECRET,
+        "session_secret": SESSION_SECRET,
+    }
+    base.update(overrides)
+    return Settings(**base)  # type: ignore[arg-type]
+
+
+def _build_app(settings: Settings, executor: object) -> FastAPI:
+    """Register the mock route (and an auth probe) on a bare app.
+
+    The probe route runs the real ``require_authorized_user`` dependency
+    so tests can assert what a SECOND session for the same email sees
+    after the login — the issue #1073 acceptance criterion.
+    """
+    import app.core.di.auth_dependencies_session_di as di_module
+    import app.core.e2e_auth as e2e_module
+
+    e2e_module.get_settings = lambda: settings
+    # The probe route runs the real ``require_authorized_user``, which
+    # reads settings through the DI module's seam — point it at the
+    # same test settings so the session secret matches the minted cookie.
+    di_module.get_settings = lambda: settings
+    app = FastAPI()
+    app.state.sql_executor = executor
+    register_e2e_auth_routes(app)
+
+    @app.get("/e2e-probe")
+    def _probe(user: object = Depends(require_authorized_user)) -> object:
+        return user
+
+    return app
 
 
 @pytest.fixture(autouse=True)
@@ -42,8 +111,25 @@ def _clean_auth_cache() -> None:
     invalidate_all()
 
 
-def _build_app_disabled() -> FastAPI:
-    """Build a FastAPI app with the mock route NOT registered."""
+@pytest.fixture(autouse=True)
+def _restore_e2e_get_settings() -> Iterator[None]:
+    """Restore the settings test seams after every test.
+
+    Several tests below replace ``e2e_module.get_settings`` (and, for the
+    ``require_authorized_user`` probe route, the auth-DI module's
+    ``get_settings``) with a lambda and never restore it, so the
+    replacement leaked into any later test that reads the real settings
+    (issue #904: the composition-level 404 test saw the flag enabled
+    because of this leak).
+    """
+    import app.core.di.auth_dependencies_session_di as di_module
+    import app.core.e2e_auth as e2e_module
+
+    original_e2e = e2e_module.get_settings
+    original_di = di_module.get_settings
+    yield
+    e2e_module.get_settings = original_e2e
+    di_module.get_settings = original_di
 
 
 def _build_app_disabled() -> FastAPI:
@@ -150,76 +236,248 @@ def test_route_rejects_wrong_secret_header(
     assert response.status_code == 401
 
 
-def test_happy_path_mints_session_and_prepopulates_cache(
+def test_happy_path_mints_session_with_the_db_role(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Valid secret + email mints a session cookie AND pre-populates the cache.
+    """Issue #1073: a seeded user's session carries the DB role, never 'developer'.
 
-    The two halves of the contract: the cookie has the OAuth-shaped
-    payload (so the same middleware paths accept it), and the
-    in-process auth cache is warm so the very next request from the
-    test client is authorised without a DB round-trip.
+    The endpoint reads the role from ``usuarios_autorizados`` (the same
+    ``get_user_by_email`` seam ``require_authorized_user`` uses). A user
+    seeded with a non-developer role must get that role in the response
+    JSON, in the signed cookie and (therefore) in every downstream
+    authorization decision.
     """
-    import app.core.e2e_auth as e2e_module
-
-    e2e_module.get_settings = lambda: Settings(
-        e2e_auth_enabled=True,
-        e2e_auth_secret="test-secret",
-        session_secret="test-session-secret-for-mock",
-    )
-    app = FastAPI()
-    register_e2e_auth_routes(app)
+    user = {
+        "id": "u-vol-1",
+        "email": "vol@apap.local",
+        "rol": "reader",
+        "activo": True,
+    }
+    app = _build_app(_e2e_settings(), _executor_with_user(user))
     client = TestClient(app)
 
     response = client.get(
-        "/e2e/login?email=test@apap.local",
-        headers={"X-E2E-Secret": "test-secret"},
+        "/e2e/login?email=vol@apap.local",
+        headers={"X-E2E-Secret": SECRET},
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["authenticated"] is True
-    assert payload["email"] == "test@apap.local"
-    assert payload["user_id"] == MOCK_USER_ID
-    assert payload["rol"] == MOCK_USER_ROL
+    assert payload["email"] == "vol@apap.local"
+    assert payload["user_id"] == "u-vol-1"
+    assert payload["rol"] == "reader"
     assert len(payload["csrf_token"]) >= 32
 
-    # Cookie set with the production-compatible shape.
+    # Cookie set with the production-compatible shape, carrying the
+    # DB role (not the legacy hardcoded mock role).
     cookie_name = session_cookie_name()
     assert cookie_name in response.cookies
-    signed = response.cookies[cookie_name]
-    decoded = read_session(signed, secret="test-session-secret-for-mock")
+    decoded = read_session(response.cookies[cookie_name], secret=SESSION_SECRET)
     assert decoded is not None
-    assert decoded["email"] == "test@apap.local"
-    assert decoded["rol"] == MOCK_USER_ROL
-    assert decoded["user_id"] == MOCK_USER_ID
+    assert decoded["email"] == "vol@apap.local"
+    assert decoded["rol"] == "reader"
+    assert decoded["user_id"] == "u-vol-1"
     assert decoded["is_authorized"] is True
     assert decoded["csrf_token"] == payload["csrf_token"]
 
-    # Auth cache pre-populated for the email — the very next
-    # request from the test client is authorised.
-    cached = get_cached_auth("test@apap.local", ttl_seconds=300)
+
+def test_login_does_not_seed_the_auth_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #1073 decision: the mock no longer writes the auth cache.
+
+    ``require_authorized_user`` is the single cache writer and revalidates
+    against the DB on the first authorized request, so no cache entry can
+    ever hold a role that differs from ``usuarios_autorizados``. The login
+    endpoint therefore seeds NOTHING — pinned here so the old
+    ``set_cached_auth(..., rol='developer')`` poisoning cannot return.
+    """
+    user = {
+        "id": "u-vol-1",
+        "email": "vol@apap.local",
+        "rol": "reader",
+        "activo": True,
+    }
+    app = _build_app(_e2e_settings(), _executor_with_user(user))
+    client = TestClient(app)
+
+    response = client.get(
+        "/e2e/login?email=vol@apap.local",
+        headers={"X-E2E-Secret": SECRET},
+    )
+
+    assert response.status_code == 200
+    assert get_cached_auth("vol@apap.local", ttl_seconds=300) is None
+
+
+def test_second_session_sees_the_real_role_via_require_authorized_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #1073 acceptance: another session for the same email sees the REAL role.
+
+    After ``/e2e/login?email=<seeded reader>``, a separate request
+    (new browser session, same email) must be authorized with the role
+    read from ``usuarios_autorizados`` — today the poisoned cache makes
+    ``require_authorized_user`` answer ``developer``.
+    """
+    user = {
+        "id": "u-vol-1",
+        "email": "vol@apap.local",
+        "rol": "reader",
+        "activo": True,
+    }
+    app = _build_app(_e2e_settings(), _executor_with_user(user))
+    client = TestClient(app)
+
+    login = client.get(
+        "/e2e/login?email=vol@apap.local",
+        headers={"X-E2E-Secret": SECRET},
+    )
+    assert login.status_code == 200
+
+    # A second, independent request for the same email (no shared
+    # login state beyond the DB) resolves the REAL role.
+    probe = client.get("/e2e-probe", follow_redirects=False)
+    assert probe.status_code == 200, probe.text
+    assert probe.json()["rol"] == "reader"
+
+    # Whatever the cache now holds, it must agree with the DB row.
+    cached = get_cached_auth("vol@apap.local", ttl_seconds=300)
     assert cached is not None
     assert cached.is_authorized is True
-    assert cached.rol == MOCK_USER_ROL
+    assert cached.rol == "reader"
+
+
+def test_unknown_email_returns_400_audited_and_seeds_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #1073 RED-2: an email NOT in usuarios_autorizados is rejected.
+
+    The allowlist contract: only the default email (when configured) or
+    an existing ``usuarios_autorizados`` row may mint a session. Today
+    the endpoint answers 200 and poisons the cache with a developer
+    verdict for the unknown email — both must become impossible.
+    """
+    app = _build_app(_e2e_settings(), _executor_with_user(None))
+    client = TestClient(app)
+
+    with caplog.at_level(logging.INFO, logger="app"):
+        response = client.get(
+            "/e2e/login?email=ghost@apap.local",
+            headers={"X-E2E-Secret": SECRET},
+        )
+
+    assert response.status_code == 400
+    audit_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "_caller_fields", {}).get("event") == "e2e.login"
+    ]
+    assert len(audit_records) == 1, "expected exactly one audit entry on the 400"
+    fields = audit_records[0]._caller_fields
+    assert fields["outcome"] == "invalid_request"
+    assert fields["target_email"] == "ghost@apap.local"
+    # Nothing may be seeded into the auth cache for a rejected email.
+    assert get_cached_auth("ghost@apap.local", ttl_seconds=300) is None
+
+
+def test_default_email_must_also_exist_in_usuarios_autorizados(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #1073: the default email is allowlisted through the DB too.
+
+    Without ``?email=`` the route falls back to
+    ``e2e_auth_default_email``, but that email must still exist as an
+    active ``usuarios_autorizados`` row — the DB is the single
+    allowlist. An empty table rejects the login (400) and seeds nothing.
+    """
+    app = _build_app(_e2e_settings(), _executor_with_user(None))
+    client = TestClient(app)
+
+    response = client.get("/e2e/login", headers={"X-E2E-Secret": SECRET})
+
+    assert response.status_code == 400
+    assert get_cached_auth("e2e@apap.local", ttl_seconds=300) is None
+
+
+def test_default_email_login_mints_the_db_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression guard: the default-email login still works end to end.
+
+    Production seeds ``e2e@apap.local`` (rol developer) in
+    ``usuarios_autorizados`` (issue #1073 runbook note); the minted
+    session must carry that DB-read role.
+    """
+    user = {
+        "id": "u-e2e-default",
+        "email": "e2e@apap.local",
+        "rol": "developer",
+        "activo": True,
+    }
+    app = _build_app(_e2e_settings(), _executor_with_user(user))
+    client = TestClient(app)
+
+    response = client.get("/e2e/login", headers={"X-E2E-Secret": SECRET})
+
+    assert response.status_code == 200
+    assert response.json()["email"] == "e2e@apap.local"
+    assert response.json()["rol"] == "developer"
+
+
+def test_db_failure_returns_503_audited(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A DB failure during the allowlist lookup is a 503, audited (JD-A-001).
+
+    Regression guard against the fake-masked bug (issue #1073 fix round
+    2): the production executor (``LocalPostgresExecutor``) raises
+    ``DatabaseError``/``QueryError`` from the RuntimeError hierarchy —
+    NOT Protocol-level ``BackendError`` — so a fake raising only the
+    legacy error type can mask a broken fail-closed guard. This test
+    uses the REAL executor pointed at an unreachable port (connection
+    refused, no mocks): the endpoint must answer the audited 503
+    ``server_misconfigured`` and never mint a session.
+    """
+    from app.core.local_backend.db import LocalPostgresExecutor
+
+    real_executor = LocalPostgresExecutor("postgresql://nobody@127.0.0.1:1/apap")
+    app = _build_app(_e2e_settings(), real_executor)
+    client = TestClient(app)
+
+    with caplog.at_level(logging.INFO, logger="app"):
+        response = client.get(
+            "/e2e/login?email=vol@apap.local",
+            headers={"X-E2E-Secret": SECRET},
+        )
+
+    assert response.status_code == 503
+    audit_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "_caller_fields", {}).get("event") == "e2e.login"
+    ]
+    assert len(audit_records) == 1
+    assert audit_records[0]._caller_fields["outcome"] == "server_misconfigured"
+    # No session cookie may be minted.
+    assert session_cookie_name() not in response.cookies
 
 
 def test_debug_e2e_cookie_can_be_sent_over_loopback_http() -> None:
     """The CI-only debug app must not mint a Secure cookie for its HTTP URL."""
-    import app.core.e2e_auth as e2e_module
-
-    e2e_module.get_settings = lambda: Settings(
-        debug=True,
-        e2e_auth_enabled=True,
-        e2e_auth_secret="test-secret",
-        session_secret="test-session-secret-for-mock",
+    app = _build_app(
+        _e2e_settings(e2e_auth_default_email="e2e@apap.local"),
+        _executor_with_user(
+            {"id": "u-e2e-default", "email": "e2e@apap.local", "rol": "developer", "activo": True}
+        ),
     )
-    app = FastAPI()
-    register_e2e_auth_routes(app)
 
     response = TestClient(app).get(
         "/e2e/login",
-        headers={"X-E2E-Secret": "test-secret"},
+        headers={"X-E2E-Secret": SECRET},
     )
 
     assert response.status_code == 200
@@ -229,27 +487,34 @@ def test_debug_e2e_cookie_can_be_sent_over_loopback_http() -> None:
 def test_default_email_applies_when_query_param_omitted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Without ``?email=...`` the route falls back to the configured default."""
-    import app.core.e2e_auth as e2e_module
+    """Without ``?email=...`` the route falls back to the configured default.
 
-    e2e_module.get_settings = lambda: Settings(
-        e2e_auth_enabled=True,
-        e2e_auth_secret="test-secret",
-        e2e_auth_default_email="default@apap.local",
-        session_secret="test-session-secret-for-mock",
+    Issue #1073: the default email resolves through the DB allowlist
+    like any other email; the minted session carries the DB role.
+    """
+    user = {
+        "id": "u-default-1",
+        "email": "default@apap.local",
+        "rol": "reader",
+        "activo": True,
+    }
+    app = _build_app(
+        _e2e_settings(e2e_auth_default_email="default@apap.local"),
+        _executor_with_user(user),
     )
-    app = FastAPI()
-    register_e2e_auth_routes(app)
     client = TestClient(app)
 
     response = client.get(
         "/e2e/login",
-        headers={"X-E2E-Secret": "test-secret"},
+        headers={"X-E2E-Secret": SECRET},
     )
 
     assert response.status_code == 200
     assert response.json()["email"] == "default@apap.local"
-    assert get_cached_auth("default@apap.local", ttl_seconds=300) is not None
+    assert response.json()["rol"] == "reader"
+    # Issue #1073: the login no longer seeds the cache; the first
+    # authorized request revalidates against the DB instead.
+    assert get_cached_auth("default@apap.local", ttl_seconds=300) is None
 
 
 def test_empty_email_with_no_default_returns_400(
@@ -274,3 +539,356 @@ def test_empty_email_with_no_default_returns_400(
     )
 
     assert response.status_code == 400
+
+
+def test_audit_log_emitted_on_success(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #904 AC1: every successful attempt emits one audit entry.
+
+    The entry carries ``outcome='ok'``, the target email and the origin
+    IP — and never the secret value. Field names deliberately avoid the
+    closed redaction list (``email``/``ip_address``) because the issue
+    mandates those values in the audit trail (``target_email``/
+    ``client_ip``).
+    """
+    user = {
+        "id": "u-audit-1",
+        "email": "audit@apap.local",
+        "rol": "reader",
+        "activo": True,
+    }
+    app = _build_app(_e2e_settings(e2e_auth_secret="test-secret-value"), _executor_with_user(user))
+    client = TestClient(app)
+
+    with caplog.at_level(logging.INFO, logger="app"):
+        response = client.get(
+            "/e2e/login?email=audit@apap.local",
+            headers={"X-E2E-Secret": "test-secret-value"},
+        )
+
+    assert response.status_code == 200
+    audit_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "_caller_fields", {}).get("event") == "e2e.login"
+    ]
+    assert len(audit_records) == 1, "expected exactly one audit entry on success"
+    record = audit_records[0]
+    fields = record._caller_fields
+    assert fields["outcome"] == "ok"
+    assert fields["target_email"] == "audit@apap.local"
+    assert fields["client_ip"]
+    # The secret value must never appear in the audit entry.
+    assert "test-secret-value" not in record.getMessage()
+    assert "test-secret-value" not in str(fields)
+
+
+def test_audit_client_ip_is_rightmost_proxy_appended_entry(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #1007 (JD-B-004/JD-A-005): with ``trust_xff=True`` and a trusted
+    proxy peer, the ``e2e.login`` audit ``client_ip`` is the rightmost,
+    proxy-appended X-Forwarded-For entry — the same resolution the rate-limit
+    buckets use (via ``_extract_identity``) — not a client-supplied leftmost
+    entry."""
+    user = {
+        "id": "u-audit-1",
+        "email": "audit@apap.local",
+        "rol": "reader",
+        "activo": True,
+    }
+    app = _build_app(
+        _e2e_settings(
+            e2e_auth_secret="test-secret-value",
+            trust_xff=True,
+            trusted_proxies=["10.0.0.0/8"],
+        ),
+        _executor_with_user(user),
+    )
+    # Parseable, trusted direct peer (TestClient's default "testclient" peer
+    # would disable the XFF walk — see tests/test_trusted_proxies.py).
+    client = TestClient(app, client=("10.0.0.1", 50000))
+
+    with caplog.at_level(logging.INFO, logger="app"):
+        response = client.get(
+            "/e2e/login?email=audit@apap.local",
+            headers={
+                "X-E2E-Secret": "test-secret-value",
+                "X-Forwarded-For": "203.0.113.9, 203.0.113.10, 198.51.100.7",
+            },
+        )
+
+    assert response.status_code == 200
+    audit_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "_caller_fields", {}).get("event") == "e2e.login"
+    ]
+    assert len(audit_records) == 1, "expected exactly one audit entry on success"
+    fields = audit_records[0]._caller_fields
+    assert fields["outcome"] == "ok"
+    assert fields["client_ip"] == "198.51.100.7", (
+        "audit client_ip must be the rightmost proxy-appended XFF entry"
+    )
+
+
+def test_audit_log_emitted_on_invalid_secret(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #904 AC1: a failed attempt also emits one audit entry.
+
+    Outcome is ``invalid_secret`` for both a wrong and a missing header;
+    the attempted email (raw query param) and origin IP are recorded and
+    the secret value never reaches the log.
+    """
+    import app.core.e2e_auth as e2e_module
+
+    e2e_module.get_settings = lambda: Settings(  # type: ignore[assignment]
+        e2e_auth_enabled=True,
+        e2e_auth_secret="test-secret-value",
+        session_secret="test-session-secret-for-mock",
+    )
+    app = FastAPI()
+    register_e2e_auth_routes(app)
+    client = TestClient(app)
+
+    with caplog.at_level(logging.INFO, logger="app"):
+        response = client.get(
+            "/e2e/login?email=probe@apap.local",
+            headers={"X-E2E-Secret": "wrong-secret"},
+        )
+
+    assert response.status_code == 401
+    audit_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "_caller_fields", {}).get("event") == "e2e.login"
+    ]
+    assert len(audit_records) == 1, "expected exactly one audit entry on failure"
+    record = audit_records[0]
+    fields = record._caller_fields
+    assert fields["outcome"] == "invalid_secret"
+    assert fields["target_email"] == "probe@apap.local"
+    assert fields["client_ip"]
+    assert "wrong-secret" not in record.getMessage()
+    assert "wrong-secret" not in str(fields)
+
+
+def test_non_ascii_secret_header_lands_on_invalid_secret_with_audit(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A raw non-ASCII byte in ``X-E2E-Secret`` must land on 401, not 500.
+
+    ASGI decodes header bytes with latin-1, so a probe sending a raw
+    latin-1 byte (e.g. ``0xE9``) reaches the handler as a non-ASCII str.
+    ``hmac.compare_digest`` raises ``TypeError`` for non-ASCII str inputs,
+    which produced an unhandled 500 with NO audit entry. The hardened
+    handler treats any non-ASCII probe as an invalid secret: 401 plus
+    exactly one ``e2e.login`` audit record, and the probe bytes never
+    reach the log.
+    """
+    import app.core.e2e_auth as e2e_module
+
+    e2e_module.get_settings = lambda: Settings(  # type: ignore[assignment]
+        e2e_auth_enabled=True,
+        e2e_auth_secret="test-secret-value",
+        session_secret="test-session-secret-for-mock",
+    )
+    app = FastAPI()
+    register_e2e_auth_routes(app)
+    client = TestClient(app)
+
+    with caplog.at_level(logging.INFO, logger="app"):
+        response = client.get(
+            "/e2e/login?email=probe@apap.local",
+            headers={"X-E2E-Secret": b"\xe9"},
+        )
+
+    assert response.status_code == 401
+    audit_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "_caller_fields", {}).get("event") == "e2e.login"
+    ]
+    assert len(audit_records) == 1, "expected exactly one audit entry on the probe"
+    fields = audit_records[0]._caller_fields
+    assert fields["outcome"] == "invalid_secret"
+    # The raw probe bytes must never reach the log.
+    assert "\xe9" not in audit_records[0].getMessage()
+    assert "\xe9" not in str(fields)
+
+
+def test_audit_log_emitted_on_empty_email_400(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #904 fix round 1 (JD-B-002/JD-A-002): the 400 branch is audited.
+
+    AC1 requires one ``e2e.login`` entry on EVERY attempt — including the
+    400 empty-target-email branch (valid secret). Outcome taxonomy:
+    ``invalid_request``.
+    """
+    import app.core.e2e_auth as e2e_module
+
+    e2e_module.get_settings = lambda: Settings(  # type: ignore[assignment]
+        e2e_auth_enabled=True,
+        e2e_auth_secret="test-secret-value",
+        e2e_auth_default_email="",
+        session_secret="test-session-secret-for-mock",
+    )
+    app = FastAPI()
+    register_e2e_auth_routes(app)
+    client = TestClient(app)
+
+    with caplog.at_level(logging.INFO, logger="app"):
+        response = client.get(
+            "/e2e/login?email= ",
+            headers={"X-E2E-Secret": "test-secret-value"},
+        )
+
+    assert response.status_code == 400
+    audit_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "_caller_fields", {}).get("event") == "e2e.login"
+    ]
+    assert len(audit_records) == 1, "expected exactly one audit entry on 400"
+    fields = audit_records[0]._caller_fields
+    assert fields["outcome"] == "invalid_request"
+    assert "test-secret-value" not in str(fields)
+
+
+def test_audit_log_emitted_on_misconfigured_503(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #904 fix round 1 (JD-B-002/JD-A-002): the 503 branch is audited.
+
+    An enabled flag with an empty configured secret answers 503 — that
+    attempt must also leave one ``e2e.login`` entry (outcome
+    ``server_misconfigured``) so AC1 holds for every attempt.
+    """
+    import app.core.e2e_auth as e2e_module
+
+    e2e_module.get_settings = lambda: Settings(  # type: ignore[assignment]
+        e2e_auth_enabled=True,
+        e2e_auth_secret="",
+    )
+    app = FastAPI()
+    register_e2e_auth_routes(app)
+    client = TestClient(app)
+
+    with caplog.at_level(logging.INFO, logger="app"):
+        response = client.get(
+            "/e2e/login?email=probe@apap.local",
+            headers={"X-E2E-Secret": "anything"},
+        )
+
+    assert response.status_code == 503
+    audit_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "_caller_fields", {}).get("event") == "e2e.login"
+    ]
+    assert len(audit_records) == 1, "expected exactly one audit entry on 503"
+    fields = audit_records[0]._caller_fields
+    assert fields["outcome"] == "server_misconfigured"
+    assert fields["target_email"] == "probe@apap.local"
+
+
+def test_audit_target_email_is_capped(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Issue #904 fix round 1 (JD-B-006): the raw email is capped in the audit.
+
+    The unvalidated ``?email=`` query param must be truncated before it
+    reaches ``log_safe`` so an unbounded probe value cannot bloat the
+    audit trail. Pinned on the rejected path with a 300-char probe.
+    """
+    import app.core.e2e_auth as e2e_module
+
+    e2e_module.get_settings = lambda: Settings(  # type: ignore[assignment]
+        e2e_auth_enabled=True,
+        e2e_auth_secret="test-secret-value",
+        session_secret="test-session-secret-for-mock",
+    )
+    app = FastAPI()
+    register_e2e_auth_routes(app)
+    client = TestClient(app)
+    oversized_email = "a" * 300 + "@probe.example"
+
+    with caplog.at_level(logging.INFO, logger="app"):
+        response = client.get(
+            f"/e2e/login?email={oversized_email}",
+            headers={"X-E2E-Secret": "wrong-secret"},
+        )
+
+    assert response.status_code == 401
+    audit_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "_caller_fields", {}).get("event") == "e2e.login"
+    ]
+    assert len(audit_records) == 1
+    recorded_email = audit_records[0]._caller_fields["target_email"]
+    assert len(recorded_email) <= 120
+
+
+def test_production_app_answers_404_when_flag_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #904 AC3: the real ``create_app`` answers 404 with the flag off.
+
+    Composition-level pin: the existing module-level test covers
+    ``register_e2e_auth_routes`` directly; this one proves the production
+    factory wiring (issue #904 validation plan step: flag off -> 404 in
+    production without the flag).
+
+    The flag is forced to an explicit ``false`` env-var value rather than
+    deleted: ``Settings`` reads ``env_file='.env'`` and
+    ``monkeypatch.delenv`` cannot clear a developer-local ``.env`` entry,
+    which flipped this test red spuriously (issue #904 fix round 1,
+    JD-A-006). The env var takes precedence over ``.env`` in
+    pydantic-settings, so ``setenv('false')`` is deterministic.
+    """
+    from app.main import create_app
+
+    monkeypatch.setenv("APAP_E2E_AUTH_ENABLED", "false")
+    get_settings.cache_clear()
+    try:
+        client = TestClient(create_app())
+        response = client.get("/e2e/login")
+    finally:
+        get_settings.cache_clear()
+
+    assert response.status_code == 404
+
+
+def test_production_app_registers_route_when_flag_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Positive control for AC3: with the flag + secret set the route exists (401).
+
+    The flag and secret are set via ``monkeypatch.setenv`` — env vars take
+    precedence over ``Settings.env_file('.env')``, so this composition
+    test is deterministic regardless of a developer-local ``.env``
+    (issue #904 fix round 1, JD-A-006).
+    """
+    from app.main import create_app
+
+    monkeypatch.setenv("APAP_E2E_AUTH_ENABLED", "true")
+    monkeypatch.setenv("APAP_E2E_AUTH_SECRET", "composition-test-secret")
+    get_settings.cache_clear()
+    try:
+        client = TestClient(create_app())
+        response = client.get("/e2e/login")
+    finally:
+        get_settings.cache_clear()
+
+    assert response.status_code == 401

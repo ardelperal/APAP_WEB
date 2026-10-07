@@ -10,7 +10,7 @@ of issue #17 (Fase 1 — esqueleto) and #16 (Fase 2 — auth). It exposes:
 - ``GET /auth/google``   → starts the LocalBackend-hosted Google OAuth flow (public)
 - ``GET /auth/callback`` → exchanges the ``oauth_code`` (or legacy ``code``)
                              for an LocalBackend JWT and issues a session cookie
-- ``GET /logout``        → clears the session cookie (any user)
+- ``POST /logout``     → clears the session cookie (any user; CSRF-protected per issue #1076)
 - ``GET /unauthorized``  → friendly access-denied page (auth required,
                              including deactivated sessions so they see the
                              friendly copy instead of being bounced to /login)
@@ -155,9 +155,18 @@ async def lifespan(_: FastAPI):
     # MinIO / S3-compatible storage for photos.
     # PhotoStorageClient handles the None case gracefully (fallback to
     # placeholder); the app does not fail to start when MinIO is unreachable.
-    from app.core.local_backend.s3 import PhotoStorageClient  # lazy-import: only needed when S3 credentials are configured  # noqa: I001
+    from app.core.local_backend.s3 import PhotoStorageClient, _build_minio_client  # lazy-import: only needed when S3 credentials are configured  # noqa: I001
 
     _.state.photo_storage = PhotoStorageClient()
+
+    # MinIO client for the contratos slice (DOC-01 SLICE 2, #1109).
+    # Bucket provisioning follows the same pattern as ``apap-photos``
+    # (deployment-time via ``scripts/create_minio_bucket.py``); the
+    # contracts DI reads this client lazily. The underlying minio
+    # client is None when credentials are not configured; the contratos
+    # storage adapter's behaviour is then fail-closed at the first
+    # object call, mirroring the photo pipeline's fallback.
+    _.state.contratos_storage_client = _build_minio_client()
 
     # M3.4 wiring (issue #651): magic-link port + SMTP transport +
     # session secret. Mirrors the lifespan in
@@ -201,6 +210,28 @@ def _include_devtools_router(application: FastAPI, settings) -> None:
     # Default-deny auth middleware applies; PUBLIC_PATHS is untouched.
     if settings.devtools_enabled:
         application.include_router(devtools_router)
+
+
+def _include_magic_link_router(application: FastAPI, settings) -> None:
+    """Include the magic-link login router only when the flag is on (#1005).
+
+    Mirrors :func:`_include_devtools_router` (keeps the factory at
+    CC=1 per module-size-budgets). Default-deny (§6): when
+    ``Settings.auth_enable_magic_link`` is False the router is NOT
+    registered and the auth middleware answers ``/auth/magic/*``
+    probes with a fail-closed 404 (``MAGIC_LINK_PUBLIC_PATHS`` gate in
+    ``app.core.middleware``). With the flag on, behaviour is identical
+    to the pre-#1005 app.
+
+    DEPLOY-ORDER WARNING: production served magic-link login with the
+    router registered unconditionally. The operator MUST set
+    ``APAP_AUTH_ENABLE_MAGIC_LINK=true`` in the Coolify environment
+    BEFORE deploying a build that carries this flag — otherwise
+    magic-link login breaks on next deploy. See
+    ``docs/runbooks/operator-deploy-2026.md``.
+    """
+    if settings.auth_enable_magic_link:
+        application.include_router(magic_link_router)
 
 
 def create_app() -> FastAPI:
@@ -274,10 +305,12 @@ def create_app() -> FastAPI:
 
     _include_devtools_router(application, settings)
 
-    # Auth flow: magic-link login (M3.4, issue #651). The router
-    # lives in app.core.local_backend.magic_link; the lifespan above
-    # wires the port + transport + session secret onto app.state.
-    application.include_router(magic_link_router)
+    # Auth flow: magic-link login (M3.4, issue #651; flag #1005). The
+    # router lives in app.core.local_backend.magic_link; the lifespan
+    # above wires the port + transport + session secret onto app.state.
+    # The registration is flag-gated: with the flag off the router is
+    # not registered and probes receive a fail-closed 404.
+    _include_magic_link_router(application, settings)
 
     return application
 

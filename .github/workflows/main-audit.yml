@@ -1,0 +1,57 @@
+# Issue #986 — auditoría post-hoc de push directos a `main`. Cada día y bajo
+# dispatch manual recorre los últimos 30 commits de `origin/main` y alerta
+# cuando un commit NO tiene un pull request cuyo `merge_commit_sha` coincida
+# con su SHA (o no es ancestro del segundo padre de un merge de PR en main).
+# Las infracciones se consolidan en UNA issue de seguimiento; el workflow no
+# falla. El ruleset `main-maintainers-and-admins-merge` permanece desactivado
+# (#892) — con N sesiones de agente compartiendo UNA credencial admin, los
+# rulesets no distinguen entre sesiones.
+
+name: main-audit
+
+on:
+  schedule:
+    # Diario, 05:30 UTC — hora de baja carga para evitar colisiones con los
+    # crons de CodeQL (06:47 UTC lunes) y Dependabot (06:30 UTC lunes).
+    - cron: "30 5 * * *"
+  # Re-ejecución bajo demanda del mantenedor.
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  main-history:
+    name: main-history
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # Historia completa: el script recorre 30 commits y resuelve los
+          # segundos padres de los merge commits para no tratar los commits
+          # intermedios de una rama de PR como push directo.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect direct pushes and reconcile tracking issue
+        # Salida 0 siempre: la auditoría no bloquea nada. Cuando hay
+        # infracciones crea o actualiza UNA issue de seguimiento con la
+        # evidencia; cuando no hay infracciones, no toca la issue (deja
+        # el historial de hallazgos conocido intacto para que el
+        # mantenedor pueda comparar runs).
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          LIMIT: "30"
+          ISSUE_TITLE: "chore(gobernanza): push directo detectado en main"
+        run: python3 .github/scripts/main_history_audit.py

@@ -14,6 +14,8 @@ between tests.
 
 from __future__ import annotations
 
+import pathlib
+
 import pytest
 
 from app.core.config import Settings, get_settings
@@ -69,6 +71,29 @@ def test_settings_uses_image_build_revision_without_source_commit(
     assert settings.build_sha == "image-build"
 
 
+def test_suite_settings_ignore_cwd_env_file(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #1218: suite-level ``Settings`` ignore a CWD ``.env`` file.
+
+    ``Settings`` reads ``env_file=".env"`` (resolved against the CWD), so a
+    developer-local ``.env`` at the repo root poisoned every ``Settings()``
+    the suite constructs: reds appeared locally that stayed green in CI,
+    where no ``.env`` exists. The suite pins the no-dotenv contract in
+    ``tests/conftest.py``; this test reproduces the poisoning
+    deterministically through an isolated CWD instead of touching a real
+    developer ``.env``.
+    """
+    monkeypatch.delenv("APAP_APP_NAME", raising=False)
+    (tmp_path / ".env").write_text("APAP_APP_NAME=env-poison-probe\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    settings = Settings()
+
+    assert settings.app_name == "APAP_WEB"
+
+
 def test_settings_does_not_expose_local_backend_fields() -> None:
     """The LocalBackend fields are gone (issue #658). The backend is now the
     Coolify-hosted local Postgres via ``APAP_LOCAL_DB_URL``."""
@@ -80,12 +105,12 @@ def test_settings_does_not_expose_local_backend_fields() -> None:
 
 
 def test_settings_does_not_pick_up_apap_local_backend_env() -> None:
-    """Setting ``APAP_INSFORGE_*`` env vars has no effect (no such field)."""
+    """Setting ``APAP_LOCAL_BACKEND_*`` env vars has no effect (no such field)."""
     import pytest
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setenv("APAP_INSFORGE_URL", "https://legacy.example.com")
-        mp.setenv("APAP_INSFORGE_SERVICE_KEY", "ik_should_be_ignored")
+        mp.setenv("APAP_LOCAL_BACKEND_URL", "https://legacy.example.com")
+        mp.setenv("APAP_LOCAL_BACKEND_SERVICE_KEY", "ik_should_be_ignored")
         settings = Settings(_env_file=None)
 
     for attr_name in ("local_backend_url", "local_backend_service_key"):

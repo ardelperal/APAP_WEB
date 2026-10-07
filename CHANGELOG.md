@@ -30,12 +30,13 @@ Las notas detalladas por tag viven en GitHub Releases; este changelog agrega los
 
 ### Added
 
+- `feat(auth)`: flag `APAP_AUTH_ENABLE_MAGIC_LINK` para el login magic-link (issue #1005): `Settings.auth_enable_magic_link` (default `false`, §6 default-deny) controla el registro del router `/auth/magic/*` en `app/main.py` y en el backend local independiente (`app/core/local_backend/app.py`), la visibilidad del formulario en la página de login y la respuesta fail-closed 404 (evento `auth.magic_link_disabled`) ante sondas con la flag apagada. El contrato de despliegue (`coolify/apap-web-coolify.yaml`) fija la variable y `tests/test_coolify_web_yaml.py` la pinnea; el job e2e de CI arranca la app real con la flag activa (paridad con producción), aunque la detección de regresiones de paridad descansa hoy en los átomos unitarios de `tests/test_auth_flow.py` (render del login en ambos estados) y `tests/test_magic_link_flag.py` (404 fail-closed y short-circuit del gate), no en el suite e2e. Operador: debe estar a `true` en Coolify antes de desplegar una build con este gate (ver `docs/runbooks/operator-deploy-2026.md`).
 - `tests/test_unhandled_error_handler.py`: 3 atoms that pin the §32.P4 contract end-to-end — a route raising `RuntimeError` returns a non-leaking 502, `HTTPException` and `RequestValidationError` keep their built-in handlers.
 
 ### Notes
 
 - `migration/cli.py:639-640` and `migration/storage_spike.py:406-407` still read the removed settings fields. CLI-tool paths covered by issue #8 (migration package rewrite); the migration tests don't run on PR CI.
-- `app/core/local_backend.py` and `app/core/backend_error_translation.py` still exist (kept for issue #5). Their docstrings now reference the generic handler in `app/main.py` instead of the deleted `backend_error_handler` module.
+- `app/core/local_backend.py` and `app/core/backend_error_translation.py` no longer exist on the tree; their deletion landed in `8bd9432` (`refactor(core): remove unused InsForge error-handler chain`). The remaining InsForge adapter shim at `app/core/adapters/insforge/__init__.py` is removed by the chained cleanup that closes #967 / #641 / #666 / #670.
 
 ## v0.1.0 — 2026-08-01
 

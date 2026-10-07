@@ -23,9 +23,10 @@ Three tests:
   rendered (form for adding users + table of existing users).
 - ``test_session_cookie_persists_across_requests`` — the
   cookie contract. After authentication, multiple ``GET /admin``
-  requests succeed without re-authenticating; the mock's
-  pre-populated auth cache keeps the middleware happy across
-  requests without a DB round-trip.
+  requests succeed without re-authenticating; the first authorized
+  request revalidates against ``usuarios_autorizados`` and
+  ``require_authorized_user`` (the single cache writer) then serves
+  the following requests from the in-process cache (issue #1073).
 
 The fixture skips gracefully when ``Settings.e2e_auth_enabled`` is
 False (i.e. production / local dev without the env var set). The
@@ -129,16 +130,20 @@ def test_unauthenticated_admin_redirects_to_login(page: Page, base_url: str) -> 
             "tests cover this scenario via _skip_if_oauth_not_configured."
         )
 
-    # FastAPI's ``RedirectResponse`` lands here as either a 303 (the
-    # current pattern, ``RedirectResponse(url, status_code=303)``)
-    # or a 307 depending on the route. Both are valid redirects for
-    # this endpoint; we accept either rather than pin the status
-    # code to one and become a regression on the other.
-    assert response.status in (303, 307), (
-        f"/admin without auth must redirect, got {response.status}"
+    # Final-response semantics (issues #1153/#1160): the auth dep's
+    # server-side 302 to /login surfaces as a 200 rendered /login — the
+    # old 303/307 assertion was un-passable against any target where
+    # /login renders. The final request must still carry a
+    # ``redirected_from`` predecessor (a JS bounce would not).
+    assert response.status == 200, (
+        f"/admin without auth must land on a rendered /login (final response of "
+        f"the redirect chain), got {response.status} @ {response.url}"
     )
-    assert "/login" in response.url, (
-        f"/admin must redirect to /login, got {response.url}"
+    assert page.url.endswith("/login"), (
+        f"/admin must redirect to /login, got {page.url}"
+    )
+    assert response.request.redirected_from is not None, (
+        "/admin must reach /login through a server redirect, not a client-side bounce"
     )
 
 
@@ -190,8 +195,11 @@ def test_session_cookie_persists_across_requests(
 ) -> None:
     """After the mock sets the cookie, every subsequent request carries it.
 
-    The mock pre-populates the in-process auth cache so the
-    middleware accepts the cookie without a DB round-trip. This
+    The mock does NOT seed the auth cache (issue #1073): the first
+    authorized request revalidates against ``usuarios_autorizados``
+    and ``require_authorized_user`` — the single cache writer — fills
+    it, so the middleware accepts the cookie without further DB
+    round-trips. This
     test pins that contract by issuing three consecutive
     authenticated requests and asserting each one passes the auth
     gate — a regression that drops the cookie or skips the cache

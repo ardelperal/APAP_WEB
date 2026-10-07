@@ -5,7 +5,7 @@ plus the cross-cutting M2 (fallback-ready) gate from
 ``openspec/changes/live-data-migration-sandbox``.
 
 The atoms in this file run the production ``apply_legacy_to_web`` (PR3/M1)
-against a real backend (LocalBackend in CI; Postgres locally as fallback) and
+against an isolated PostgreSQL test schema and
 a real .accdb (the fixture at
 ``tests/migration/local-access/backend/Registro_APAP_Alcala_datos_18.accdb``,
 unencrypted). The seam ``MdbToolsLegacyReader`` (in
@@ -32,21 +32,16 @@ The atoms cover the four properties the user explicitly asked for:
      contract: "Sandbox obligatorio. ejecute las pruebas contra una
      copia desechable".
 
-Backend preference:
+Backend isolation:
 
-  * If ``APAP_INSFORGE_URL`` (or ``INSFORGE_URL``) + service key env
-    vars are set AND the URL responds 200 to a probe query → the
-    atom uses ``LocalBackendBackendClient`` (production code path).
-  * Otherwise the atom uses ``PostgresBackendClient`` against
+  * The atom uses ``PostgresBackendClient`` against
     ``APAP_TEST_POSTGRES_DSN``. The schema is provisioned locally
     from the same SQL the integration conftest uses (the SQL
     constants are re-imported from
     ``tests.integration.conftest._DOMAIN_SQL_STATEMENTS`` so we do
     not duplicate the schema definition).
 
-Both backends satisfy ``migration.apply._LocalBackendLike`` so the apply
-pipeline is identical. The choice is **only** about which database
-runs the destination; the .accdb side is the same in both modes.
+The E2E adapter and migration CLI both use ``LocalPostgresExecutor``.
 """
 
 from __future__ import annotations
@@ -60,19 +55,53 @@ from pathlib import Path
 import psycopg
 import pytest
 from psycopg import sql
-from psycopg.rows import dict_row
 
 from tests.migration._e2e_seams.backend_clients import (
-    LocalBackendBackendClient,
     LocalBackendLike,
     PostgresBackendClient,
-    get_local_backend_credentials,
 )
 from tests.migration._e2e_seams.mdbtools_reader import (
     MdbToolsLegacyReader,
     install_mdbtools_executor,
     require_mdbtools,
 )
+
+
+def test_backend_client_ignores_operator_backend_env(monkeypatch) -> None:
+    """The E2E atom cannot be redirected away from its ephemeral schema."""
+    monkeypatch.setenv("APAP_LOCAL_BACKEND_URL", "https://retired.invalid")
+    monkeypatch.setenv("APAP_LOCAL_BACKEND_SERVICE_KEY", "retired")
+    monkeypatch.setenv("APAP_LOCAL_DB_URL", "postgresql://operator")
+    monkeypatch.setenv("APAP_LOCAL_DB_SCHEMA", "operator_schema")
+
+    class _IsolatedClient:
+        def execute_sql(self, query: str, params: list | None = None) -> list[dict]:
+            return []
+
+    isolated_client = _IsolatedClient()
+
+    fixture_body = backend_client.__wrapped__
+    assert next(fixture_body(postgres_backend=isolated_client)) is isolated_client
+
+
+def test_postgres_backend_client_uses_production_executor_with_schema(monkeypatch) -> None:
+    """The active E2E adapter binds the production executor to test schema."""
+    import app.core.local_backend.db as db
+
+    calls: list[tuple[str, str | None]] = []
+
+    class _Executor:
+        def __init__(self, dsn: str, *, search_path: str | None = None) -> None:
+            calls.append((dsn, search_path))
+
+        def execute_sql(self, query: str, params: list | None = None) -> list[dict]:
+            return [{"ping": 1}]
+
+    monkeypatch.setattr(db, "LocalPostgresExecutor", _Executor)
+    client = PostgresBackendClient("postgresql://test", "e2e_schema")
+
+    assert client.execute_sql("SELECT 1 AS ping") == [{"ping": 1}]
+    assert calls == [("postgresql://test", "e2e_schema")]
 
 
 class _InMemoryBucketAdmin:
@@ -163,9 +192,7 @@ def legacy_copy(tmp_path: Path) -> Iterator[Path]:
 
 
 @pytest.fixture
-def postgres_backend(
-    request: pytest.FixtureRequest,
-) -> Iterator[LocalBackendLike]:
+def postgres_backend() -> Iterator[LocalBackendLike]:
     """Yield a Postgres-backed ``LocalBackendLike`` against a fresh
     ephemeral schema.
 
@@ -184,52 +211,7 @@ def postgres_backend(
 
     schema = _provision_postgres_schema(dsn)
 
-    class _EphemeralPostgres:
-        """Adapter that matches the integration conftest's
-        ``_EphemeralPostgres`` API: ``execute(query, params)`` returns
-        ``list[dict[str, Any]]`` with the connection bound to the
-        ephemeral schema. Mirrors the production ``execute_sql`` shape
-        so ``apply_legacy_to_web`` is happy.
-        """
-
-        def __init__(self, dsn: str, schema: str) -> None:
-            self._dsn = dsn
-            self._schema = schema
-
-        def execute(
-            self, query: str, params: list | None = None
-        ) -> list[dict]:
-            from tests.integration.conftest import _expand_params_for_placeholder_style
-
-            if params is None:
-                params = []
-            rewritten_query, expanded_params = _expand_params_for_placeholder_style(
-                query, params
-            )
-            with psycopg.connect(self._dsn, row_factory=dict_row) as conn:
-                conn.execute(
-                    sql.SQL("SET search_path TO {}").format(
-                        sql.Identifier(self._schema)
-                    )
-                )
-                with conn.cursor() as cur:
-                    cur.execute(rewritten_query, expanded_params)
-                    # ``fetchall`` raises ProgrammingError on non-SELECT
-                    # statements (CREATE TABLE, UPDATE, etc.) that produce
-                    # zero rows. The apply pipeline issues DDL-ish
-                    # operations (CREATE INDEX IF NOT EXISTS, etc.) on
-                    # each call, so we tolerate the "no result" case.
-                    try:
-                        return list(cur.fetchall())
-                    except psycopg.ProgrammingError:
-                        return []
-
-        @property
-        def schema(self) -> str:
-            return self._schema
-
-    ep = _EphemeralPostgres(dsn, schema)
-    yield PostgresBackendClient(ep)
+    yield PostgresBackendClient(dsn, schema)
 
     # Teardown: drop the ephemeral schema.
     try:
@@ -245,35 +227,10 @@ def postgres_backend(
 
 @pytest.fixture
 def backend_client(
-    request: pytest.FixtureRequest,
     postgres_backend: LocalBackendLike,
 ) -> Iterator[LocalBackendLike]:
-    """Yield the backend client to use for the apply.
-
-    Preference order:
-      1. ``LocalBackendBackendClient`` when ``APAP_INSFORGE_URL`` (or
-         ``INSFORGE_URL``) + service key are set AND the URL responds.
-      2. ``PostgresBackendClient`` (via ``postgres_backend``) otherwise.
-
-    For the Postgres fallback, the ``postgres_backend`` fixture has
-    already provisioned the schema; this fixture just re-yields it.
-    """
-    creds = get_local_backend_credentials()
-    if creds is not None:
-        client = LocalBackendBackendClient(*creds)
-        try:
-            client.execute_sql("SELECT 1 AS ping", [])
-        except Exception as e:
-            pytest.skip(
-                f"LocalBackend URL {creds[0]!r} not reachable as a backend "
-                f"({type(e).__name__}: {str(e)[:120]}). Falling back to "
-                f"Postgres for this run. Provision the LocalBackend project "
-                f"and re-run for the production path."
-            )
-    else:
-        # Use the postgres_backend fixture (it provisioned the schema)
-        client = postgres_backend
-    yield client
+    """Use only the already-provisioned test schema, never operator env vars."""
+    yield postgres_backend
 
 
 @pytest.fixture

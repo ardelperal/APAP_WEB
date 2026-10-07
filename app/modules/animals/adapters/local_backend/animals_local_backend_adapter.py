@@ -1,7 +1,9 @@
 """LocalBackend adapter implementing :class:`AnimalsPort` for ``animales``.
 
 The only place in the slice that talks to the LocalBackend transport
-(via :class:`~app.core.data_access.SqlExecutor`). SQL lives in
+(via :class:`~app.core.data_access.TransactionalSqlExecutor` — the
+classifier change is #916: the chip saga needs a real ``transaction()``).
+SQL lives in
 :mod:`app.modules.animals.adapters.local_backend.animals_local_backend_queries`
 (AGENTS.md §22); this module is pure orchestration. Thin and
 stateless; the DI provider in :mod:`app.modules.animals.di.animals_di`
@@ -14,7 +16,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from app.core.data_access import SqlExecutor
+from app.core.data_access import TransactionalSqlExecutor
 from app.modules.animals.adapters.local_backend.animals_local_backend_chip_cascade import (
     AnimalsLocalBackendChipCascade,
 )
@@ -70,7 +72,7 @@ class AnimalsLocalBackendAdapter(AnimalsPort):
 
     def __init__(
         self,
-        client: SqlExecutor,
+        client: TransactionalSqlExecutor,
         storage: PhotoStorageClient | None,
     ) -> None:
         self._client = client

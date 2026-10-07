@@ -38,6 +38,7 @@ Esta página posee el inventario de integraciones externas (LocalBackend, CodeGr
 | `APAP_LOCAL_DB_URL` | DSN de PostgreSQL usado por el servicio web y la API separada | Vacío en `Settings`; producción debe configurarlo | [`app/core/config.py`](../../app/core/config.py) |
 | `APAP_LOCAL_DB_SCHEMA` | `search_path` opcional | Vacío, conserva el default de PostgreSQL | [`app/core/config.py`](../../app/core/config.py) |
 | `APAP_SESSION_SECRET` | Secreto de firma de cookies | Required (validado en startup) | [Runbook cookie-rotation](../runbooks/cookie-rotation.md) |
+| `APAP_AUTH_ENABLE_MAGIC_LINK` | Activa el login magic-link (`/auth/magic/*`); default-deny: `false` responde 404 fail-closed | `false` en `Settings`; producción debe tenerlo `true` antes de desplegar una build con el gate (issue #1005) | [Runbook deploy](../runbooks/operator-deploy-2026.md) |
 | `APAP_GOOGLE_CLIENT_ID` | Identificador OAuth de Google | Vacío | [`app/core/config.py`](../../app/core/config.py) |
 | `APAP_GOOGLE_CLIENT_SECRET` | Secreto OAuth de Google | Vacío | [`app/core/config.py`](../../app/core/config.py) |
 | `APAP_AUTH_CACHE_TTL_SECONDS` | TTL del caché de autorización en proceso | `300` | AGENTS §29, [Runbook auth-cache-multi-worker](../runbooks/auth-cache-multi-worker.md) |
@@ -50,7 +51,7 @@ Esta página posee el inventario de integraciones externas (LocalBackend, CodeGr
 | `APAP_S3_ACCESS_KEY` | Usuario de MinIO | unset | [`app/core/local_backend/s3.py`](../../app/core/local_backend/s3.py) |
 | `APAP_S3_SECRET_KEY` | Contraseña de MinIO | unset (secreto) | [`app/core/local_backend/s3.py`](../../app/core/local_backend/s3.py) |
 | `APAP_S3_BUCKET` | Nombre del bucket de fotos | `apap-photos` | [`app/core/local_backend/s3.py`](../../app/core/local_backend/s3.py) |
-| `APAP_S3_SECURE` | Usar HTTPS (``true/false``) | `false` | [`app/core/local_backend/s3.py`](../../app/core/local_backend/s3.py) |
+| `APAP_S3_SECURE` | Usar HTTPS (``0``/``false``/``no`` lo desactiva) | `true` | [`app/core/local_backend/s3.py`](../../app/core/local_backend/s3.py) |
 | `COOLIFY_WEBHOOK_URL` | Webhook de deploy a Coolify | Required para deploy | AGENTS §15.1 |
 
 ## Contributor checklist

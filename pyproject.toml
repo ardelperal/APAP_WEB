@@ -51,6 +51,15 @@ dev = [
     # The migration pre-flight and its CI tests import psutil directly.
     # Keep it in the frozen dev environment instead of mutating jobs with pip.
     "psutil>=7.0",
+    # DOC-01 PR 2 PDF generator (issue #850, chained PR 1 of 4). Pure-Python,
+    # no system libraries required. Pinned exactly: the adapter (CP3) is
+    # written and verified against this release line; bumping it requires
+    # re-verifying the generated PDF bytes.
+    "reportlab==4.5.1",
+    # Type stubs for reportlab so mypy can type-check the PDF adapter.
+    # Floored to the stub release matching the runtime pin, capped below
+    # the 5.x stub line so the mypy surface cannot jump under us.
+    "types-reportlab>=4.5.1,<5",
     "pytest==9.1.1",
     "pytest-asyncio>=0.24",
     "pytest-cov==7.1.0",
@@ -70,7 +79,7 @@ dev = [
     # workers (changes in `scripts/cosmic_ray_run_config.py` + ci.yml)
     # or re-acquiring the baseline on the new runtime; both are
     # independent work units and not bundled into this pin. See #434.
-    "cosmic-ray==8.7.0",
+    "cosmic-ray==8.4.6",
     "hypothesis>=6.165",
     "pytest-randomly>=4.1",
     # Pinned exactly, not floored. Issue #380: `ruff>=0.6` let CI resolve
@@ -121,13 +130,14 @@ dev = [
     # up [etl]; the dedup is now a runtime dep of the migration CLI,
     # not an opt-in operator extra.
     "rapidfuzz>=3.0",
-    # pyyaml is an [etl] runtime dep, but tests/test_security_scanning.py parses
-    # the workflow files with it to enforce Hard Rule 15 — and CI installs only
-    # [dev]. It reached the test job as a transitive dep of djlint, libcst and
-    # xenon, none of which promises to keep carrying it; the day one drops it,
-    # that file fails at collection and takes the runner gate down with it.
-    # Declared here so the test job depends on what it actually imports (#526).
-    "pyyaml>=6.0",
+    # pyyaml backs the structured workflow-YAML access in
+    # tests/_workflow_yaml.py (issue #963), which replaced the text-offset
+    # parsing in tests/test_ci_workflow.py, and parses the workflow files in
+    # tests/test_security_scanning.py (Hard Rule 15). CI installs only [dev],
+    # so the test job depends on what it actually imports (#526). Pinned
+    # exactly (not floored) to the version already resolved transitively in
+    # uv.lock (6.0.3) so the dev extra cannot drift from the locked tree.
+    "pyyaml==6.0.3",
 ]
 # ETL one-time: only operator machines that run ``python -m migration``
 # need these. Installed with ``pip install '.[etl]'`` on demand.
@@ -189,6 +199,10 @@ addopts = [
     # Integration tests run in their dedicated CI job with PostgreSQL; keep
     # the default local suite aligned with that job boundary.
     "--ignore=tests/integration",
+    # Issue #940: e2e_ci needs a deployed app + MinIO (its own CI job). Run
+    # bare, it leaked state into the route tests (61 failed + 514 errors
+    # locally while CI was green). Mirror the CI test job's scope exactly.
+    "--ignore=tests/e2e_ci",
     # pytest-randomly is installed for reproducible seeds, but the existing
     # suite's fixture order is intentionally kept stable until PR #3 adopts
     # randomized ordering explicitly.

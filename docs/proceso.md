@@ -38,6 +38,7 @@ Estas premisas rigen **todo** lo que se haga en APAP_WEB. Si una tarea las pone 
 - **P2-domain-doubt-ladder**: cuando algo no quede claro — modelo de datos, regla de negocio, comportamiento esperado, edge case — consultar **en este orden**: (1) `docs/discovery/feature-XX-*.md` (la versión revisada y consolidada, en castellano); (2) [`docs/architecture/decisiones-proyecto.md`](architecture/decisiones-proyecto.md) (si la duda es de producto/UX/arquitectura/proceso); (3) `docs/legacy-<área>.md` (documentación específica del área en el legacy); (4) **el Access directamente vía Dysflow MCP** (`projectId: apap`, `accessPath` resuelve al `.accdb` del legacy). Herramientas canónicas: `dysflow_list_tables`, `dysflow_get_schema`, `dysflow_get_relationships`, `dysflow_query_sql` (modo read), `dysflow_count_rows`, `dysflow_distinct_values`, `dysflow_compare_backends`. Diagnóstico de entorno con `dysflow_doctor`. Solo se permiten los skills **`vba-access`** y **`access-vba-tdd`**. Los demás skills de Access (`access-vba-sync`, `access-query`, `access-form-creation`, `access-sandbox`, etc.) están **excluidos** del workflow de APAP_WEB (ver [roadmap](roadmap.md) §7). Si tras las cuatro capas sigue la duda, **preguntar al usuario**. Nunca asuma equivalencias silenciosamente.
 - **P3-docs-reflect-code**: la documentación (incluido este `docs/proceso.md` y [`docs/roadmap.md`](roadmap.md)) **refleja** el código, no al revés. Si divergen, gana **el código** (sea legacy o nuevo). Actualice la doc en la misma sesión en que detecte la divergencia — no es opcional: [`docs/roadmap.md`](roadmap.md) §9 lo exige. `docs/architecture/decisiones-proyecto.md` es el registro de las decisiones que rompieron el molde; cualquier "esto es distinto al legacy porque X" debe constar allí con su fecha, autor y motivo.
 - **P4-pre-mvp-single-branch**: todo va a `main` directamente. Una sola rama al final de cada ciclo de merge ([AGENTS.md](../AGENTS.md) §15.2). Reversión post-MVP en §15.4, con **Virginia** como validadora UAT. El flip de fase solo se dispara por instrucción explícita del usuario ("ya tenemos MVC" o equivalente). Invertir el flujo por frases como "ya está" o "vamos cerrando" sin el keyword MVP/MVC está prohibido ([AGENTS.md](../AGENTS.md) §15.4 punto 5).
+- **P5-no-direct-push-multi-session**: ninguna sesión (incluido el mantenedor) puede realizar push directo a `main`. Varias sesiones de agente comparten una sola credencial admin, por lo que el push directo entre sesiones destruye el trail de PR + CI que las une. Todo llega vía pull request revisado; la auditoría post-hoc vive en [`.github/workflows/main-audit.yml`](../.github/workflows/main-audit.yml) (issue #986) y la norma detallada en [`docs/codebase/merge-workflow.md`](codebase/merge-workflow.md) §16.
 
 ---
 
@@ -192,7 +193,7 @@ Mejoras de claridad, naming, eliminación de duplicación. **Tests siguen pasand
 
 ### 4.4 Si la feature es UI
 
-Cargar el skill **`frontend-design`** **antes** del test rojo. Las pruebas TDD de UI usan `tests/` con `TestClient` por ahora; `tests/e2e/` se ejecuta en el job `e2e` de CI cuando `APAP_OAUTH_CLIENT_ID` está configurado.
+Cargar el skill **`frontend-design`** **antes** del test rojo. Las pruebas TDD de UI usan `tests/` con `TestClient` por ahora; el job `e2e` de CI ejecuta la suite fail-closed `tests/e2e_ci/` (Playwright) cuando la revisión declara cambio de UI (issue #895).
 
 ### 4.5 Si la feature toca Access/VBA
 
@@ -304,6 +305,7 @@ Cualquiera de estos requiere parada y consulta explícita al usuario:
 | Cambios en `.gitignore` raíz | OK solo si no afecta `.codegraph/` ([AGENTS.md](../AGENTS.md) §14.4). |
 | Crear nuevo dir top-level | `codegraph sync .` después ([AGENTS.md](../AGENTS.md) §14.8). |
 | Branch protection en GitHub | no sin OK explícito. |
+| Push directo a `main` (incluso por una sesión de agente) | prohibido por la norma multi-sesión de [`docs/codebase/merge-workflow.md`](codebase/merge-workflow.md) §16; toda llegada a `main` pasa por pull request. |
 | Deploy secrets (`COOLIFY_WEBHOOK_URL`, `APAP_OAUTH_CLIENT_ID`) | no tocar; son del operador. |
 | Asumir equivalencia nueva↔legacy sin documentarla en `docs/architecture/decisiones-proyecto.md` | stop; documentar primero. |
 | Modificar `docs/discovery/` o `docs/legacy-*` por cambio de interpretación | OK si se cita el cambio concreto; el doc se mantiene vivo. |
@@ -324,7 +326,7 @@ Cualquiera de estos requiere parada y consulta explícita al usuario:
 - Inventar allowlists, suppress de tests, o "fixes" sin entender la raíz (lección XSS 2026-07-03: el test tenía su mecanismo — `handler_controlled` allowlist — no era "suprimir el test").
 - Usar skills de Access distintos a `vba-access` y `access-vba-tdd` (P2 punto 4).
 - Inferir el flip pre-MVP → post-MVP de frases como "ya está" o "vamos cerrando" sin el keyword MVP/MVC ([AGENTS.md](../AGENTS.md) §15.4 punto 5).
-- Hacer commit o push directo a `main`; primero habría que autorizar y cambiar el ruleset que lo prohíbe.
+- Hacer commit o push directo a `main`; primero habría que autorizar y cambiar el ruleset que lo prohíbe (issue #986).
 
 ---
 

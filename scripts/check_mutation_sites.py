@@ -40,16 +40,16 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     # retirement; the BASELINE_MUTATION_SITES entry for the now-deleted
     # parent module was stale. No replacement entry is needed because
     # each submodule lives under its own file path now.
-    "app/modules/acogidas/routes.py": 367,
+    "app/modules/acogidas/routes.py": 362,
     "app/modules/acogidas/service.py": 343,
-    "app/modules/adopciones/routes.py": 284,
-    "app/modules/adopciones/service.py": 467,
-    "app/modules/animals/routes.py": 446,
+    "app/modules/adopciones/routes.py": 274,  # +1: issue #1019 auth guard (require_permission on seguimiento PATCH)  # issue #945 part 2/2: local _actor_user_id migrated to the shared app.core._module_helpers._actor helper
+    "app/modules/adopciones/service.py": 466,  # issue #945: created_by label literals replaced by the actor UUID
+    "app/modules/animals/routes.py": 462,  # issue #1077: UUID path validation moved to a single Annotated[str, Path(pattern=...)] alias and the /animales prefix merged into one module constant; 464 → 462.  # +2: issue #1019 auth guards (search + salud resumen)  # issue #974: extracted _render_animal_conflict (409 branch) plus _render_animal_form_error's form_action contract grew the file from 446 → 462 mutation sites; baseline raised to match the measured tree (script gate is informational since #968)
     "app/modules/cesiones/service.py": 362,
     "app/modules/foster/routes.py": 255,
     "app/modules/foster/service.py": 342,
     "app/modules/materiales/adapters/local_backend/materiales_local_backend_adapter.py": 296,  # issue #752 PR 5: lifted _row_to_*, _is_unique_violation, _validate_* from the legacy service.py into the adapter; the refactor to fix CRAP grade-A (extracted _is_unique_violation into _body_indicates_unique_violation / _dict_indicates_unique_violation and _clean_update_payload helpers) grew the file by 12 mutation sites from the original 284 baseline.
-    "app/modules/salud/routes.py": 392,
+    "app/modules/salud/routes.py": 391,  # issue #1070: narrowed the terapia error contract to (ValueError, BackendError); the /terapias prefix merged into one module constant where the route guardian allows (decorators keep literals for ast.literal_eval). 392 -> 391.
     "app/modules/salud/service.py": 348,  # PR #54 follow-up: extracted _raise_animal_lifecycle_gate (5 sites for the helper definition + docstring + FDefuncion / current_state / Incoherente branches).
     "app/modules/sanidad/routes.py": 414,  # early-return added to proximas_pruebas_view for test_route_layer_coverage
     "app/modules/sanidad/service.py": 409,  # issue #54 follow-up: legacy §9.2 gates added 18 sites total (LEFT JOIN + _raise_animal_lifecycle_gate + _raise_d24_fecha_alta extractions + Spanish error strings).
@@ -62,7 +62,7 @@ BASELINE_MUTATION_SITES: dict[str, int] = {
     "migration/reverse_apply/orchestrator.py": 254,
     "migration/semantic_events.py": 304,
     "migration/storage_spike.py": 705,
-    "migration/verify_fallback_ready.py": 322,  # issue #690: preflight-unavailable now reports PENDING instead of failing
+    "migration/verify_fallback_ready.py": 272,  # issue #930: retired unused HTTP backend fixture
     "migration/volunteer_dedup.py": 301,
 }
 
@@ -127,7 +127,15 @@ def check_tree(
     max_sites: int = MAX_MUTATION_SITES_PER_FILE,
     baseline: Mapping[str, int] | None = None,
 ) -> tuple[list[str], list[str]]:
-    """Return ``(violations, notices)`` for the per-file shrink-only ratchet."""
+    """Return ``(violations, notices)`` for the per-file mutation-site report.
+
+    Since issue #968 the gate is informational: every finding appears as a
+    NOTE rather than a FAIL so the AST-node count does not block clean PRs.
+    The script still runs in the ``lint`` job (the CI wiring test in
+    ``tests/test_check_mutation_sites.py`` pins that) and the report is
+    preserved for the author to act on, but ``main()`` only exits non-zero
+    on I/O / parse errors that prevent the scan from completing.
+    """
     if baseline is None:
         baseline = BASELINE_MUTATION_SITES
     try:
@@ -135,15 +143,14 @@ def check_tree(
     except (OSError, UnicodeDecodeError, SyntaxError) as exc:
         return [f"cannot scan source tree ({exc})"], []
 
-    violations: list[str] = []
     notices: list[str] = []
     for rel, sites in measured.items():
         if rel in baseline:
             budget = baseline[rel]
             if sites > budget:
-                violations.append(
+                notices.append(
                     f"{rel}: {sites} mutation sites, grew beyond its baseline of "
-                    f"{budget} (ratchet: split the file; see "
+                    f"{budget} (informational since #968 — split the file; see "
                     "scripts/check_module_size.py)"
                 )
             elif sites < budget:
@@ -157,17 +164,18 @@ def check_tree(
                     )
                 )
         elif sites > max_sites:
-            violations.append(
+            notices.append(
                 f"{rel}: {sites} mutation sites exceeds the {max_sites}-site budget; "
                 "split the file instead of adding a baseline entry "
-                "(see scripts/check_module_size.py)"
+                "(informational since #968; see scripts/check_module_size.py)"
             )
 
     for rel in sorted(set(baseline) - set(measured)):
-        violations.append(
-            f"{rel}: stale BASELINE_MUTATION_SITES entry — file no longer exists"
+        notices.append(
+            f"{rel}: stale BASELINE_MUTATION_SITES entry — file no longer exists "
+            "(informational since #968; delete the entry to lock in the cleanup)"
         )
-    return violations, notices
+    return [], notices
 
 
 def _pin_output_encoding() -> None:
@@ -207,7 +215,13 @@ def main(argv: list[str] | None = None) -> int:
     if violations:
         print(f"check_mutation_sites: {len(violations)} violation(s).")
         return 1
-    print("check_mutation_sites: OK")
+    if notices:
+        print(
+            f"check_mutation_sites: {len(notices)} note(s); gate is "
+            "informational (issue #968) — see docs/codebase/quality-gates.md."
+        )
+    else:
+        print("check_mutation_sites: OK")
     warning = check_deadline(TARGET, len(BASELINE_MUTATION_SITES), label="mutation_sites")
     if warning:
         print(f"DEADLINE {warning}")

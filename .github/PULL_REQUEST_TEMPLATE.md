@@ -1,5 +1,11 @@
 ## Issue vinculada
 
+<!--
+La rama `<tipo>/<N>-<slug>` identifica la issue `#N`; el gate `issue-spec` no lee este texto.
+- PR único o tramo final: `Closes #N` (GitHub cierra la issue al fusionar).
+- Tramo intermedio de una cadena: etiqueta `chain:partial`, misma `N` en la rama y `Refs #N` en lugar de `Closes`.
+-->
+
 Closes #
 
 ## Tipo
@@ -38,6 +44,6 @@ $ <comando>
 
 ## Excepción de tamaño
 
-Deje esta sección vacía salvo que el PR tenga `size:exception`.
+Deje esta sección vacía salvo que el diff supere 400 líneas y no quepa dividirlo. El motivo escrito aquí es el override real que lee el gate `pr-size` (issue #1121); el label `size:exception` es opcional e informativo. Si edita el cuerpo con el PR abierto, relance el job fallido de `ci` (`gh run rerun <run-id> --failed`): editar no recalcula el check.
 
-`size-exception-reason:`
+`size-exception-reason:` <motivo en una sola línea>

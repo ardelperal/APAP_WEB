@@ -22,6 +22,10 @@ if not payload.get("is_authorized", False):
     redirect("/unauthorized")
 ```
 
+## Sesión: logout sin revocación en servidor (issue #1076)
+
+`POST /logout` (protegido por `CsrfMiddleware`; `GET /logout` responde 405 y no borra nada — una navegación cross-site no puede cerrar la sesión) elimina la cookie del navegador, pero la sesión es una cookie firmada sin estado válida siete días: una copia obtenida antes del logout sigue siendo aceptada hasta que caduca, mientras el email siga autorizado en `usuarios_autorizados`. **La vía de revocación real** es retirar al usuario de `usuarios_autorizados` (la revalidación por request de `require_authorized_user` lo deniega en la siguiente petición, sujeta a la TTL del cache de auth — ver Regla 29) más la expiración natural de la cookie. No existe almacén de sesiones ni lista de revocación; introducirlos requiere una decisión de arquitectura separada.
+
 ## Regla 11 — Gate de cobertura para `CRITICAL_HELPERS`
 
 Los helpers en `app/` (funciones que matchean el regex `_row_to_*` + la lista explícita `{_redirect, _render_form, _is_duplicate_error, _validate_create_params, _build_insert_params}`) deben tener 100% de cobertura de líneas. Si añade un nuevo helper que contiene lógica de producto testeable, añádalo a `CRITICAL_HELPERS` en el mismo PR.
@@ -31,6 +35,82 @@ Los helpers en `app/` (funciones que matchean el regex `_row_to_*` + la lista ex
 ## Regla 29 — Cache de auth: backend in-process único + scope por worker (issues #262, #287)
 
 El cache de auth que respalda `require_authorized_user` (`app/core/auth_cache.py`, issue original #143) soporta solo el backend `in_process`. `APAP_AUTH_CACHE_BACKEND` queda como guard de compatibilidad: `in_process` se acepta; `redis` y todo valor desconocido fallan la validación de settings durante el arranque de la aplicación, antes de servirse cualquier request. Cada proceso worker de uvicorn posee su propio cache en memoria, así que `invalidate_auth(email)` solo alcanza al worker que la llamó y la peor ventana de staleness cross-worker es `APAP_AUTH_CACHE_TTL_SECONDS` (default 300s). El deploy actual en Coolify se confirmó el 2026-07-25 como una réplica de la aplicación usando el `CMD` del Dockerfile con Uvicorn y sin override `--workers`, así que corre un solo worker hoy. Antes de aumentar la cuenta de workers o réplicas, fije `APAP_AUTH_CACHE_TTL_SECONDS=0` para revocación inmediata al costo de un `SELECT` de autorización extra por request autenticado. Los pasos completos de deploy, verificación y rollback viven en `docs/runbooks/auth-cache-multi-worker.md`.
+
+## Secretos históricos en `git history` — protocolo de allowlist (issue #967)
+
+Un secreto que queda en el historial de git es **inmune al borrado del archivo** — el commit que lo introdujo permanece referenciado por SHA. Reescribir el historial (`git filter-branch`, `git filter-repo`) rompería PRs abiertos, clones y la memoria de CI, así que no es la respuesta correcta. El protocolo del repo es:
+
+1. **Revocar o rotar la credencial** en el proveedor — esto lo hace el mantenedor, fuera del repositorio. Sin revocación, cualquier persona con acceso al historial puede usar la clave.
+2. **Desactivar el camino de runtime** que la consumía (en este repo, el árbol de `app/core/adapters/insforge/` y los DI/ports asociados quedaron eliminados en `8bd9432` + este cleanup; el runtime ya no lee la clave).
+3. **Allowlist por fingerprint** en `.gitleaksignore` — solo para el commit + archivo + regla + línea exactos del hallazgo histórico. Formato: `<file>:<rule>:<line>` (ver `gitleaks dir --report-format json` para los valores). Cada entry lleva un comentario con la fecha, la issue y la razón por la que no es un secreto activo. Para hallazgos del escaneo de historia (`gitleaks detect`) use siempre el fingerprint completo de modo historia `<commit>:<file>:<rule>:<line>` — incluye el SHA del commit, de modo que la entrada queda clavada al hallazgo exacto: es inmutable (el SHA nunca cambia) y específica (no cubre apariciones nuevas del mismo shape en otros commits, que sí deben fallar el gate).
+4. **Verificación**: una rama de prueba con un secreto ficticio de alta entropía en el mismo shape debe seguir fallando el gate `security-deep`. Si pasa, el allowlist se volvió genérico y hay que restringirlo.
+
+Aplicación concreta de este protocolo al `API_KEY` de InsForge que quedó en el commit inicial `7e06e58` (`opencode.json:12`, regla `generic-api-key`):
+
+- **Issue**: #967 (cierre por chained cleanup).
+- **Revocación**: confirmada por el mantenedor (InsForge está deprecado y el runtime no lo consume).
+- **Allowlist**: `.gitleaksignore` línea final con comentario explicativo.
+- **Verificación**: una rama de prueba con un valor `ik_*` en `opencode.json:12` falla el gate (el allowlist es por fingerprint exacto, no por regla).
+
+Si en el futuro aparece un nuevo `API_KEY` con la misma regla `generic-api-key`, el `security-deep` job lo detectará — el allowlist no es genérico.
+
+### Taxonomía de clasificación y triage #903
+
+Antes de allowlistear cualquier hallazgo, clasifíquelo en una de tres clases y registre la clase en el comentario de la entrada:
+
+| Clase | Qué significa | Acción exigida |
+|---|---|---|
+| Secreto real | La credencial existió y pudo ser válida | Revocar/rotar fuera del repo (paso 1 del protocolo) antes de allowlistear |
+| Falso positivo | La regla dispara sobre una construcción que no es un secreto (p. ej. un kwarg cuyo valor es un nombre de archivo) | Allowlist por fingerprint completo con justificación |
+| Dato de prueba | Valor ficticio de test (fixture, padding para superar la validación de settings) | Allowlist por fingerprint completo con justificación |
+
+Triage #903 (2026-09-27): el primer escaneo de historia completa (`gitleaks detect` sobre los 1602 commits, imagen pineada por digest) reportó 11 hallazgos — 9 datos de prueba (8 filenames de storage usados como fixtures de un adaptador falso en dos commits, el padding de sesión de una suite de integración y el fixture de #381), 1 falso positivo estructural (el allowlist retirado de #381 se flaggeó a sí mismo por citar el valor entrecomillado) y **0 secretos reales**; no hubo rotaciones. Recuerde la constraint que ese falso positivo ilustra: nunca cite el valor flaggeado dentro de `.gitleaksignore`, ni siquiera en un comentario — entrecomillar el valor re-dispara la regla contra el propio allowlist.
+
+## Imágenes base pineadas — cadencia de re-pin y política trivy (issue #1043)
+
+El pin por digest (#338) hace la build reproducible, no segura: la capa congelada acumula CVEs mientras Debian publica arreglos que la imagen nunca absorbe. `security-deep` lee los digests del propio `Dockerfile`, así que el re-pin es el único mecanismo de remediación y este protocolo define cuándo y cómo.
+
+### Cadencia de re-pin
+
+- **Re-pinee cuando trivy reporta vulnerabilidades con fix disponible** (`Fixed version` no vacía) sobre los digests pineados. Ese es el disparador; no hay cadencia de calendario.
+- Resuelva el digest nuevo vía la API del registry (token en `auth.docker.io`, HEAD a `registry-1.docker.io/v2/library/<img>/manifests/<tag>` con `Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json`; el `Docker-Content-Digest` de la respuesta es el pin). Nunca pinee un digest sin escanearlo antes.
+- Si el tag actual de la línea en uso ya resuelve al mismo digest vulnerable y la línea está EOL (caso node 20 en #1043), suba de línea LTS completa — no hay remedio dentro de la línea congelada.
+- Valide la build con las bases nuevas antes de commitear el re-pin; un bump de base puede romper la build de la wheel o de Tailwind.
+
+### Política de `.trivyignore` para vulnerabilidades sin fix
+
+Cuando el digest más nuevo disponible todavía arrastra vulnerabilidades sin fix publicado (trivy reporta `Fixed version` vacía), el registro `.trivyignore` es el único mecanismo de supresión sancionado:
+
+- **Una entrada por vulnerabilidad**, con fecha de alta, expiración a 90 días y justificación inline en la misma línea del identificador. Nada global, nada sin fecha.
+- **Solo vulnerabilidades sin fix disponible**. Una con fix **nunca** se ignora: el re-pin la resuelve o el gate falla — fail-closed.
+- **Nunca `--ignore-unfixed`** en la línea de comandos; el registro por-identificador con justificación es el sustituto auditable.
+- Cada entrada se **re-justifica al expirar**: la entrada vencida se elimina y el gate vuelve a fallar hasta que la vulnerabilidad tenga fix upstream (re-pin) o la justificación se renueve con evidencia fresca.
+
+### Fail-closed
+
+El gate falla ante cualquier vulnerabilidad con fix disponible no ignorada. Es deliberado: una vulnerabilidad reaparecida tras un re-pin debe detener el merge, no filtrarse en silencio. Cualquier cambio que debilite esta propiedad (flag global, expiración indefinida, ignorar una vulnerabilidad con fix) es una regresión de seguridad del repo.
+
+### Excepción documentada para vulnerabilidades fixables de etapa de build (issue #1043)
+
+La invariant anterior admite una única excepción documentada, aprobada por el mantenedor el 2026-09-27. Una vulnerabilidad con fix disponible puede listarse en `.trivyignore` solo cuando se cumplen las tres condiciones a la vez:
+
+1. **Exposición confinada a una etapa de build que no llega a producción.** En #1043, los cuatro hallazgos fixables de `tailwind-base` (node:24-bookworm-slim, paquetes npm-bundled: brace-expansion, ip-address, tar) no existen en el runtime de producción (python:3.12.14-slim-bookworm, con cero fixables).
+2. **Ninguna base alcanzable hoy reduce el recuento.** node 20 (EOL, congelado) = 29 fixables; node 22 = 8; node 24 = 4.
+3. **Entrada con fecha de expiración a 90 días**, igual que el resto del registro.
+
+Las vulnerabilidades fixables en la etapa de runtime **nunca** se exceptúan. La excepción se limpia con el próximo rebuild upstream de la imagen node: re-pinee el digest y elimine las cuatro entradas en el mismo cambio.
+
+## Identidad de cliente: política rightmost-hop de X-Forwarded-For (issues #920, #1007)
+
+El limitador de peticiones (buckets `oauth`, `write` y `e2e_login`) y el evento de auditoría `e2e.login` resuelven la IP de cliente con la misma función, `_extract_identity` (`app/core/rate_limit.py`). Ambos consumidores comparten resolución, de modo que la clave de bucket y el `client_ip` de auditoría nunca divergen.
+
+La política es **rightmost-hop**: con `APAP_TRUST_XFF=true` y `APAP_TRUSTED_PROXIES` configurado, la identidad es la entrada de `X-Forwarded-For` que el proxy de confianza añadió al final de la cabecera. El recorrido va de derecha a izquierda, anclado en el par directo: si el par no es un proxy de confianza, el par gana y la cabecera no se consulta.
+
+- **Supuesto de topología única**: exactamente un ingress de confianza (Coolify/Traefik) que hace append de la IP real del cliente. Toda entrada a su izquierda es controlada por el cliente y no puede ganar mientras exista el salto añadido por el proxy; rotar la entrada leftmost no resetea ningún bucket ni falsifica el `client_ip` de auditoría.
+- **Fail-closed en los bordes**: cabecera vacía o sin entradas utilizables resuelve al par directo; una entrada no parseable se salta y jamás se adopta; sin par parseable (socket unix, sin info de par) la cabecera nunca se consulta.
+- **Default recomendado**: `APAP_TRUST_XFF=false` sigue siendo el valor recomendado. Con el default la cabecera se ignora por completo y la identidad es el par directo de la conexión TCP.
+
+Esta política cierra el riesgo residual aceptado en el judgment-day de #904 y registrado en [`docs/audits/e2e-login-hardening-2026-Q3.md`](../audits/e2e-login-hardening-2026-Q3.md): bajo `trust_xff=true`, la rotación de buckets mediante entradas leftmost y la falsificación del `client_ip` de auditoría ya no son posibles. La configuración operativa y el rollback están en el runbook [trusted-proxies.md](../runbooks/trusted-proxies.md).
 
 ## Resumen de reglas conectadas
 
@@ -49,6 +129,7 @@ El cache de auth que respalda `require_authorized_user` (`app/core/auth_cache.py
 - **Log redaction automática**: doce campos PII/secret nunca aparecen en logs.
 - **CRITICAL_HELPERS 100%**: la lista explícita más el regex `_row_to_*` cierra la cobertura de helpers de producto.
 - **Un worker = un cache**: aumentar workers exige `APAP_AUTH_CACHE_TTL_SECONDS=0` y runbook de rollback.
+- **Base images fail-closed**: los digests del `Dockerfile` se re-pinean cuando trivy reporta CVEs con fix; `.trivyignore` solo acepta CVEs sin fix, con fecha y expiración a 90 días.
 
 ## Contributor checklist
 
@@ -57,6 +138,7 @@ El cache de auth que respalda `require_authorized_user` (`app/core/auth_cache.py
 - [ ] Cada `<form method="post">` que renderice incluye `{{ csrf_token }}`.
 - [ ] Los nuevos helpers de producto se añaden a `CRITICAL_HELPERS` con su test al 100%.
 - [ ] Si aumenta workers o réplicas, fija `APAP_AUTH_CACHE_TTL_SECONDS=0` y enlaza el runbook.
+- [ ] Si trivy reporta CVEs con fix sobre los digests pineados, re-pinea la base (nuevo digest escaneado) en lugar de añadir entradas a `.trivyignore`.
 
 ## Navigation
 

@@ -1,0 +1,14 @@
+{
+  "gates": {
+    "check_crap": {
+      "enforcement": "dormant",
+      "reason": "no real defect caught; baseline visible in logs; re-arm via data change (refs #1065 criterio 5)",
+      "dormant_since": "2026-09-30"
+    },
+    "check_mutation_sites": {
+      "enforcement": "dormant",
+      "reason": "no real defect caught; baseline visible in logs; re-arm via data change (refs #1065 criterio 5)",
+      "dormant_since": "2026-09-30"
+    }
+  }
+}

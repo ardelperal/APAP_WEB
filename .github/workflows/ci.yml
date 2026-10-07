@@ -1,8 +1,10 @@
 name: ci
 
 on:
+  # Issue #933: no base-branch filter. Chained PRs (400-line budget) target
+  # another work branch and must get the same evidence before retargeting;
+  # pr-size measures against github.base_ref, so each slice is sized alone.
   pull_request:
-    branches: [main, staging]
   push:
     # `main` is deliberately absent: after a PR merge the tree was already
     # proven by the pull_request run, and deploy now lives in deploy.yml,
@@ -13,6 +15,15 @@ on:
   # an open PR after the workflow itself was edited). Use:
   #   gh workflow run ci.yml --ref <branch>
   workflow_dispatch:
+  # Issue #1046: weekly deep-scan cadence. The scan result is a function
+  # of the pinned base-image digests, not of time, so per-release runs
+  # repeated an identical scan at MVP release cadence. GitHub executes a
+  # scheduled run on the default branch only, and this block applies to
+  # EVERY job in the file — each job's `if:` pins what a scheduled run
+  # may execute: security-deep alone (see that job, pr-size and the
+  # schedule pins in tests/test_ci_workflow.py).
+  schedule:
+    - cron: '0 6 * * 1'
 
 # Checks run on isolated hosted runners. A newer commit makes an older run stale,
 # so cancel it instead of spending capacity on evidence that can no longer merge.
@@ -35,8 +46,21 @@ jobs:
   # label changes (see its `on:` block), so exactly one workflow publishes
   # the `pr-size` check for any given event.
   pr-size:
+    # Issue #1046: the workflow-level `schedule:` block reaches this job
+    # too, and the 400-line budget is a per-PR concept with nothing to
+    # diff against on a scheduled run. Skipping here is the single
+    # chokepoint of the schedule matrix: every job that `needs` pr-size
+    # (everything except ui-detection and required) is skipped on a
+    # scheduled run by GitHub's default success() semantics, so the
+    # weekly run executes security-deep alone.
+    if: github.event_name != 'schedule'
+    # Issue #926: `issues: read` added alongside `contents: read` — a
+    # called reusable workflow cannot exceed the caller's granted
+    # permissions, and pr-size.yml now reads the PR's live labels via the
+    # GitHub API instead of the event payload.
     permissions:
       contents: read
+      issues: read
     uses: ./.github/workflows/pr-size.yml
 
   issue-spec:
@@ -46,10 +70,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     # Issue #879: the only job that calls the GitHub API for issue data,
-    # so it is the only one that keeps `issues: read`.
+    # so it is the only one that keeps `issues: read`. Issue #956: it also
+    # reads the PR's labels and `closingIssuesReferences` through GraphQL,
+    # which needs `pull-requests: read` (read-only, no write scope).
     permissions:
       contents: read
       issues: read
+      pull-requests: read
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -59,12 +86,130 @@ jobs:
       - name: Set up exact Python runtime
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
-          python-version: "3.12.11"
+          python-version-file: .python-version
 
-      - name: Validate linked issue specifications
+      - name: Validate PR traceability (branch, labels, closing references)
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python scripts/check_issue_specs.py pr-event "$GITHUB_EVENT_PATH"
+
+  # Issue #895: computes the no-UI-change marker for the SHA under test so
+  # the e2e job runs exactly when the revision touches a UI path, and so
+  # the `required` checker can accept a skipped e2e only when the run
+  # carries the marker. The UI path list lives in
+  # scripts/check_required_jobs.py (single source of truth, shared with
+  # deploy.yml's ui-e2e-gate) and is consumed via --print-ui-paths.
+  ui-detection:
+    name: ui-detection
+    # Issue #1046: a scheduled run carries no revision diff worth
+    # classifying, and this job has no `needs`, so the pr-size cascade
+    # cannot skip it — an explicit guard keeps the schedule matrix at
+    # security-deep alone.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # Issue #879: does not read issues.
+    permissions:
+      contents: read
+    outputs:
+      ui_changed: ${{ steps.detect.outputs.ui_changed }}
+      # Issue #1196: the docs-only fast-lane marker. The heavy jobs' skip
+      # conditions and the `required` checker (DOCS_ONLY_HEAVY_JOBS) only
+      # accept a skipped heavy job when this marker is exactly 'true'.
+      docs_changed: ${{ steps.detect.outputs.docs_changed }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # The diff needs the full history (same rationale as pr-size.yml).
+          fetch-depth: 0
+
+      # The hosted image ships no `python` (issue #533 precedent in
+      # pr-size.yml), and the UI path list lives in the checker script.
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: .python-version
+
+      - name: Detect UI-path changes
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          # Single source of truth for the UI surface (issue #895, fix round
+          # 1, JD-B-001): detection is INVERTED and fail-closed. The checker
+          # prints the NON-UI allowlist and classifies the changed-file set
+          # (via --ui-changed); ui_changed is true unless EVERY changed file
+          # is allowlisted, because FastAPI renders Jinja from Python — all
+          # of app/** (routes, _form_render, templates, static) affects the
+          # browser, so a UI-path prefix list could never be exhaustive.
+          NON_UI_PATHS="$(python scripts/check_required_jobs.py --print-ui-paths)"
+          CHANGED=""
+          ui_changed=true
+          # Issue #1196: fail-closed in the opposite direction — docs-only
+          # must be PROVEN; any doubt runs the heavy jobs.
+          docs_changed=false
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            if [ -z "$BASE_REF" ]; then
+              echo "::error::pull_request event without base_ref" >&2
+              exit 1
+            fi
+            git fetch --no-tags origin "$BASE_REF"
+            BASE="$(git merge-base "origin/${BASE_REF}" HEAD)"
+            CHANGED="$(git diff --name-only "${BASE}...HEAD")"
+            ui_changed="$(printf '%s\n' "$CHANGED" | python scripts/check_required_jobs.py --ui-changed)"
+          else
+            # Issue #895 fix round 1 (JD-B-002): on push the diff base is
+            # github.event.before — the SHA the branch pointed at before
+            # the push. The parent-commit diff only covers the LAST commit,
+            # so a UI change hidden in an earlier commit of a multi-commit
+            # push used to skip e2e. HEAD^ remains only as the fallback for
+            # a zero-SHA initial push and for workflow_dispatch (which has
+            # no event.before). A root commit (no parent) fails closed:
+            # assume the UI changed.
+            if [ -n "$EVENT_BEFORE" ] \
+               && [ "$EVENT_BEFORE" != "0000000000000000000000000000000000000000" ] \
+               && git cat-file -e "$EVENT_BEFORE" 2>/dev/null; then
+              CHANGED="$(git diff --name-only "$EVENT_BEFORE" 'HEAD')"
+              ui_changed="$(printf '%s\n' "$CHANGED" | python scripts/check_required_jobs.py --ui-changed)"
+            elif git rev-parse --verify -q 'HEAD^' >/dev/null; then
+              CHANGED="$(git diff --name-only 'HEAD^' 'HEAD')"
+              ui_changed="$(printf '%s\n' "$CHANGED" | python scripts/check_required_jobs.py --ui-changed)"
+            else
+              echo "::warning::no event.before and no parent commit; assuming UI changed (fail-closed)" >&2
+            fi
+          fi
+          # ANTI-SELF-EXEMPTION toll (issue #895 fix round 1, JD-A-001): the
+          # gate's own source cannot be edited without paying the e2e toll.
+          # These three files DEFINE the detection, so a change to any of
+          # them forces ui_changed=true — otherwise an allowlist edit could
+          # reclassify future UI changes without e2e evidence.
+          for path in $CHANGED; do
+            case "$path" in
+              scripts/check_required_jobs.py|.github/workflows/ci.yml|.github/workflows/deploy.yml)
+                ui_changed=true
+                echo "::notice::gate-source change ($path) forces ui_changed=true (anti-self-exemption toll, issue #895)."
+                break
+                ;;
+            esac
+          done
+          echo "ui_changed=${ui_changed}" >> "$GITHUB_OUTPUT"
+          # Issue #1196: classify the same changed-file set for the
+          # docs-only fast lane through the single source of truth. An
+          # empty CHANGED keeps docs_changed=false (a no-op diff is not a
+          # documentation diff), and the classifier itself rejects any
+          # gate-source file (anti-self-exemption toll, mirroring the
+          # ui_changed toll above).
+          if [ -n "$CHANGED" ]; then
+            docs_changed="$(printf '%s\n' "$CHANGED" | python scripts/check_required_jobs.py --docs-changed)"
+          fi
+          echo "docs_changed=${docs_changed}" >> "$GITHUB_OUTPUT"
+          # NON_UI_PATHS is the live allowlist from the single source of
+          # truth; echoing it keeps every run's detection auditable.
+          echo "::notice::ui-detection: ui_changed=${ui_changed} docs_changed=${docs_changed} (non-UI allowlist: ${NON_UI_PATHS})"
 
   lint:
     name: lint
@@ -79,6 +224,65 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Run actionlint (all workflows, pinned 1.7.12)
+        # Issue #1154: actionlint validates the workflow schema, runs
+        # shellcheck over embedded scripts and checks `runs-on` labels
+        # against .github/actionlint.yaml, for every file under
+        # .github/workflows/. Any finding fails the job via its exit code.
+        # Pinned by tests/test_ci_workflow.py::
+        # test_ci_workflow_lint_job_runs_actionlint.
+        #
+        # The binary is pinned to 1.7.12. Workstations keep a system-wide
+        # actionlint 1.7.12 (handoff 2026-09-30 §5), so scripts/preflight.py
+        # runs this same step locally with no download. CI downloads the
+        # official release tarball into $RUNNER_TEMP and verifies its SHA256
+        # against the pinned checksums from rhysd/actionlint v1.7.12. No
+        # third-party action is involved.
+        #
+        # Declared findings — every remaining finding must be fixed or
+        # declared here with its rationale (issue #1154):
+        # - `unexpected key "command" for "services" section`: the e2e
+        #   `services.minio` block belongs to open PR #900 (issue #894),
+        #   which removes the whole service; declared instead of touching
+        #   it here. Remove this ignore when #900 merges.
+        # - SC2129 / SC2086 in deploy.yml scripts: deploy.yml is a
+        #   deployment workflow outside this change's scope; the mechanical
+        #   script fixes belong to a dedicated deploy.yml change. Remove
+        #   both ignores with that fix.
+        run: |
+          set -euo pipefail
+          version="1.7.12"
+          if [ "$(actionlint -version 2>/dev/null | head -n 1 | awk '{print $1}')" = "$version" ]; then
+            echo "actionlint ${version} already available; skipping the pinned download"
+          else
+            case "$(uname -m)" in
+              x86_64)
+                tarball="actionlint_${version}_linux_amd64.tar.gz"
+                sha256="8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+                ;;
+              aarch64)
+                tarball="actionlint_${version}_linux_arm64.tar.gz"
+                sha256="325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6"
+                ;;
+              *)
+                echo "::error::unsupported runner architecture: $(uname -m)" >&2
+                exit 1
+                ;;
+            esac
+            dest="${RUNNER_TEMP:-$(mktemp -d)}/actionlint-${version}"
+            mkdir -p "$dest"
+            curl -fsSL --retry 3 \
+              "https://github.com/rhysd/actionlint/releases/download/v${version}/${tarball}" \
+              -o "${dest}/${tarball}"
+            echo "${sha256}  ${dest}/${tarball}" | sha256sum --check --strict -
+            tar -xzf "${dest}/${tarball}" -C "$dest" actionlint
+            export PATH="${dest}:${PATH}"
+          fi
+          actionlint \
+            -ignore 'unexpected key "command" for "services" section' \
+            -ignore 'shellcheck reported issue in this script: SC2129' \
+            -ignore 'shellcheck reported issue in this script: SC2086'
 
       - name: Set up locked Python environment
         uses: ./.github/actions/setup-python
@@ -125,14 +329,22 @@ jobs:
         # historical `openspec/changes/archive/` stay out of scope
         # (archive is excluded inside the detector as immutable history).
         #
-        # Blocking since issue #576. ADR d-42 documents the removal of
-        # `continue-on-error: true` once ALAN003 reached a manageable
-        # baseline. A new ALAN violation in any scanned file now fails
-        # the job instead of reporting noise. Authors clean their files
-        # via the `<!-- alantyle-ignore:ALANxxx -->` directives or by
-        # rewriting. Parity pinned by tests/test_ci_workflow.py::
+        # Blocking from issue #576 to #1148; informational since issue
+        # #1149 (operator decision 2026-09-30, CI epic decision 3): the
+        # gate never caught a real defect (last-100 audit in
+        # docs/quality/ci-gate-inventory.md) while rejecting correct docs
+        # — an ALL-CAPS `BOTH` false positive in #1133 and 2 ALAN
+        # violations on PR #1117's runbook. The step still runs the
+        # detector on the same scope and prints every violation to the
+        # job log, but `--informational` turns findings into exit 0 so a
+        # docs-style hit no longer fails the lint job. Usage errors still
+        # exit 2, so a broken invocation never passes as green. The
+        # detector keeps its value as review guidance: AGENTS.md still
+        # rejects non-alan-style docs at REVIEW time. Authors clean their
+        # files via the `<!-- alantyle-ignore:ALANxxx -->` directives or
+        # by rewriting. Parity pinned by tests/test_ci_workflow.py::
         # test_ci_workflow_lint_job_runs_alantyle_lint.
-        run: python scripts/check_alantyle.py docs/ openspec/specs/ openspec/changes/*/specs/ README.md AGENTS.md DOCS.md CONTRIBUTING.md
+        run: python scripts/check_alantyle.py --informational docs/ openspec/specs/ openspec/changes/*/specs/ README.md AGENTS.md DOCS.md CONTRIBUTING.md
 
       - name: Run module-size ratchet (AGENTS.md rule 21)
         # Issue #202 — removing this step is a blocked change. The
@@ -269,7 +481,11 @@ jobs:
       - name: Run mutation-sites count ratchet (quality-gates-expansion)
         # REQ-QG-MSITES-1: cheap per-file AST proxy before the release/manual
         # cosmic-ray phase. The shrink-only baseline may only decrease.
-        run: python scripts/check_mutation_sites.py
+        # Issue #1168: enforcement is declared in .github/ci-gate-policy.json —
+        # dormant runs the gate, keeps its findings visible in the log and
+        # exits 0; enforcing, an unlisted gate or a missing/invalid policy
+        # fails the step (default-deny, never a silent skip).
+        run: python scripts/preflight.py run-gate check_mutation_sites -- python scripts/check_mutation_sites.py
 
       - name: Run import-cycle detector (AGENTS.md §26, issue #443)
         # Issue #443 — removing this step is a blocked change. Tarjan
@@ -309,10 +525,11 @@ jobs:
   security:
     name: security
     # Issue #381. Light scanners only — these run on every PR and must stay
-    # fast. The heavy image scanning lives in `security-deep` below, reserved
-    # for release cadence (tag push / manual dispatch), because base images
-    # change roughly monthly and paying that cost per pull request slows the
-    # loop for nothing while the MVP is still being built.
+    # fast. The heavy image scanning lives in `security-deep` below, on a
+    # weekly schedule plus manual dispatch (issue #1046): the scan result is
+    # a function of the pinned digests, not of release time, and paying that
+    # cost per pull request slows the loop for nothing while the MVP is
+    # still being built.
     #
     # Hosted Docker is disposable; no production daemon is exposed to PR code.
     runs-on: ubuntu-24.04
@@ -347,9 +564,22 @@ jobs:
         # The `timeout` is the load-bearing part, not `docker info`: an
         # unwrapped `docker info` hangs exactly like the `docker run` it is
         # supposed to protect, and a preflight that can hang is not a preflight.
+        #
+        # Issue #1146 (lived as #1130): the runner echoes this whole script as
+        # the step header, so a literal `::error::` sentence in the script text
+        # made log greps report a daemon failure that never fired — three
+        # #1130 reruns were misdiagnosed on that text while the real cause was
+        # a shifted .gitleaksignore fingerprint. The failure reason therefore
+        # lives in `env:` (never echoed as the header) and the script's only
+        # literal output is the informative notice below.
+        env:
+          PREFLIGHT_FAIL_REASON: >-
+            docker info did not answer within 30s (timed out or errored);
+            failing fast instead of hanging — check the runner's Docker daemon.
         run: |
+          echo "::notice::Preflight: verifying the Docker daemon answers before the secrets scans (30s cap)."
           if ! timeout 30 docker info >/dev/null 2>&1; then
-            echo "::error::Docker daemon is not answering on this runner; failing fast instead of hanging." >&2
+            echo "::error::${PREFLIGHT_FAIL_REASON}" >&2
             exit 1
           fi
 
@@ -359,12 +589,15 @@ jobs:
         # worktree, and on a shallow checkout. Full-history scanning is in
         # `security-deep`.
         #
-        # There is NO .gitleaksignore, and none is needed: the historical false
-        # positive from #381 (a storage-object filename fixture in
-        # a retired migration storage-methods test (deleted in issue #670) does not fire under
-        # the pinned digest below. This comment used to claim an allowlist file
-        # that was never committed — see #495. The retired file, with its one
-        # documented entry, is on archive/tmp-test-merge5-staged-2026-08-09.
+        # .gitleaksignore EXISTS and is load-bearing: issue #903 triaged the
+        # full-history scan (gitleaks detect on the same pinned digest below)
+        # and allowlisted all 11 findings — every one a false positive or test
+        # data, zero real secrets — as per-fingerprint history entries pinned
+        # to the exact <commit>:<file>:<rule>:<line>. Entries are never
+        # path-wide and never value-quoted, so a new secret of the same shape
+        # still fails the gate. This comment previously claimed no allowlist
+        # file existed, and before that claimed the opposite — see #495 and
+        # #903 for the two corrections.
         #
         # If the rule ever fires again, add an allowlist entry with its reason
         # and date — never weaken the ruleset and never narrow the scan path.
@@ -434,17 +667,31 @@ jobs:
     name: security-deep
     needs: pr-size
     # Issue #381. The heavy half: pulls base images and a vulnerability
-    # database, so it does NOT run per pull request. Triggers are any tag
-    # push (releases) and manual dispatch.
+    # database, so it does NOT run per pull request. Issue #1046: weekly
+    # cadence — the scan result is a function of the pinned digests
+    # (issue #338), not of time, so MVP release cadence made per-release
+    # runs redundant and tags no longer trigger it. The weekly schedule
+    # bounds the CVE-decay window at 7 days; `workflow_dispatch` stays as
+    # the manual button for big releases.
     #
-    # This split is deliberate. A digest-pinned base image (issue #338) is
-    # reproducible, not safe — it keeps shipping the same layer while CVEs
-    # accumulate against it. Reserving the scan for release cadence is
-    # acceptable for that decay; per-PR is not, because nothing in a pull
-    # request can change it.
+    # A digest-pinned base image (issue #338) is reproducible, not safe — it
+    # keeps shipping the same layer while CVEs accumulate against it.
+    # Per-PR remains wrong because nothing in a pull request can change the
+    # pinned digests.
+    #
+    # The pr-size clause overrides the implicit success(): on schedule runs
+    # pr-size is guarded off (`!= 'schedule'`), and a job whose needed job
+    # is skipped is itself skipped unless its `if` carries a status
+    # function. `!cancelled()` keeps cancellation semantics; the result
+    # clause lets the scan through on the skip but still blocks on a failed
+    # or cancelled pr-size.
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      startsWith(github.ref, 'refs/tags/')
+      !cancelled() &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule'
+      ) &&
+      (needs.pr-size.result == 'success' || needs.pr-size.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     # Issue #879: does not read issues.
@@ -463,9 +710,17 @@ jobs:
         # it more: `trivy image` pulls hundred-megabyte base images, so a
         # `docker run` that never answers is indistinguishable from one that is
         # merely slow, and this job carries the largest timeout budget to burn.
+        # Same `env:`-based failure reason as the sibling step: the script text
+        # is echoed as the step header, so it must stay free of literal error
+        # sentences (issue #1146, lived as #1130).
+        env:
+          PREFLIGHT_FAIL_REASON: >-
+            docker info did not answer within 30s (timed out or errored);
+            failing fast instead of hanging — check the runner's Docker daemon.
         run: |
+          echo "::notice::Preflight: verifying the Docker daemon answers before the full-history scan (30s cap)."
           if ! timeout 30 docker info >/dev/null 2>&1; then
-            echo "::error::Docker daemon is not answering on this runner; failing fast instead of hanging." >&2
+            echo "::error::${PREFLIGHT_FAIL_REASON}" >&2
             exit 1
           fi
 
@@ -503,15 +758,41 @@ jobs:
         # the digests pinned in the Dockerfile, so those are the layers whose
         # CVE exposure actually matters. Digests are read from the Dockerfile
         # itself, so re-pinning a base image automatically re-points this scan.
+        # Issue #1043: the working directory is mounted into the container so
+        # trivy reads the repo's `.trivyignore` — the per-CVE suppression
+        # register is the only sanctioned suppression mechanism.
         run: |
           set -euo pipefail
           images=$(grep -oE '^FROM [^ ]+@sha256:[a-f0-9]+' Dockerfile \
                    | awk '{print $2}' | sort -u)
-          echo "Scanning:"; echo "$images"
+          # Issue #1035: FROM lines interpolate ARGs (e.g.
+          # node:${NODE_VERSION}-bookworm-slim@sha256:...) and trivy dies with
+          # "could not parse reference" on the unresolved form. Resolve every
+          # ${NAME} against the ARG defaults the Dockerfile itself declares;
+          # the @sha256 digest pins pass through untouched. Pure shell — this
+          # job sets up no Python toolchain of its own.
+          arg_defaults=$(grep -oE '^ARG [A-Za-z_]+=[^ ]+' Dockerfile | awk '{print $2}')
+          resolved_images=""
+          while IFS= read -r img; do
+            [ -n "$img" ] || continue
+            resolved="$img"
+            for pair in $arg_defaults; do
+              name=${pair%%=*}
+              value=${pair#*=}
+              resolved=$(printf '%s' "$resolved" | sed "s/\${${name}}/${value}/g")
+            done
+            if printf '%s' "$resolved" | grep -q '[$][{]'; then
+              echo "::error::unresolved ARG in base image '$img' (resolved to '$resolved'); an ARG used in FROM must declare a default in the Dockerfile."
+              exit 1
+            fi
+            resolved_images="${resolved_images}${resolved_images:+ }$resolved"
+          done <<< "$images"
+          echo "Scanning:"; echo "$resolved_images"
           status=0
-          for img in $images; do
+          for img in $resolved_images; do
             echo "::group::trivy $img"
             docker run --rm \
+              -v "$PWD:/repo" -w /repo \
               aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
               image "$img" --severity HIGH,CRITICAL --exit-code 1 --quiet || status=1
             echo "::endgroup::"
@@ -524,10 +805,12 @@ jobs:
     # Issue #431. Mutation testing is a trend instrument, not a per-PR check:
     # the pilot module alone is 233 mutants. Same split rationale as
     # `security-deep` above — release and manual only, never on a pull
-    # request. Guards that reach this job: an explicit `gh workflow run
-    # ci.yml`, and release-tag pushes (so a release can bundle a mutation
-    # evidence run). Nothing in a pull request triggers it (§32.P7: this
-    # comment names which events reach the job and which are skipped).
+    # request; unlike the deep scan, mutation KEEPS its tag trigger (issue
+    # #1046 touches only security-deep's cadence). Guards that reach this
+    # job: an explicit `gh workflow run ci.yml`, and release-tag pushes (so
+    # a release can bundle a mutation evidence run). Nothing in a pull
+    # request or a scheduled run triggers it (§32.P7: this comment names
+    # which events reach the job and which are skipped).
     #
     # LINUX ONLY, and that is load-bearing rather than incidental. cosmic-ray
     # 8.4.6 returns INCOMPETENT for 100% of mutants on native Windows while
@@ -563,17 +846,16 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Set up Python
-        # Pin to CPython 3.12 here even though ``pyproject.toml`` requires
-        # ``>=3.11``. The pinned cosmic-ray 8.4.6 (matches
-        # ``mutation-baseline.json::acquired_on.cosmic_ray``) calls
-        # ``asyncio.get_event_loop()`` from its HTTP distributor
-        # (``cosmic_ray/distribution/http.py:47``); that call has no current
-        # loop on Python 3.14 and the runtime aborts the session before any
-        # mutant executes. The fix landed in cosmic-ray 8.7.x but bumping
-        # the pin is a separate concern — pinning Python here keeps the
-        # evidence run reproducible against the baseline and matches the
-        # 3.12.3 CPython the baseline was acquired on. Restore
-        # ``python-version-file: pyproject.toml`` once cosmic-ray is bumped.
+        # Reads ``.python-version`` (3.12.14) through the composite action —
+        # the same interpreter the CI suites exercise and the production
+        # image builds with (issue #1087 unified the sources). The pinned
+        # cosmic-ray 8.4.6 (matches
+        # ``mutation-baseline.json::acquired_on.cosmic_ray``) is safe on
+        # 3.12.x: its HTTP distributor's ``asyncio.get_event_loop()`` only
+        # aborts on Python 3.14+ (fix landed upstream in 8.7.x). The
+        # baseline in ``docs/quality/mutation-baseline.json`` was acquired
+        # on 3.12.11; the survivor ratchet compares session results, not
+        # interpreters, and the next re-acquisition will record 3.12.14.
         uses: ./.github/actions/setup-python
 
       - name: Verify the unmutated suite is green
@@ -716,7 +998,15 @@ jobs:
 
   typecheck:
     name: typecheck
-    needs: pr-size
+    needs: [pr-size, ui-detection]
+    # Issue #1196: a docs-only pull_request (EVERY changed file is
+    # documentation, per the fail-closed classifier in
+    # scripts/check_required_jobs.py) skips this heavy job; the `required`
+    # checker accepts the skip only when ui-detection published
+    # docs_changed='true'. Pushes and release events always run it.
+    if: >-
+      github.event_name != 'pull_request' ||
+      needs.ui-detection.outputs.docs_changed != 'true'
     # See lint job for the runs-on rationale.
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -745,7 +1035,13 @@ jobs:
     # into another run.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    needs: [pr-size, lint]
+    needs: [pr-size, lint, ui-detection]
+    # Issue #1196: docs-only fast lane — see the typecheck job for the
+    # condition rationale; the `required` checker accepts the skip only
+    # with the ui-detection docs_changed='true' marker.
+    if: >-
+      github.event_name != 'pull_request' ||
+      needs.ui-detection.outputs.docs_changed != 'true'
     # Issue #879: does not read issues.
     permissions:
       contents: read
@@ -846,13 +1142,23 @@ jobs:
         # REQ-QG-CRAP-1: reads the coverage.json produced by the pytest
         # step above. This MUST stay in the test job: lint has an
         # independent checkout and cannot consume per-PR coverage.
-        run: python scripts/check_crap.py
+        # Issue #1168: enforcement is declared in .github/ci-gate-policy.json —
+        # dormant runs the gate, keeps its findings visible in the log and
+        # exits 0; enforcing, an unlisted gate or a missing/invalid policy
+        # fails the step (default-deny, never a silent skip).
+        run: python scripts/preflight.py run-gate check_crap -- python scripts/check_crap.py
 
   integration:
     name: integration
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    needs: [pr-size, lint]
+    needs: [pr-size, lint, ui-detection]
+    # Issue #1196: docs-only fast lane — see the typecheck job for the
+    # condition rationale; the `required` checker accepts the skip only
+    # with the ui-detection docs_changed='true' marker.
+    if: >-
+      github.event_name != 'pull_request' ||
+      needs.ui-detection.outputs.docs_changed != 'true'
     # Issue #879: does not read issues.
     permissions:
       contents: read
@@ -945,7 +1251,13 @@ jobs:
     # path exercises against).
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    needs: [pr-size, integration]
+    needs: [pr-size, integration, ui-detection]
+    # Issue #1196: docs-only fast lane — see the typecheck job for the
+    # condition rationale. The explicit skip also keeps the GitHub needs
+    # cascade deterministic when the integration job above skips.
+    if: >-
+      github.event_name != 'pull_request' ||
+      needs.ui-detection.outputs.docs_changed != 'true'
     # Issue #879: does not read issues.
     permissions:
       contents: read
@@ -1003,7 +1315,13 @@ jobs:
     name: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    needs: [pr-size, test, integration, verify-fallback-ready]
+    needs: [pr-size, test, integration, verify-fallback-ready, ui-detection]
+    # Issue #1196: docs-only fast lane — see the typecheck job for the
+    # condition rationale. The explicit skip also keeps the GitHub needs
+    # cascade deterministic when the test/integration jobs above skip.
+    if: >-
+      github.event_name != 'pull_request' ||
+      needs.ui-detection.outputs.docs_changed != 'true'
     # Issue #879: does not read issues.
     permissions:
       contents: read
@@ -1020,16 +1338,33 @@ jobs:
   e2e:
     name: e2e
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    needs: build
-    # Issue #879: does not read issues.
+    timeout-minutes: 30
+    needs: [build, ui-detection]
+    # Issue #879: does not read issues. Issue #973: `packages: read`
+    # lets the service pull the private GHCR MinIO replica with the
+    # ephemeral GITHUB_TOKEN.
     permissions:
       contents: read
-    # E2E needs Postgres, a source-built MinIO container, and Chromium.
-    # Run on release events; PRs can dispatch this workflow manually.
+      packages: read
+    # Release events (workflow_dispatch / tag push) always run the suite
+    # (issue #780/#766). Since issue #895, a pull_request or branch push
+    # also runs it when the ui-detection job detected a UI-path change on
+    # the SHA under test; with ui_changed=false the job skips explicitly
+    # (never silently — the `required` checker accepts the skip only when
+    # the run carries that marker). Issue #1196: a docs-only pull_request
+    # skips too — a pure-documentation diff can never be a UI change. Issue #1046: scheduled runs never
+    # reach e2e — the guard below is explicit even though the pr-size
+    # cascade already skips the job (defense in depth).
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      startsWith(github.ref, 'refs/tags/')
+      github.event_name != 'schedule' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        startsWith(github.ref, 'refs/tags/') ||
+        (
+          needs.ui-detection.outputs.docs_changed != 'true' &&
+          needs.ui-detection.outputs.ui_changed == 'true'
+        )
+      )
     services:
       postgres:
         image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
@@ -1044,47 +1379,40 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      minio:
+        # Issue #973: the upstream `minio/minio` binary images no longer
+        # exist. MinIO Community Edition went source-only in late 2025
+        # and its binary images were removed from Docker Hub, quay.io,
+        # and every public mirror (minio/minio#21662), so no upstream
+        # pull can be authenticated into working again. This service pulls the repo-owned GHCR replica built
+        # from pinned MinIO CE source by minio-replica.yml instead. The
+        # package is private, so the pull authenticates with the
+        # ephemeral GITHUB_TOKEN (service containers accept expressions
+        # in credentials). The image is pinned by digest, recorded from
+        # replica build run 36249625652. To refresh it: re-run
+        # minio-replica.yml and update this pin. Runbook:
+        # docs/operations/minio-replica.md.
+        image: ghcr.io/ardelperal/minio@sha256:6140fe7015bd97e4e6340c9a8ead775c09bc1a226b7c36e41d24852f839dae8f
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+        command: server /data --console-address ":9001"
+        env:
+              MINIO_ROOT_USER: ${{ secrets.MINIO_E2E_ACCESS_KEY }}
+              MINIO_ROOT_PASSWORD: ${{ secrets.MINIO_E2E_SECRET_KEY }}
+        ports:
+          - 9000
+        options: >-
+          --health-cmd "curl --fail --silent http://localhost:9000/minio/health/live"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Set up locked Python environment
         uses: ./.github/actions/setup-python
-
-      - name: Verify the Docker daemon before building MinIO
-        run: |
-          if ! timeout 30 docker info >/dev/null 2>&1; then
-            echo "::error::Docker daemon is not answering on this runner." >&2
-            exit 1
-          fi
-
-      - name: Build and start fixed-source MinIO for E2E
-        env:
-          MINIO_ROOT_USER: ${{ secrets.MINIO_E2E_ACCESS_KEY }}
-          MINIO_ROOT_PASSWORD: ${{ secrets.MINIO_E2E_SECRET_KEY }}
-        run: |
-          set -euo pipefail
-          test -n "$MINIO_ROOT_USER" && test -n "$MINIO_ROOT_PASSWORD"
-          MINIO_SOURCE_SHA=7aac2a2c5b7c882e68c1ce017d8256be2feea27f
-          source_dir="$(mktemp -d)"
-          git -C "$source_dir" init -q
-          git -C "$source_dir" remote add origin https://github.com/minio/minio.git
-          git -C "$source_dir" fetch -q --depth=1 --filter=blob:none origin "$MINIO_SOURCE_SHA"
-          git -C "$source_dir" checkout -q --detach FETCH_HEAD
-          test "$(git -C "$source_dir" rev-parse HEAD)" = "$MINIO_SOURCE_SHA"
-          (cd "$source_dir" && GOTOOLCHAIN=go1.25.6 CGO_ENABLED=0 go build -mod=readonly -trimpath -o minio-bin .)
-          mkdir "$source_dir/image"
-          mv "$source_dir/minio-bin" "$source_dir/image/minio"
-          printf 'FROM scratch\nCOPY minio /minio\nENTRYPOINT ["/minio"]\n' > "$source_dir/image/Dockerfile"
-          docker build --label "org.opencontainers.image.revision=$MINIO_SOURCE_SHA" \
-            -t apap-e2e-minio:7aac2a2 "$source_dir/image"
-          MINIO_IMAGE_ID="$(docker image inspect --format '{{.Id}}' apap-e2e-minio:7aac2a2)"
-          [[ "$MINIO_IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ ]]
-          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$MINIO_IMAGE_ID")" = "$MINIO_SOURCE_SHA"
-          docker run -d --rm --name apap-e2e-minio -p 127.0.0.1:9000:9000 \
-            -e MINIO_ROOT_USER -e MINIO_ROOT_PASSWORD \
-            "$MINIO_IMAGE_ID" server /data --console-address :9001
-          rm -rf "$source_dir"
 
       - name: Install locked Chromium runtime
         run: python -m playwright install --with-deps chromium
@@ -1095,9 +1423,11 @@ jobs:
 
 
       - name: Wait for MinIO to be healthy
+        env:
+          MINIO_HOST_PORT: ${{ job.services.minio.ports['9000'] }}
         run: |
-          for i in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1; then
+          for _ in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:${MINIO_HOST_PORT}/minio/health/live" >/dev/null 2>&1; then
               echo "MinIO is healthy"
               exit 0
             fi
@@ -1108,7 +1438,7 @@ jobs:
 
       - name: Create apap-photos bucket in MinIO
         env:
-          MINIO_HOST_PORT: "9000"
+          MINIO_HOST_PORT: ${{ job.services.minio.ports['9000'] }}
           S3_ACCESS_KEY: ${{ secrets.MINIO_E2E_ACCESS_KEY }}
           S3_SECRET_KEY: ${{ secrets.MINIO_E2E_SECRET_KEY }}
         run: python3 scripts/create_minio_bucket.py
@@ -1116,11 +1446,20 @@ jobs:
       - name: Start the production application against ephemeral Postgres
         env:
           POSTGRES_HOST_PORT: ${{ job.services.postgres.ports['5432'] }}
+          MINIO_HOST_PORT: ${{ job.services.minio.ports['9000'] }}
           APAP_DEBUG: "true"
           APAP_MODE: test
+          # Issue #1005 (JD-B-011, fix round 2): this env var makes the
+          # e2e app START with the flag ON, matching production parity
+          # (Coolify sets it too). It does NOT by itself detect flag
+          # regressions: the e2e suite (tests/e2e_ci/) never exercises
+          # /login or /auth/magic/*. Flag-parity detection rests on the
+          # unit atoms in tests/test_auth_flow.py (login render in both
+          # flag states) and tests/test_magic_link_flag.py (fail-closed
+          # 404, gate short-circuit).
+          APAP_AUTH_ENABLE_MAGIC_LINK: "true"
           APAP_E2E_AUTH_ENABLED: "true"
           APAP_E2E_AUTH_DEFAULT_EMAIL: e2e@apap.local
-          APAP_S3_ENDPOINT: 127.0.0.1:9000
           APAP_S3_ACCESS_KEY: ${{ secrets.MINIO_E2E_ACCESS_KEY }}
           APAP_S3_SECRET_KEY: ${{ secrets.MINIO_E2E_SECRET_KEY }}
           APAP_S3_BUCKET: apap-photos
@@ -1132,15 +1471,24 @@ jobs:
             exit 1
           fi
           export APAP_LOCAL_DB_URL="postgresql://postgres@127.0.0.1:${POSTGRES_HOST_PORT}/apap_e2e"
+          # Issue #894: the endpoint is resolved HERE, in the shell — the
+          # env: block above does not expand ${MINIO_HOST_PORT}, so the app
+          # received the literal string, the MinIO SDK rejected it, the
+          # client degraded to None and the health check passed as
+          # "unconfigured" without ever exercising MinIO.
+          export APAP_S3_ENDPOINT="http://127.0.0.1:${MINIO_HOST_PORT}"
           python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --lifespan on &
-          echo "SERVER_PID=$!" >> "$GITHUB_ENV"
-          echo "APAP_LOCAL_DB_URL=$APAP_LOCAL_DB_URL" >> "$GITHUB_ENV"
-          echo "APAP_DEBUG=true" >> "$GITHUB_ENV"
-          echo "APAP_MODE=test" >> "$GITHUB_ENV"
-          echo "APAP_E2E_AUTH_ENABLED=true" >> "$GITHUB_ENV"
-          echo "APAP_E2E_AUTH_SECRET=$APAP_E2E_AUTH_SECRET" >> "$GITHUB_ENV"
-          echo "APAP_E2E_AUTH_DEFAULT_EMAIL=$APAP_E2E_AUTH_DEFAULT_EMAIL" >> "$GITHUB_ENV"
-          for i in {1..45}; do
+          # Grouped redirect (shellcheck SC2129): one block, one append.
+          {
+            echo "SERVER_PID=$!"
+            echo "APAP_LOCAL_DB_URL=$APAP_LOCAL_DB_URL"
+            echo "APAP_DEBUG=true"
+            echo "APAP_MODE=test"
+            echo "APAP_E2E_AUTH_ENABLED=true"
+            echo "APAP_E2E_AUTH_SECRET=$APAP_E2E_AUTH_SECRET"
+            echo "APAP_E2E_AUTH_DEFAULT_EMAIL=$APAP_E2E_AUTH_DEFAULT_EMAIL"
+          } >> "$GITHUB_ENV"
+          for _ in {1..45}; do
             if curl -fsS http://127.0.0.1:8000/healthz >/dev/null; then
               exit 0
             fi
@@ -1150,24 +1498,22 @@ jobs:
           exit 1
 
       - name: Run fail-closed Playwright smoke suite
-        env:
-          APAP_S3_ENDPOINT: 127.0.0.1:9000
-          APAP_S3_ACCESS_KEY: ${{ secrets.MINIO_E2E_ACCESS_KEY }}
-          APAP_S3_SECRET_KEY: ${{ secrets.MINIO_E2E_SECRET_KEY }}
-          APAP_S3_SECURE: "false"
         run: python -m pytest tests/e2e_ci/ -v
 
       - name: Stop application server
         if: always()
-        run: |
-          kill "$SERVER_PID" 2>/dev/null || true
-          docker rm -f apap-e2e-minio 2>/dev/null || true
+        run: kill "$SERVER_PID" 2>/dev/null || true
 
   required:
     name: required
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    if: always()
+    # Issue #1046: `schedule` must never reach the checker — it fails
+    # closed on unsupported events (pinned by test_check_required_jobs.py),
+    # and the weekly deep-scan run needs no PR rollup verdict. always() is
+    # kept so the rollup still runs when sibling jobs skip or fail on
+    # pull_request, push and release events.
+    if: always() && github.event_name != 'schedule'
     # Issue #879: does not read issues.
     permissions:
       contents: read
@@ -1184,6 +1530,7 @@ jobs:
       - verify-fallback-ready
       - build
       - e2e
+      - ui-detection
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

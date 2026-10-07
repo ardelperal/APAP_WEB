@@ -48,6 +48,11 @@ EXPECTED_PUBLIC_PATHS: frozenset[str] = frozenset(
         # the email link is the authorization, not the session cookie,
         # so these endpoints must be reachable without a session.
         # See app.core.middleware.PUBLIC_PATHS for the rationale.
+        # Issue #1005 (fix round 1, JD-B-007): these endpoints are
+        # public ONLY while ``Settings.auth_enable_magic_link`` is on —
+        # with the flag off neither app registers the router and the
+        # auth middleware answers probes with a fail-closed 404 before
+        # this frozenset is consulted.
         "/auth/magic/start",
         "/auth/magic/verify",
         "/logout",
@@ -65,7 +70,7 @@ PII_ROUTES_PARAMETRIZE: tuple[str, ...] = (
     "/voluntarios",
     "/voluntarios/abc-123",
     "/animales",
-    "/animales/abc-123/foto",
+    "/animales/abc12345-0000-4000-8000-000000000001/foto",
     "/entradas",
 )
 

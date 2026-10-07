@@ -11,10 +11,10 @@ Este proyecto está **pre-MVP**. Todo el trabajo aterriza en `main` y, tras el m
 ### §15.1 Gate pre-MVP — todo debe ser verdadero antes de mergear a `main`
 
 1. **El gate local está verde.** `uv sync --frozen --extra dev`, `make verify` y la validación específica del cambio pasan. Este conjunto es un pre-flight; CI añade los servicios y runtimes que no pertenecen a una estación local.
-2. **La CI del PR está verde.** `ci / required` agrega `issue-spec`, lint, seguridad, typecheck, tests, integración PostgreSQL, fallback, build y E2E Playwright. Solo acepta skips previstos por la matriz del evento. `deploy.yml` no forma parte de la CI del PR: se activa después, con el push del merge commit a `main`, y verifica primero la evidencia verde del head mergeado.
+2. **La CI del PR está verde.** `ci / required` agrega `issue-spec`, lint, seguridad, typecheck, tests, integración PostgreSQL, fallback, build y `ui-detection`. El job `e2e` (Playwright) no corre en todos los PR: solo se ejecuta cuando `ui-detection` detecta cambios de UI en la revisión, o en eventos de release (tag `v*`, ejecución manual); con `ui_changed=false` se omite de forma explícita y `required` acepta ese skip únicamente porque el run lleva el marcador de no-UI (issue #895). Fuera de esas excepciones, solo acepta skips previstos por la matriz del evento. `deploy.yml` no forma parte de la CI del PR: se activa después, con el push del merge commit a `main`, verifica primero la evidencia verde del head mergeado y, si la revisión integrada declara cambio de UI (detección fail-closed del issue #895, que además fuerza `ui_changed=true` cuando se edita el propio código del gate), su job `ui-e2e-gate` exige un `e2e` verde sobre esa misma revisión antes de desplegar (issue #895).
 3. **El diff es revisable.** Un solo diff de PR debe quedar por debajo de `review_budget_lines: 400` (default del orchestrator). Si una feature es mayor, divídala en PRs encadenados usando la skill `chained-pr` — nunca reviente main con un merge sobredimensionado.
 4. **Sin `--force`, sin reescritura de historial.** Merge con `--no-ff` para mantener visible el commit de feature; nunca `git push --force` a `main`; nunca rebase commits ya enviados.
-5. **El actor está autorizado.** Solo los roles `Maintain` y `Admin` pueden mergear un PR en `main`. El rol `Write` puede contribuir y revisar, pero no actualizar la rama protegida.
+5. **El actor está autorizado.** La política es que solo los roles `Maintain` y `Admin` puedan mergear un PR en `main`, y que el rol `Write` contribuya y revise sin actualizar la rama protegida. Esta restricción de roles no está aplicada: el ruleset que la imponía se desactivó en el issue #892 y la protección clásica no contiene `restrictions`; la cobertura real es la auditoría post-hoc de `.github/workflows/main-audit.yml` (ver §16 y `.github/branch-protection.md`).
 
 ### §15.2 Ciclo de vida de rama pre-MVP
 
@@ -41,7 +41,7 @@ Cuando el usuario señale MVP alcanzado ("ya tenemos MVC", "MVP reached", "pasam
 
 ### §15.5 Lo que sigue no siendo automático en pre-MVP (consentimiento explícito requerido)
 
-- Commits o pushes directos a `main` — prohibidos por el ruleset vigente. Solo serían posibles tras autorización explícita del usuario para cambiar esa protección y verificación del cambio.
+- Commits o pushes directos a `main` — la política los prohíbe (§16), aunque la protección clásica no bloquea un push directo legítimo de un actor con permisos (sí bloquea force-push y borrado). La detección post-hoc vive en `.github/workflows/main-audit.yml` (issue #986), que alerta sobre cualquier commit en `origin/main` sin un pull request cuyo `merge_commit_sha` coincida; ver §16 a continuación.
 - `--force` a cualquier rama — stop absoluto, sin importar CI.
 - Etiquetado de releases / corte de `vX.Y.Z` — user OK.
 - Renombrado del default branch, cambio de branch protection en GitHub — user OK.
@@ -57,8 +57,8 @@ Efectivo desde el 2026-07-26 y hasta que el usuario señale el fin del proyecto,
 
 1. Los gates pre-MVP de §15.1 están visiblemente verdes:
    - `make verify` y la validación específica local pasan
-   - `ci / required`, `pr-name / branch-name` y `pr-size / pr-size` están verdes en el head del PR
-   - diff ≤ `review_budget_lines` (o `size:exception` aprobado por el mantenedor)
+   - `ci / required`, `branch-name` y `pr-size / pr-size` están verdes en el head del PR
+   - diff ≤ `review_budget_lines` (o `size-exception-reason: <motivo>` en el cuerpo del PR, issue #1121; el label `size:exception` es opcional e informativo)
    - sin `--force`, sin reescritura de historial
 2. El merge es un merge normal feature-branch → main (no es force-push, no es release tag, no es rename del default branch, no es cambio a git-hooks o `gentleai.stagingOnly`).
 3. El cuerpo del merge commit o la descripción del PR cita la URL del run de `ci.yml` que probó el gate verde (según la nota de aplicación de §15.5).
@@ -78,12 +78,77 @@ Efectivo desde el 2026-07-26 y hasta que el usuario señale el fin del proyecto,
 
 Esta autorización standing fue otorgada en chat el 2026-07-26 y codificada por el mismo PR que actualizó §17.3 paso 6. Cross-reference: §17.3 paso 6.
 
+### §15.7 `required_conversation_resolution` desactivado en `main` (issue #972)
+
+La protección clásica de `main` tenía `required_conversation_resolution.enabled = true`. CodeQL publica comentarios automáticos (`github-advanced-security`) por cada alerta viva, incluso cuando una alerta **preexistente** solo cambia de línea en un PR. Cada hilo bloquea el merge hasta que alguien lo resuelve a mano, aunque no haya defecto nuevo. Ejemplos documentados: PR #931 y PR #946 fallaron con `All comments must be resolved` (HTTP 405) por el hilo de la alerta #119 (antes #3).
+
+Decisión (2026-09-25, issue #972): **desactivar** `required_conversation_resolution` en `main`. Justificación:
+
+- Repo de mantenedor único con cero aprobaciones requeridas: la flag no aporta nada.
+- CodeQL sigue publicando hilos; no desaparecen, solo dejan de bloquear el merge.
+- Las **alertas nuevas y reales** siguen siendo visibles y bloquean según la política de triage de #934 / #937.
+- Si en el futuro entra un segundo mantenedor, la flag se reactiva con la misma `gh api` documentada abajo; no requiere migración de datos.
+
+**Aplicación**: la flag se desactiva con `gh api --method PATCH repos/ardelperal/APAP_WEB/branches/main/protection -F required_conversation_resolution=null` (acepta el valor ausente para borrarla; o `=false` si GitHub lo requiere así en la versión actual). Confirmar por read-back con `gh api .../protection --jq .required_conversation_resolution`. Si en el futuro hay que revertir: `gh api --method PATCH ... -F required_conversation_resolution='{"enabled":true}'`.
+
+Esta sección se complementa con §15.5 — cambiar branch protection requiere OK explícito del usuario por push (la ejecución del comando va en un comentario del PR, no automatizada en el merge).
+
+### §15.8 Auto-merge y actualización de rama con `update-branch` (issue #958)
+
+Decisión del operador (2026-09-30, issue #958): el repositorio tiene activados `allow_auto_merge=true` y `allow_update_branch=true`. `strict` permanece en `true` y es deliberado: el job `evidence` de `deploy.yml` exige que el árbol fusionado sea idéntico al del PR revisado, y esa identidad de la evidencia de despliegue depende de `strict`. No la relaje para ahorrar una repetición de CI.
+
+Uso:
+
+- Encole el merge de un PR con `gh pr merge <N> --auto --merge` (merge commit; nunca `--delete-branch`, véase §15.2). GitHub fusiona en cuanto los checks requeridos están verdes.
+- Actualice la rama del PR cuando `main` avance: `gh api -X PUT repos/ardelperal/APAP_WEB/pulls/<N>/update-branch` (respuesta 202 esperada). La CI se reejecuta sobre la head nueva.
+
+Límite honesto:
+
+- Con `strict`, si `main` avanza mientras el PR espera, el auto-merge se detiene hasta que alguien actualice la rama. Con varios PR en paralelo, fusione de uno en uno y actualice el siguiente inmediatamente.
+- Una actualización de rama disparada con `GITHUB_TOKEN` (desde un workflow) no reejecuta la CI; la hecha con el token de usuario vía `gh api` sí. Automatizar la actualización exigiría un personal access token o una GitHub App, y eso sigue requiriendo el OK explícito del usuario (§15.5).
+
+## §16 — Norma multi-sesión sobre push directo a `main` (issue #986)
+
+Varias sesiones de agente en paralelo operan contra este repositorio
+compartiendo una única credencial admin (`el-Gentleman
+<alan@apap.local>`). Una sesión puede pisar a otra sin trazabilidad si
+aterriza un commit por la vía de push directo, saltándose el trail de
+PR + CI que es la señal común entre sesiones.
+
+Por tanto, **ninguna sesión — incluido el propio mantenedor — puede
+realizar push directo a `main`**. Todo lo que llega a `main` debe hacerlo
+vía pull request revisado por la CI, incluidos los commits de integración
+(bookkeeping) y los merges de bookkeeping. La excepción `gh pr merge
+--admin` se reserva para una ventana de mantenimiento corta autorizada
+explícitamente por el usuario; cualquier uso rutinario es una violación
+de esta norma.
+
+La auditoría post-hoc vive en `.github/workflows/main-audit.yml`. El
+workflow:
+
+- Recorre los últimos 30 commits de `origin/main` cada día a las 05:30
+  UTC (y bajo `workflow_dispatch`).
+- Marca como infractor cualquier commit sin un pull request cuyo
+  `merge_commit_sha` coincida con su SHA — exceptuando los commits que
+  son ancestros del segundo padre de un merge commit de PR en `main`
+  (commits intermedios legítimos de la rama del PR).
+- Crea o actualiza **una** issue de seguimiento titulada
+  `chore(gobernanza): push directo detectado en main` con la evidencia
+  de cada infractor; no falla el workflow.
+
+El ruleset `main-maintainers-and-admins-merge` permanece desactivado
+(issue #892, 2026-09-23) y su condición de reactivación — segundo
+mantenedor humano con rol `Write` que no deba poder mergear sin
+supervisión — no cambia con esta norma: con N sesiones de agente
+compartiendo la misma credencial admin, los rulesets no distinguen entre
+sesiones y reintroducirían la fricción `--admin` que #892 cerró.
+
 ## Core invariants
 
 - **Pre-MVP single-branch**: el único branch estable es `main`; `staging` no existe.
-- **PR diff ≤ 400 líneas**: o `size:exception` aprobado por el mantenedor.
+- **PR diff ≤ 400 líneas**: o `size-exception-reason: <motivo>` en el cuerpo del PR (issues #1121/#1141); el label `size:exception` es opcional e informativo.
 - **Merge con `--no-ff`**: el feature commit queda visible.
-- **Merge restringido por rol**: solo `Maintain` y `Admin` actualizan `main`; `Write` no puede mergear.
+- **Merge restringido por rol (política, no enforcement)**: solo `Maintain` y `Admin` actualizan `main`; `Write` no mergea. La restricción no está aplicada desde #892; la cobertura es la auditoría post-hoc de `main-audit.yml` (§16).
 - **Refs remotos retenidos**: ningún `git push origin --delete` ni `--delete-branch` al mergear.
 - **Worktrees locales podados**: `git worktree remove` + `git worktree prune` post-merge.
 - **Standing auth hasta revocación**: §15.6 puede ser revocado en cualquier momento con frase explícita.
@@ -91,8 +156,8 @@ Esta autorización standing fue otorgada en chat el 2026-07-26 y codificada por 
 ## Contributor checklist
 
 - [ ] La rama sigue `<type>/<issue>-<slug>` y sale de `main`.
-- [ ] Antes de mergear, el diff se queda ≤ 400 líneas o carga label `size:exception`.
-- [ ] El actor que mergea tiene rol `Maintain` o `Admin`.
+- [ ] Antes de mergear, el diff se queda ≤ 400 líneas o declara `size-exception-reason: <motivo>` en el cuerpo del PR (el label `size:exception` es opcional e informativo).
+- [ ] El actor que mergea cumple la política de rol (`Maintain` o `Admin`; restricción no aplicada desde #892, cobertura post-hoc en §16).
 - [ ] El merge usa `--no-ff` y cita la URL del run de `ci.yml` verde.
 - [ ] No se pasó `--delete-branch` ni se ejecutó `git push origin --delete`.
 - [ ] Tras el merge, el worktree local se removió con `git worktree remove` + `git worktree prune`.

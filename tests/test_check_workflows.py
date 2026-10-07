@@ -453,7 +453,7 @@ on:
   workflow_dispatch:
 jobs:
   deploy:
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble, deploy]
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     timeout-minutes: 20
     steps:
       - run: true

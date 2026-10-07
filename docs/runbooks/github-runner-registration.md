@@ -25,7 +25,7 @@ exclusivamente al despliegue. Los jobs de CI, incluido E2E, usan runners hosted.
 | Usuario del runner | `ubuntu` (no root, no github-actions) |
 | Directorio raíz del runner | `/home/ubuntu/github-runner/apap-web/` |
 | Unidad systemd | `github-runner-apap-web.service` |
-| Etiquetas (exactas, obligatorias) | `self-hosted`, `Linux`, `ARM64`, `apap`, `oracle`, `coolify`, `noble`, `deploy` |
+| Etiquetas (exactas, obligatorias) | `self-hosted`, `Linux`, `ARM64`, `apap`, `oracle`, `coolify`, `noble` |
 | Grupo del runner | `Default` (con ámbito de repositorio) |
 | Arquitectura | Oracle ARM64 (Ampere Altra) |
 | Repositorio GitHub | `ardelperal/APAP_WEB` |
@@ -52,7 +52,7 @@ Antes de registrar o re-registrar:
 - [ ] Confirme que ningún otro runner en esta VPS usa el mismo directorio de runner (`/home/ubuntu/github-runner/apap-web/`). Compartir el directorio entre runners provoca conflictos en la asignación de jobs.
 - [ ] Confirme que el directorio del runner de Cadete permanece intacto: `ls /home/ubuntu/github-runner/cadete/` existe y su unidad es `github-runner-cadete.service`. **Nunca reutilice el directorio ni la unidad de Cadete.**
 - [ ] Verifique que `python3`, `docker`, `docker buildx`, `jq` y `curl` están disponibles.
-- [ ] Confirme que el daemon Docker responde antes de habilitar la etiqueta `deploy`.
+- [ ] Confirme que el daemon Docker responde antes de registrar el runner (el job de despliegue construye imágenes en este host).
 
 ## Pasos de despliegue
 
@@ -92,7 +92,7 @@ cd /home/ubuntu/github-runner/apap-web
 ./config.sh \
   --url https://github.com/ardelperal/APAP_WEB \
   --token <REGISTRATION_TOKEN> \
-  --labels "self-hosted,Linux,ARM64,apap,oracle,coolify,noble,deploy" \
+  --labels "self-hosted,Linux,ARM64,apap,oracle,coolify,noble" \
   --runnergroup Default \
   --work _work \
   --unattended \
@@ -101,8 +101,12 @@ cd /home/ubuntu/github-runner/apap-web
 
 Banderas clave:
 
-- `--labels`: incluya las ocho etiquetas. La etiqueta `deploy` impide que código
-  de una pull request se ejecute en el host de producción.
+- `--labels`: incluya las siete etiquetas. El pool self-hosted es uniforme: todos
+  los runners comparten las mismas etiquetas y cualquier job self-hosted
+  (incluido el despliegue) puede aterrizar en cualquiera de ellos. El aislamiento
+  del código de pull request respecto al host no depende de una etiqueta:
+  `deploy.yml` no declara el trigger `pull_request`, y los tests de
+  `check_workflows` fijan esa forma del workflow.
 - `--replace`: use sólo al re-registrar un runner existente (por ejemplo, tras la expiración del token). Elimina el registro antiguo y vuelve a registrar con el token nuevo.
 - `--unattended`: evita las preguntas interactivas (seguro para uso con systemd).
 
@@ -210,8 +214,8 @@ sudo rm -rf /home/ubuntu/github-runner/apap-web
 ### Tras la baja
 
 - CI continúa en runners hosted y no se ve afectada.
-- El job de despliegue queda en cola hasta registrar otro runner con la etiqueta
-  `deploy`. No existe fallback a un host compartido.
+- El job de despliegue queda en cola hasta que haya otro runner del pool
+  self-hosted disponible. No existe fallback a un host compartido.
 
 ## Secretos y credenciales
 
@@ -226,7 +230,7 @@ Los secretos permanecen en GitHub Actions y no se guardan en el runner:
 ## Documentos relacionados
 
 - `.github/workflows/ci.yml` — verificación completa en runners hosted.
-- `.github/workflows/deploy.yml` — único consumidor de la etiqueta `deploy`.
+- `.github/workflows/deploy.yml` — único workflow con jobs self-hosted (se ejecuta sobre el pool uniforme de runners).
 - `scripts/check-runner.ps1` — comprobación de conectividad del runner.
 - `.github/branch-protection.md` — checks obligatorios y política de merge.
 - Repositorio IaC `vps-oracle` — código de aprovisionamiento de la propia VPS.

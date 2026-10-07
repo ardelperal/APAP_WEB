@@ -72,7 +72,7 @@ class _AnimalsRouteSpy(LocalPostgresExecutor):
         # row. Tests can override this to simulate 404.
         self.get_animal_by_id_rows: list[dict[str, Any]] = [
             {
-                "id": "abc-123",
+                "id": "abc12345-0000-4000-8000-000000000001",
                 "NCHIP": "1",
                 "NombreAnimal": "Luna",
                 "Especie": "CANINA",
@@ -84,7 +84,7 @@ class _AnimalsRouteSpy(LocalPostgresExecutor):
         # ``UPDATE animales SET ... RETURNING`` (update_animal) row.
         self.update_returning_rows: list[dict[str, Any]] = [
             {
-                "id": "abc-123",
+                "id": "abc12345-0000-4000-8000-000000000001",
                 "NCHIP": "985112004409871",
                 "NombreAnimal": "Luna",
                 "Especie": "CANINA",
@@ -95,13 +95,13 @@ class _AnimalsRouteSpy(LocalPostgresExecutor):
         ]
         # ``UPDATE animales SET activo = false`` (delete_animal) row.
         self.delete_returning_rows: list[dict[str, Any]] = [
-            {"id": "abc-123", "activo": False}
+            {"id": "abc12345-0000-4000-8000-000000000001", "activo": False}
         ]
         # Chip change saga: default chip change spy rows.
         # Tests can override these to simulate different scenarios.
         self.chip_change_get_animal_rows: list[dict[str, Any]] = [
             {
-                "id": "abc-123",
+                "id": "abc12345-0000-4000-8000-000000000001",
                 "NCHIP": "111",
                 "NombreAnimal": "Luna",
                 "Especie": "CANINA",
@@ -152,7 +152,7 @@ class _AnimalsRouteSpy(LocalPostgresExecutor):
             return [{"id": "row-1"}]
         # UPDATE animals for chip change
         if "update animals set nchip" in q_lower:
-            return [{"id": "abc-123", "NCHIP": params_list[0] if params_list else ""}]
+            return [{"id": "abc12345-0000-4000-8000-000000000001", "NCHIP": params_list[0] if params_list else ""}]
         # BEGIN, COMMIT, ROLLBACK
         if q_lower.strip() in ("begin", "commit", "rollback"):
             return []
@@ -165,7 +165,7 @@ class _AnimalsRouteSpy(LocalPostgresExecutor):
 class _AnimalsPortStub:
     def __init__(self) -> None:
         self.animal = Animal(
-            id="abc-123", NCHIP="1", NombreAnimal="Luna",
+            id="abc12345-0000-4000-8000-000000000001", NCHIP="1", NombreAnimal="Luna",
             Especie=Especie.CANINA, Sexo=Sexo.H, FNacimiento="2023-04-12",
             fecha_alta="2023-04-13", estado="albergue", TraeNChip="Si",
             FIMPLANTACIONCHIP="2023-04-14", Raza="Mestiza", Color="Negro",
@@ -212,7 +212,7 @@ class _AnimalsPortStub:
 
     def delete_animal(self, animal_id: str) -> Animal | None:
         self.delete_ids.append(animal_id)
-        return None if animal_id == "no-such-id" else self.animal
+        return None if animal_id == "abc12345-0000-4000-8000-000000000099" else self.animal
 
     def change_animal_chip(self, **kwargs: str) -> ChangeChipResult:
         self.change_chip_calls.append(kwargs)
@@ -297,7 +297,7 @@ async def test_list_animales_uses_hexagonal_port(
     assert animals_spy.captured_queries == [], "list route must not use legacy animal SQL"
 
 
-@pytest.mark.parametrize("animal_id,status_code", [("abc-123", 200), ("missing", 404)])
+@pytest.mark.parametrize("animal_id,status_code", [("abc12345-0000-4000-8000-000000000001", 200), ("missing", 422)])
 async def test_animal_detail_uses_hexagonal_port(
     client: httpx.AsyncClient,
     animals_spy: _AnimalsRouteSpy,
@@ -310,7 +310,8 @@ async def test_animal_detail_uses_hexagonal_port(
     response = await client.get(f"/animales/{animal_id}")
 
     assert response.status_code == status_code, response.text
-    assert animals_port.detail_ids == [animal_id], "detail route must pass the id to the port"
+    if status_code == 200:
+        assert animals_port.detail_ids == [animal_id], "detail route must pass the id to the port"
     assert animals_spy.captured_queries == [], "detail route must not use legacy animal SQL"
 
 
@@ -329,10 +330,10 @@ async def test_edit_animal_form_uses_all_hexagonal_fields(
     monkeypatch.setattr(animals_routes._templates, "TemplateResponse", render)
     _login_as_key_user(client)
 
-    response = await client.get("/animales/abc-123/edit")
+    response = await client.get("/animales/abc12345-0000-4000-8000-000000000001/edit")
 
     assert response.status_code == 200, response.text
-    assert animals_port.detail_ids == ["abc-123"], "edit route must use the port lookup"
+    assert animals_port.detail_ids == ["abc12345-0000-4000-8000-000000000001"], "edit route must use the port lookup"
     assert animals_spy.captured_queries == [], "edit route must not use legacy animal SQL"
     expected_form_keys = set(ANIMAL_FORM_FIELDS)
     assert set(captured_context["form_data"]) == expected_form_keys, (
@@ -341,7 +342,7 @@ async def test_edit_animal_form_uses_all_hexagonal_fields(
     # Issue #624: the edit template must post to /animales/{id}/update,
     # not back to the document URL (``action=""`` would round-trip to
     # ``/animales/{id}/edit`` and 405).
-    assert captured_context["form_action"] == "/animales/abc-123/update", (
+    assert captured_context["form_action"] == "/animales/abc12345-0000-4000-8000-000000000001/update", (
         f"edit form context must carry form_action=/animales/{{id}}/update; "
         f"got {captured_context.get('form_action')!r}"
     )
@@ -388,17 +389,17 @@ async def test_change_chip_view_delegates_lookup_and_saga_to_port(
     _login_as_key_user(client)
 
     response = await client.patch(
-        "/animales/abc-123/chip",
+        "/animales/abc12345-0000-4000-8000-000000000001/chip",
         json={"new_chip": "2", "reason": "Chip damaged"},
         headers={"X-CSRFToken": "test-csrf-token-animals"},
     )
 
     assert response.status_code == 200, response.text
-    assert animals_port.detail_ids == ["abc-123"], (
+    assert animals_port.detail_ids == ["abc12345-0000-4000-8000-000000000001"], (
         "chip route must load the animal through the port"
     )
     assert animals_port.change_chip_calls == [{
-        "animal_id": "abc-123",
+        "animal_id": "abc12345-0000-4000-8000-000000000001",
         "old_chip": "1",
         "new_chip": "2",
         "reason": "Chip damaged",
@@ -439,7 +440,7 @@ async def test_animal_foto_delegates_to_port_and_closes_owned_stream(
     )
     _login_as_key_user(client)
 
-    response = await client.get("/animales/abc-123/foto")
+    response = await client.get("/animales/abc12345-0000-4000-8000-000000000001/foto")
 
     assert response.status_code == 200, response.text
     assert response.content == b"photo-bytes", "route must stream the port asset"
@@ -453,7 +454,7 @@ async def test_animal_foto_delegates_to_port_and_closes_owned_stream(
     assert "cache-control" not in response.headers, (
         "HTTP cache policy must not leak into the port contract"
     )
-    assert animals_port.photo_ids == ["abc-123"], (
+    assert animals_port.photo_ids == ["abc12345-0000-4000-8000-000000000001"], (
         "photo route must resolve the asset through the port"
     )
     assert stream.closed is True, "the route must close its owned photo stream"
@@ -463,6 +464,79 @@ async def test_animal_foto_delegates_to_port_and_closes_owned_stream(
 
 
 # --- update ----------------------------------------------------------------
+
+
+async def test_update_with_encoded_quote_id_never_renders_unescaped_html(
+    client: httpx.AsyncClient,
+    animals_spy: _AnimalsRouteSpy,
+    animals_port: _AnimalsPortStub,
+) -> None:
+    """Issue #1077: a path ``animal_id`` with encoded quotes must never
+    reach the template unescaped.
+
+    Before the UUID path typing, ``update_animal`` could raise
+    ``ValueError`` (Especie coercion) and the 422 re-render painted
+    ``form_action=f"/animales/{animal_id}/update"`` through
+    ``{{ form_action | safe }}`` — breaking out of the action attribute.
+    """
+    _login_as_key_user(client)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/animales/%22%3E%3Cb%3Ex/update",
+        form_data={
+            "NCHIP": "985112004409871",
+            "NombreAnimal": "Luna",
+            "Especie": "CANINA",
+            "Sexo": "H",
+            "FNacimiento": "2023-04-12",
+            "Terapia": "No",
+            "TraeNChip": "Si",
+            "FIMPLANTACIONCHIP": "2023-04-15",
+            "NombreFoto": "luna.jpg",
+        },
+    )
+
+    assert response.status_code == 422, response.text
+    # The UUID path converter rejects the id before any handler runs, so
+    # the response is FastAPI's JSON error — never an HTML re-render that
+    # embeds the attacker-controlled path. The template-level half of the
+    # fix is pinned by
+    # test_animals_form_template_does_not_mark_form_action_safe.
+    assert "text/html" not in response.headers["content-type"], (
+        "the invalid-id response must not be an HTML re-render (issue #1077)"
+    )
+
+
+def test_animals_form_template_does_not_mark_form_action_safe() -> None:
+    """Issue #1077 acceptance: ``form_action | safe`` is gone from the
+    template — Jinja autoescape owns the attribute boundary."""
+    from pathlib import Path
+
+    template = (
+        Path(__file__).resolve().parents[1] / "app" / "templates" / "animales" / "form.html"
+    ).read_text(encoding="utf-8")
+
+    assert "form_action | safe" not in template, (
+        "form_action is derived from the request path; it must go through "
+        "Jinja autoescape, never |safe (issue #1077)"
+    )
+
+
+async def test_non_uuid_animal_id_answers_422(
+    client: httpx.AsyncClient,
+    animals_port: _AnimalsPortStub,
+) -> None:
+    """Issue #1077: a non-UUID animal id answers 422 from the path
+    converter, before any handler or port lookup runs."""
+    _login_as_key_user(client)
+
+    response = await client.get("/animales/not-a-uuid/edit")
+
+    assert response.status_code == 422, response.text
+    assert animals_port.detail_ids == [], "the port must never see an invalid id"
+
 
 
 async def test_update_animal_view_delegates_to_port_and_redirects_303(
@@ -480,7 +554,7 @@ async def test_update_animal_view_delegates_to_port_and_redirects_303(
     response = await make_csrf_request(
         client,
         "POST",
-        "/animales/abc-123/update",
+        "/animales/abc12345-0000-4000-8000-000000000001/update",
         form_data={
             "NCHIP": "985112004409871",
             "NombreAnimal": "Luna",
@@ -495,10 +569,10 @@ async def test_update_animal_view_delegates_to_port_and_redirects_303(
     )
 
     assert response.status_code == 303, response.text
-    assert response.headers["location"] == "/animales/abc-123", (
+    assert response.headers["location"] == "/animales/abc12345-0000-4000-8000-000000000001", (
         "successful update must redirect to detail"
     )
-    assert animals_port.update_calls[0][0] == "abc-123", (
+    assert animals_port.update_calls[0][0] == "abc12345-0000-4000-8000-000000000001", (
         "update route must delegate the path id to the port"
     )
     assert animals_port.update_calls[0][1]["Terapia"] == "No", (
@@ -525,7 +599,7 @@ async def test_update_animal_view_preserves_value_error_422_translation(
     response = await make_csrf_request(
         client,
         "POST",
-        "/animales/abc-123/update",
+        "/animales/abc12345-0000-4000-8000-000000000001/update",
         form_data={
             "NCHIP": "985112004409871",
             "NombreAnimal": "Luna",
@@ -548,6 +622,127 @@ async def test_update_animal_view_preserves_value_error_422_translation(
     )
 
 
+async def test_create_error_rerender_keeps_create_action(
+    client: httpx.AsyncClient,
+    animals_spy: _AnimalsRouteSpy,
+    animals_port: _AnimalsPortStub,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #974 — POST /animales with a ValueError keeps form_action=/animales.
+
+    Pins the create-branch contract for the error rerender: the
+    form's ``action`` attribute must still point at the create endpoint
+    (``POST /animales``) so the operator's resubmit hits the same
+    handler that produced the error. Regression test for #974.
+    """
+    captured: dict[str, Any] = {}
+
+    def render(*, context: dict[str, Any], status_code: int = 200, **_kwargs: Any) -> HTMLResponse:
+        captured["context"] = context
+        captured["status_code"] = status_code
+        return HTMLResponse("rendered", status_code=status_code)
+
+    monkeypatch.setattr(animals_routes._templates, "TemplateResponse", render)
+
+    def reject(**_kwargs: Any) -> Animal:
+        raise ValueError("invalid animal")
+
+    monkeypatch.setattr(animals_port, "create_animal", reject)
+    _login_as_key_user(client)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/animales",
+        form_data={
+            "NCHIP": "985112004409871",
+            "NombreAnimal": "Luna",
+            "Especie": "CANINA",
+            "Sexo": "H",
+            "FNacimiento": "2023-04-12",
+            "Terapia": "No",
+            "TraeNChip": "Si",
+            "FIMPLANTACIONCHIP": "2023-04-15",
+            "NombreFoto": "luna.jpg",
+        },
+    )
+
+    assert captured.get("status_code") == 422, (
+        f"create-error rerender must respond 422; got {captured.get('status_code')!r}"
+    )
+    assert response.status_code == 422, response.text
+    assert "text/html" in response.headers["content-type"], (
+        "create-error rerender must re-render the HTML form"
+    )
+    assert captured["context"]["form_action"] == "/animales", (
+        f"create-error rerender must keep form_action=/animales so the "
+        f"operator's resubmit hits the create endpoint; "
+        f"got {captured['context'].get('form_action')!r}"
+    )
+
+
+async def test_update_error_rerender_keeps_update_action(
+    client: httpx.AsyncClient,
+    animals_spy: _AnimalsRouteSpy,
+    animals_port: _AnimalsPortStub,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #974 — POST /animales/{id}/update error rerender keeps the update action.
+
+    Regression test for the duplicate-animal bug: when EDIT fails
+    validation, the rerendered form's ``action`` MUST stay
+    ``/animales/{animal_id}/update`` so the resubmit reaches the
+    update route. Previously ``_render_animal_form_error`` hardcoded
+    ``form_action="/animales"`` for both flows, so a corrected resubmit
+    posted to the create endpoint and could persist a duplicate row.
+    """
+    captured: dict[str, Any] = {}
+
+    def render(*, context: dict[str, Any], status_code: int = 200, **_kwargs: Any) -> HTMLResponse:
+        captured["context"] = context
+        captured["status_code"] = status_code
+        return HTMLResponse("rendered", status_code=status_code)
+
+    monkeypatch.setattr(animals_routes._templates, "TemplateResponse", render)
+
+    def reject(_animal_id: str, **_kwargs: Any) -> Animal | None:
+        raise ValueError("invalid animal")
+
+    monkeypatch.setattr(animals_port, "update_animal", reject)
+    _login_as_key_user(client)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/animales/abc12345-0000-4000-8000-000000000001/update",
+        form_data={
+            "NCHIP": "985112004409871",
+            "NombreAnimal": "Luna",
+            "Especie": "CANINA",
+            "Sexo": "H",
+            "FNacimiento": "2023-04-12",
+            "Terapia": "No",
+            "TraeNChip": "Si",
+            "FIMPLANTACIONCHIP": "2023-04-15",
+            "NombreFoto": "luna.jpg",
+        },
+    )
+
+    assert captured.get("status_code") == 422, (
+        f"update-error rerender must respond 422; got {captured.get('status_code')!r}"
+    )
+    assert response.status_code == 422, response.text
+    assert "text/html" in response.headers["content-type"], (
+        "update-error rerender must re-render the HTML form"
+    )
+    assert captured["context"]["form_action"] == "/animales/abc12345-0000-4000-8000-000000000001/update", (
+        f"update-error rerender MUST keep form_action=/animales/{{id}}/update "
+        f"with the same id from the request; otherwise a corrected resubmit "
+        f"would hit /animales (create) and duplicate the row. "
+        f"Got {captured['context'].get('form_action')!r}"
+    )
+
+
 # --- delete ----------------------------------------------------------------
 
 
@@ -562,14 +757,14 @@ async def test_delete_animal_view_delegates_to_port_and_redirects_303(
     response = await make_csrf_request(
         client,
         "POST",
-        "/animales/abc-123/delete",
+        "/animales/abc12345-0000-4000-8000-000000000001/delete",
     )
 
     assert response.status_code == 303, response.text
     assert response.headers["location"] == "/animales", (
         "successful delete must redirect to the list"
     )
-    assert animals_port.delete_ids == ["abc-123"], (
+    assert animals_port.delete_ids == ["abc12345-0000-4000-8000-000000000001"], (
         "delete route must delegate the path id to the port"
     )
     assert animals_spy.captured_queries == [], (
@@ -588,11 +783,11 @@ async def test_delete_animal_view_con_id_inexistente_retorna_404(
     response = await make_csrf_request(
         client,
         "POST",
-        "/animales/no-such-id/delete",
+        "/animales/abc12345-0000-4000-8000-000000000099/delete",
     )
 
     assert response.status_code == 404, response.text
-    assert animals_port.delete_ids == ["no-such-id"], (
+    assert animals_port.delete_ids == ["abc12345-0000-4000-8000-000000000099"], (
         "missing delete must still call the port once"
     )
     assert animals_spy.captured_queries == [], (
@@ -626,7 +821,7 @@ async def test_create_animal_view_delegates_to_port_and_redirects_303(
     )
 
     assert response.status_code == 303, response.text
-    assert response.headers["location"] == "/animales/abc-123", (
+    assert response.headers["location"] == "/animales/abc12345-0000-4000-8000-000000000001", (
         "successful create must redirect to the persisted animal"
     )
     assert animals_port.create_kwargs is not None, "create route must call the port"
@@ -847,7 +1042,7 @@ def test_animal_form_fields_match_service_insert_columns():
         ),
         (
             "POST",
-            "/animales/abc-123/update",
+            "/animales/abc12345-0000-4000-8000-000000000001/update",
             {
                 "NCHIP": "985112004409871",
                 "NombreAnimal": "Luna",
@@ -860,7 +1055,7 @@ def test_animal_form_fields_match_service_insert_columns():
                 "NombreFoto": "luna.jpg",
             },
         ),
-        ("POST", "/animales/abc-123/delete", None),
+        ("POST", "/animales/abc12345-0000-4000-8000-000000000001/delete", None),
     ],
     ids=["create", "update", "delete"],
 )
@@ -944,7 +1139,7 @@ async def test_change_chip_route_rejects_reader_with_403(
     assert isinstance(csrf_token, str) and csrf_token
 
     response = await client.patch(
-        "/animales/abc-123/chip",
+        "/animales/abc12345-0000-4000-8000-000000000001/chip",
         headers={"X-CSRFToken": csrf_token, "Content-Type": "application/json"},
         json={"new_chip": "985112004409999", "reason": "reader-bypass-probe"},
     )
@@ -987,7 +1182,7 @@ async def test_change_chip_uses_revalidated_role_instead_of_cookie_role(
     client.cookies.set(session_cookie_name(), token)
 
     response = await client.patch(
-        "/animales/abc-123/chip",
+        "/animales/abc12345-0000-4000-8000-000000000001/chip",
         headers={"X-CSRFToken": "test-csrf-token-animals"},
         json={"new_chip": "985112004409999", "reason": "stale-role-probe"},
     )

@@ -6,7 +6,7 @@ Auth model (issue #66 RBAC): permissions are checked via
 ``require_permission`` from ``app.core.rbac``.  The permission matrix:
 - READ_ANIMALES: admin, staff, voluntario
 - WRITE_ANIMALES: admin, staff, voluntario
-- DELETE_ANIMALES: admin, staff
+- DELETE_ANIMALES: admin
 
 Las dependencias de auth (``get_local_postgres_executor_dep``,
 ``get_current_user_optional`` y ``require_permission``) viven
@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
+from fastapi import Path as FastAPIPath  # aliased: pathlib.Path is imported above
 from fastapi.responses import (
     HTMLResponse,
     JSONResponse,
@@ -35,13 +36,20 @@ from starlette.background import BackgroundTask
 # The canonical location is app.core.auth_dependencies.
 from app.core.auth_dependencies import (  # noqa: E402
     get_local_postgres_executor_dep,
-    require_authorized_user,
+    require_authorized_user,  # noqa: F401  - re-export for tests/test_auth_session_is_authorized.py
     return_early_if_response,
 )
 
-# Alias for backward compat with test fixtures.
-get_insforge_client_dep = get_local_postgres_executor_dep
+# Issue #1077: the animal id is validated as a UUID at the path
+# boundary (422 before any handler or port lookup runs) while staying
+# a str for the port contract.
+_UUID_PATH_PATTERN = (
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+AnimalIdPath = Annotated[str, FastAPIPath(pattern=_UUID_PATH_PATTERN)]
+_ANIMALES_BASE = "/animales"  # single source for the module prefix (issue #1077)
 
+# Alias for backward compat with test fixtures.
 from app.core.csrf import csrf_token_context_processor  # noqa: E402
 from app.core.data_access import SqlExecutor, UniqueViolationError  # noqa: E402
 from app.core.logging import log_safe  # noqa: E402
@@ -89,7 +97,7 @@ from app.modules.animals.route_helpers import (  # noqa: E402
 # en los bodies de los handlers.
 from app.modules.sanidad import get_resumen_sanitario  # noqa: E402
 
-router = APIRouter(prefix="/animales", tags=["animales"])
+router = APIRouter(prefix=_ANIMALES_BASE, tags=["animales"])
 _require_write_animales = require_permission(Permission.WRITE_ANIMALES)
 
 
@@ -136,7 +144,7 @@ def list_animales(
 @router.get("/search", response_class=JSONResponse)
 def search_animales(  # noqa: PLR0913  # 9 query filters needed for the search UI; not reducible without removing features
     _request: Request,
-    user: Annotated[Response | dict, Depends(require_authorized_user)],
+    user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ANIMALES))],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
     q: Annotated[str | None, Query(description="Substring match on nombre (case-insensitive). Ignored if chip is set.")] = None,
     chip: Annotated[str | None, Query(description="Exact match on NCHIP. Takes precedence over q.")] = None,
@@ -151,7 +159,9 @@ def search_animales(  # noqa: PLR0913  # 9 query filters needed for the search U
     """Search animals with multi-field filters (issue #30 LIFECYCLE-05).
 
     Returns JSON: ``{"data": [...], "total": N, "limit": N, "offset": N}``.
-    Protected with ``require_authorized_user`` (any authenticated user).
+    Protected with ``require_permission(READ_ANIMALES)`` (issue #1019:
+    fail-closed rol-value check via the RBAC matrix; D-44 keeps the
+    legacy read roles working).
     """
     if (early := return_early_if_response(user)) is not None:
         return early
@@ -190,7 +200,7 @@ def new_animal_form(
             "error": None,
             "especies": [e.value for e in DomainEspecie],
             "sexos": [s.value for s in DomainSexo],
-            "form_action": "/animales",
+            "form_action": _ANIMALES_BASE,
         },
     )
 
@@ -233,16 +243,10 @@ def create_animal_view(
         )
     except ValueError as exc:
         return _render_animal_form_error(
-            request, user, form_data, str(exc), status.HTTP_422_UNPROCESSABLE_CONTENT
+            request, user, form_data, str(exc)
         )
-    except UniqueViolationError:
-        return _render_animal_form_error(
-            request,
-            user,
-            form_data,
-            "Ya existe un animal con ese NCHIP. Compruebalo.",
-            status.HTTP_409_CONFLICT,
-        )
+    except UniqueViolationError as exc:
+        return _render_animal_conflict(request, user, form_data, str(exc))
 
     return RedirectResponse(
         url=f"/animales/{animal.id}", status_code=status.HTTP_303_SEE_OTHER
@@ -254,7 +258,7 @@ def create_animal_view(
 
 @router.get("/{animal_id}", response_class=HTMLResponse)
 def animal_detail(
-    animal_id: str,
+    animal_id: AnimalIdPath,
     request: Request,
     user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ANIMALES))],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
@@ -277,8 +281,8 @@ def animal_detail(
 
 @router.get("/{animal_id}/salud/resumen", response_class=JSONResponse)
 def animal_salud_resumen(
-    animal_id: str,
-    user: Annotated[Response | dict, Depends(require_authorized_user)],
+    animal_id: AnimalIdPath,
+    user: Annotated[Response | dict, Depends(require_permission(Permission.READ_SALUD))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Health summary: latest actuacion per tipo for one animal.
@@ -288,7 +292,9 @@ def animal_salud_resumen(
     ``catalogos_pruebas.observaciones`` (tipo), with fecha, resultado,
     descripcion, and producto.
 
-    Protected with ``require_authorized_user`` per spec acceptance criteria.
+    Protected with ``require_permission(READ_SALUD)`` (issue #1019: the
+    route's domain is salud, so the matrix salud read permission applies;
+    fail-closed on unknown rol strings).
     Returns an empty resumen list when no actuaciones exist for the animal.
     """
     if (early := return_early_if_response(user)) is not None:
@@ -315,7 +321,7 @@ def animal_salud_resumen(
 
 @router.get("/{animal_id}/edit", response_class=HTMLResponse)
 def edit_animal_form(
-    animal_id: str,
+    animal_id: AnimalIdPath,
     request: Request,
     user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ANIMALES))],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
@@ -345,7 +351,7 @@ def edit_animal_form(
 
 @router.post("/{animal_id}/update")
 def update_animal_view(
-    animal_id: str,
+    animal_id: AnimalIdPath,
     request: Request,
     form: Annotated[AnimalForm, Form()],
     user: Annotated[Response | dict, Depends(_require_write_animales)],
@@ -365,7 +371,11 @@ def update_animal_view(
         port.update_animal(animal_id, **_animal_update_kwargs(form_data))
     except ValueError as exc:
         return _render_animal_form_error(
-            request, user, form_data, str(exc), status.HTTP_422_UNPROCESSABLE_CONTENT
+            request,
+            user,
+            form_data,
+            str(exc),
+            form_action=f"/animales/{animal_id}/update",
         )
 
     return RedirectResponse(
@@ -378,7 +388,7 @@ def update_animal_view(
 
 @router.post("/{animal_id}/delete", response_class=HTMLResponse)
 def delete_animal_view(
-    animal_id: str,
+    animal_id: AnimalIdPath,
     _request: Request,
     user: Annotated[Response | dict, Depends(require_permission(Permission.DELETE_ANIMALES))],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
@@ -389,7 +399,7 @@ def delete_animal_view(
     if port.delete_animal(animal_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return RedirectResponse(
-        url="/animales", status_code=status.HTTP_303_SEE_OTHER
+        url=_ANIMALES_BASE, status_code=status.HTTP_303_SEE_OTHER
     )
 
 
@@ -398,12 +408,12 @@ def delete_animal_view(
 
 @router.patch("/{animal_id}/chip", response_model=dict[str, Any])
 def change_chip_view(
-    animal_id: str,
+    animal_id: AnimalIdPath,
     payload: ChipChangePayload,
     user: Annotated[Response | dict, Depends(_require_write_animales)],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
-    """PATCH /animales/{id}/chip — cambia el chip en cascada a 6 tablas."""
+    """PATCH /animales/{id}/chip — cambia animales.nchip y registra el evento CHIP_CHANGED en una transacción (D-43)."""
     if (early := return_early_if_response(user)) is not None:
         return early
 
@@ -428,7 +438,7 @@ def change_chip_view(
 
 @router.get("/{animal_id}/foto")
 def animal_foto(
-    animal_id: str,
+    animal_id: AnimalIdPath,
     user: Annotated[Response | dict, Depends(require_permission(Permission.READ_ANIMALES))],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
@@ -457,9 +467,25 @@ def _render_animal_form_error(
     user: Response | dict,
     form_data: dict[str, Any],
     error: str,
-    status_code: int,
+    *,
+    form_action: str = _ANIMALES_BASE,
 ) -> Response:
-    """Render the shared animal form error response."""
+    """Render the shared animal form error response.
+
+    Issue #974: ``form_action`` defaults to the create endpoint so the
+    create call site can keep its minimal positional invocation; the
+    update call site MUST pass ``f"/animales/{animal_id}/update"`` so
+    the error rerender posts back to the same handler that produced
+    the error (otherwise a corrected resubmit would hit the create
+    endpoint and duplicate the row).
+
+    Helper is 422-only — both remaining callers (create ``ValueError``
+    and update ``ValueError``) translate a domain validation failure to
+    ``HTTP_422_UNPROCESSABLE_CONTENT``. The duplicate-NCHIP branch is
+    handled inline with ``_templates.TemplateResponse`` so the 409
+    response keeps its own status. Folding the 422 status into the body
+    drops the signature from 6 → 5 params to satisfy the PLR0913 ratchet.
+    """
     return _templates.TemplateResponse(
         request=request,
         name="animales/form.html",
@@ -469,9 +495,45 @@ def _render_animal_form_error(
             "error": error,
             "especies": [item.value for item in DomainEspecie],
             "sexos": [item.value for item in DomainSexo],
-            "form_action": "/animales",
+            "form_action": form_action,
         },
-        status_code=status_code,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+    )
+
+
+def _render_animal_conflict(
+    request: Request,
+    user: Response | dict,
+    form_data: dict[str, Any],
+    _error: str,
+) -> Response:
+    """Render the 409 conflict response on create (issue #974).
+
+    Sibling of ``_render_animal_form_error`` for the
+    ``UniqueViolationError`` branch in ``create_animal_view``. The
+    helper hardcodes the operator-facing NCHIP message and the create
+    endpoint URL because the branch only fires on create — the update
+    flow does not catch ``UniqueViolationError`` today. Pinned by
+    ``test_create_animal_view_translates_unique_violation_to_409``.
+    Signature mirrors ``_render_animal_form_error`` for symmetry; the
+    body uses the hardcoded message so the create-flow conflict copy
+    stays centralized, matching the inline block it replaces. The
+    leading-underscore ``_error`` parameter is intentionally unused —
+    kept in the signature to mirror the sibling helper and silence
+    ARG001 without an inline ``# noqa``.
+    """
+    return _templates.TemplateResponse(
+        request=request,
+        name="animales/form.html",
+        context={
+            "user": user,
+            "form_data": form_data,
+            "error": "Ya existe un animal con ese NCHIP. Compruebalo.",
+            "especies": [item.value for item in DomainEspecie],
+            "sexos": [item.value for item in DomainSexo],
+            "form_action": _ANIMALES_BASE,
+        },
+        status_code=status.HTTP_409_CONFLICT,
     )
 
 

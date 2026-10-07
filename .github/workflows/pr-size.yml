@@ -21,16 +21,36 @@ on:
 # to the CALLER's name ("ci"), which would collide with ci.yml's own
 # top-level concurrency group of the same shape and self-cancel the call
 # before it ever produces a job.
+#
+# Issue #926: the two invocation paths used to share this exact group, so
+# every `labeled`/`unlabeled` event (e.g. `gh pr create --label`) cancelled
+# the workflow_call run in progress inside `ci`, leaving `ci / required`
+# red without ever running the dependent jobs. Inside a called reusable
+# workflow the `github` context is the CALLER's: `github.event_name` is
+# `pull_request` and `github.event.action` is `opened`/`synchronize`/
+# `reopened` there, while a direct run always has action `labeled` or
+# `unlabeled`. The suffix below routes on that difference so a label event
+# only cancels other label events, and a ci call only cancels an older ci
+# call — #530's stale-run cancellation stays intact on each path
+# independently, and #890's single-publisher-per-event guarantee is
+# unaffected since the suffix never changes which workflow publishes the
+# `pr-size` check for a given event.
 concurrency:
-  group: pr-size-${{ github.ref }}
+  group: pr-size-${{ github.ref }}-${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && 'label' || 'call' }}
   cancel-in-progress: true
-# The job below only reads the repository (merge-base diff) and runs a
-# local Python script; it never writes back. Match the explicit permissions
-# contract of ci.yml / deploy.yml so a future repo-level default that
-# broadens the GITHUB_TOKEN does not silently widen this workflow's blast
-# radius (issue #682).
+# The job below reads the repository (merge-base diff) and, since issue
+# #1121, the PR's body via the GitHub API; it never writes back.
+# Match the explicit permissions contract of ci.yml / deploy.yml so a
+# future repo-level default that broadens the GITHUB_TOKEN does not
+# silently widen this workflow's blast radius (issue #682).
+#
+# Issue #1121: `issues: read` fetches the PR body; check_pr_size.py parses
+# `size-exception-reason: <motivo>` from it. The ``size:exception`` label
+# is informational only — gates read structured data, not gestures
+# (#935); the historical label races (#926, #941, #896) are moot now.
 permissions:
   contents: read
+  issues: read
 
 jobs:
   pr-size:
@@ -49,7 +69,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
-          python-version: "3.12.11"
+          python-version-file: .python-version
 
       - name: Compute diff against merge-base
         id: diff
@@ -114,14 +134,50 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
 
-      - name: Enforce 400-line budget (AGENTS.md §15.1)
+      - name: Enforce 400-line budget (AGENTS.md §15.1, issue #1121)
+        # Issue #1121: the override that gates the 400-line budget lives
+        # in the PR body as `size-exception-reason: <motivo>` (epic #935:
+        # gates read structured data, not gestures). The previous
+        # label-based check raced with `labeled`/`unlabeled` events (#926,
+        # #941, #896); reading the live body on every run makes the gate
+        # self-contained.
+        #
+        # The body is author-controlled, so it is fetched and enforced in
+        # THIS step and reaches the script only through a shell variable.
+        # It is never written to $GITHUB_OUTPUT (a body line equal to the
+        # heredoc delimiter would inject step outputs) and never
+        # interpolated into the script text.
+        #
+        # Editing a body does not fire this check (ci.yml keeps the default
+        # pull_request types on purpose); re-running the failed job
+        # re-reads the live body (see CONTRIBUTING.md).
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           TOTAL: ${{ steps.diff.outputs.total }}
-          # Use contains() on the joined label names string. The previous
-          # expression `contains(github.event.pull_request.labels.*.name, 'size:exception')`
-          # returned "false" in CI for unknown reasons; the joined-string form
-          # is reliable across runners. Evaluates to empty/false when this
-          # runs on a non-pull_request event (github.event.pull_request is
-          # undefined there) — harmless, since TOTAL=0 already passes.
-          HAS_EXCEPTION: ${{ join(github.event.pull_request.labels.*.name, ',') == 'size:exception' || contains(join(github.event.pull_request.labels.*.name, ','), 'size:exception') }}
-        run: python scripts/check_pr_size.py "$TOTAL" "$HAS_EXCEPTION"
+        run: |
+          set -euo pipefail
+          PR_BODY=""
+          # Only pull_request-shaped events have a PR body; every other
+          # trigger (push, workflow_dispatch) reports TOTAL=0 and passes.
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            # Issue #533: this runner has no `gh` CLI; curl + jq, both
+            # present, replace it (same pattern as deploy.yml). PRs are
+            # issues in GitHub's data model, so the issues endpoint
+            # returns the body.
+            tmp=$(mktemp)
+            code=$(curl -sS -o "$tmp" -w '%{http_code}' --max-time 30 \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}")
+            # Fail CLOSED: a failed lookup must not be silently read as an
+            # empty body, which would let an oversized PR through the gate.
+            if [ "$code" != "200" ]; then
+              echo "::error::Failed to fetch body for PR #$PR_NUMBER (HTTP ${code}); failing closed (issue #1121)."
+              exit 1
+            fi
+            PR_BODY=$(jq -r '.body // ""' "$tmp")
+          fi
+          python scripts/check_pr_size.py "$TOTAL" "$PR_BODY"

@@ -44,6 +44,14 @@
     open = Boolean(next);
     btn.setAttribute("aria-expanded", open ? "true" : "false");
     nav.hidden = !open;
+    // Issue #901: the rail redesign (#868) gave ``#nav-main`` the Tailwind
+    // ``hidden`` class (``display: none`` regardless of the ``hidden``
+    // attribute), which kept the panel invisible on mobile even with the
+    // attribute cleared. Toggle the class in lock-step with the attribute
+    // so the computed visibility matches the announced state on both
+    // bases (desktop rail keeps ``md:flex``; the mobile base falls back
+    // to its default block flow, as before #868).
+    nav.classList.toggle("hidden", !open);
     if (open) {
       var first = focusables()[0];
       if (first) first.focus();

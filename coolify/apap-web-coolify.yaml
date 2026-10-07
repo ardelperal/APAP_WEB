@@ -66,6 +66,13 @@ service:
     # Session signing secret (32+ chars; Coolify secret store).
     - { name: APAP_SESSION_SECRET, value: "" }
 
+    # Magic-link login flag (issue #1005). Settings default is False
+    # (fail-closed, §6 default-deny): a build carrying the gate must NOT
+    # be deployed with this unset/false or /auth/magic/* answers 404
+    # and magic-link login breaks. "true" preserves the pre-#1005
+    # production behavior (login served unconditionally).
+    - { name: APAP_AUTH_ENABLE_MAGIC_LINK, value: "true" }
+
     # Self-host switch — when true, the app points at the local
     # backend in this same container (issue #641).
     - { name: APAP_LOCAL_BACKEND, value: "true" }

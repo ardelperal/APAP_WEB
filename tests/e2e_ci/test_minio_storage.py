@@ -47,7 +47,22 @@ class TestMinioStorageHealth:
         assert response.status == 200
         payload = response.json()
         assert payload["status"] == "ok"
-        assert payload["storage"] == "up", f"Storage is not healthy: {payload['storage']}"
+        assert "storage" in payload
+        # Issue #894: when MinIO is configured (credentials present, as in
+        # the CI e2e job), the health check must report "up" — "unconfigured"
+        # or "down" means a broken endpoint/service and must fail the e2e
+        # instead of passing as absent storage. Without credentials (local
+        # dev), "unconfigured" is the expected state.
+        if os.environ.get("APAP_S3_ACCESS_KEY"):
+            assert payload["storage"] == "up", (
+                f"MinIO is configured but health reports storage={payload['storage']!r}: "
+                f"an invalid endpoint or unreachable service must fail the e2e "
+                f"(issue #894)"
+            )
+        else:
+            assert payload["storage"] in ("up", "unconfigured"), (
+                f"Unexpected storage status: {payload['storage']}"
+            )
 
     def test_healthz_returns_200(
         self,
@@ -83,10 +98,9 @@ class TestMinioPhotoServing:
     ) -> None:
         """Photo served from MinIO is returned with correct content-type and size."""
         # Generate a unique test identity so parallel test runs don't collide.
-        animal_id = str(uuid.uuid4())
-        test_id = animal_id[:8]
+        test_id = uuid.uuid4().hex[:8]
+        animal_id = f"e2e-minio-{test_id}"
         photo_key = f"test-minio-{test_id}.png"
-        inserted = False
 
         try:
             # 1. Ensure the bucket exists.
@@ -109,21 +123,13 @@ class TestMinioPhotoServing:
             with e2e_db_conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO animales
-                        (id, nchip, nombreanimal, especie, sexo, fnacimiento, nombrefoto)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO animales (id, nombre, nombrefoto, estado)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (id) DO UPDATE
+                        SET nombrefoto = EXCLUDED.nombrefoto
                     """,
-                    (
-                        animal_id,
-                        f"e2e-minio-{test_id}",
-                        f"E2E Test Animal {test_id}",
-                        "CANINA",
-                        "M",
-                        "2020-01-01",
-                        photo_key,
-                    ),
+                    (animal_id, f"E2E Test Animal {test_id}", photo_key, "Refugio"),
                 )
-            inserted = True
 
             # 4. Authenticate via the E2E stub and fetch the photo.
             context = e2e_logged_in_browser_context
@@ -161,6 +167,5 @@ class TestMinioPhotoServing:
             except Exception:
                 pass  # best-effort cleanup
 
-            if inserted:
-                with e2e_db_conn.cursor() as cur:
-                    cur.execute("DELETE FROM animales WHERE id = %s", (animal_id,))
+            with e2e_db_conn.cursor() as cur:
+                cur.execute("DELETE FROM animales WHERE id = %s", (animal_id,))

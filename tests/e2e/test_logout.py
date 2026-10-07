@@ -33,56 +33,81 @@ def _skip_if_oauth_not_configured(page: Page, base_url: str) -> None:
         )
 
 
-def test_logout_is_a_get_redirect(page: Page, base_url: str) -> None:
-    """GET /logout redirects to / (session cleared).
+def _assert_bounced_to_login(page: Page, response, origin: str) -> None:
+    """Assert an anonymous navigation landed on a rendered /login.
 
-    Current implementation: the logout handler issues a redirect to /,
-    not /login. The session cookie is cleared by the response.
+    Final-response semantics (issues #1153/#1160): ``page.goto`` returns
+    the FINAL response of the redirect chain, so the server-side 302
+    surfaces as 200 @ /login; the ``redirected_from`` predecessor pins
+    the server-redirect contract (a JS bounce would not have one).
+    """
+    assert response is not None
+    assert response.status == 200, (
+        f"{origin} should land on a rendered /login (final response of the redirect "
+        f"chain), got {response.status} @ {response.url}"
+    )
+    assert page.url.endswith("/login"), (
+        f"{origin} without session should redirect to /login, got: {page.url}"
+    )
+    assert response.request.redirected_from is not None, (
+        f"{origin} must reach /login through a server redirect, not a client-side bounce"
+    )
+
+
+def test_get_logout_is_not_served_and_clears_nothing(page: Page, base_url: str) -> None:
+    """Issue #1076: ``GET /logout`` answers 405 and clears nothing.
+
+    Logout is a state-changing action: it is POST + CSRF only. A
+    cross-site top-level navigation (a link to ``/logout``) must not be
+    able to clear the session cookie, so GET is intentionally not
+    served.
     """
     _skip_if_oauth_not_configured(page, base_url)
     response = page.goto(f"{base_url}/logout", wait_until="domcontentloaded")
-    assert response is not None
-    assert response.status == 302, (
-        f"/logout must return 302, got {response.status}"
+
+    assert response is not None and response.status == 405, (
+        f"GET /logout must answer 405 (POST-only route, issue #1076); "
+        f"got {response.status if response else None}"
     )
-    # Redirect destination should be / (the home page) per current code.
-    # Accept both / and /login as the landing page may vary by config.
-    assert page.url.endswith("/") or page.url.endswith("/login"), (
-        f"/logout redirect destination unclear, got: {page.url}"
+    set_cookie = response.headers.get("set-cookie", "")
+    assert "apap_session=" not in set_cookie, (
+        f"GET /logout must not clear the session cookie; got Set-Cookie: {set_cookie!r}"
     )
 
 
-def test_logout_clears_session_cookie(page: Page, base_url: str) -> None:
-    """After GET /logout the apap_session cookie is cleared or expired."""
-    # Visit /logout to trigger the clear
-    page.goto(f"{base_url}/logout", wait_until="domcontentloaded")
+def test_post_logout_without_session_is_refused(page: Page, base_url: str) -> None:
+    """Issue #1076: ``POST /logout`` without a session/CSRF token is refused.
 
-    # Check cookie state after logout
-    cookies = page.context.cookies()
-    session_cookie_names = [c["name"] for c in cookies if "session" in c["name"].lower()]
-    # After logout, session cookies should either be absent or have maxAge=0
-    for name in session_cookie_names:
-        cookie = next((c for c in cookies if c["name"] == name), None)
-        if cookie:
-            assert cookie.get("expires", -1) == -1 or cookie.get("value") == "", (
-                f"Cookie {name!r} should be cleared after logout"
-            )
+    The anonymous-observable contract of the POST-only logout: the CSRF
+    middleware refuses the write before the handler runs. The
+    authenticated click-through ("Salir" button, POST + hidden CSRF
+    token) is pinned at the template level by
+    ``tests/test_csrf_form_enumeration.py`` /
+    ``tests/test_all_post_forms_have_csrf_input.py``.
+    """
+    _skip_if_oauth_not_configured(page, base_url)
+
+    response = page.request.post(f"{base_url}/logout", max_redirects=0)
+    assert response.status == 403, (
+        f"POST /logout without a session/CSRF token must answer 403 "
+        f"(issue #1076); got {response.status}"
+    )
 
 
-def test_logout_followed_by_protected_route_redirects_to_login(
+def test_logout_is_not_reachable_by_navigation(
     page: Page, base_url: str
 ) -> None:
-    """After logging out, accessing a protected route bounces to /login."""
+    """Issue #1076: navigating to ``/logout`` cannot log anyone out.
+
+    The original cross-site logout hazard: a top-level navigation from
+    another site used to clear the cookie. Now GET answers 405 without
+    touching the session, and an anonymous POST is refused with 403.
+    """
     _skip_if_oauth_not_configured(page, base_url)
-    # First logout (no session to clear, but exercises the route)
+    # The GET navigation clears nothing (405, pinned above); a protected
+    # route afterwards still bounces to /login exactly as without the
+    # navigation — anonymous users never had a session.
     page.goto(f"{base_url}/logout", wait_until="domcontentloaded")
 
-    # Now try to access a protected route
     response = page.goto(f"{base_url}/animales", wait_until="domcontentloaded")
-    assert response is not None
-    assert response.status == 302, (
-        f"After logout, /animales should return 302, got {response.status}"
-    )
-    assert page.url.endswith("/login"), (
-        f"After logout, /animales should redirect to /login, got: {page.url}"
-    )
+    _assert_bounced_to_login(page, response, "/animales after logout navigation")

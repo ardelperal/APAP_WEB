@@ -26,6 +26,17 @@ and frozen at 5. Every PR that introduces a new confirmed-dead symbol
 must either delete it or raise the baseline (the ratchet only hardens,
 never relaxes).
 
+Stacked slices (issue #1146): a slice whose helpers are consumed by the
+next PR in its chain reports those helpers as confirmed-dead at its own
+gate. The workflow that keeps the ratchet honest without weakening it is
+amend-up/ratchet-back: the slice commit raises BASELINE with the explicit
+same-commit rationale the constant requires, and the consumer commit
+deletes the now-used symbol (or lowers BASELINE) so the count returns to
+its downward path toward TARGET before the chain merges. Unlike
+``check_ruff_ratchet.py`` (``--update-baseline``, issue #1120) this guard
+has no such flag: BASELINE is edited by hand, always with rationale,
+shrink-only over time.
+
 Usage::
 
     python scripts/check_vulture_guard.py [root]
@@ -39,6 +50,7 @@ Issue: #392
 from __future__ import annotations
 
 import ast
+import importlib.util
 import re
 import subprocess
 import sys
@@ -95,6 +107,11 @@ _PROTECTED_NAMES: frozenset[str] = frozenset({
 #: Each is unresolvable from this PR's scope (the dead symbols live in
 #: paths PR #681 does not touch). Raising to 5 is the only way to keep
 #: the ratchet honest without expanding the diff into a mass delete.
+# slice-3 uses the allowlist helpers; ratchet restored (refs #1073)
+# Ratchet-back (issue #1109, consumer slice): 'obtener_plantilla' (port +
+# filesystem adapter, raised to 7 in PR #1261 per the #1146 amend-up
+# policy) is now referenced by the generate_contrato use case and its
+# adapter test battery. Count returns to 5; lock it in.
 BASELINE: int = 5
 
 #: Ratchet deadline (deterministic-quality-harness v1.5 Rule 12). Every
@@ -271,8 +288,46 @@ def _decorated(defs: dict[int, tuple[str, list[str]]], def_lineno: int) -> bool:
     return bool(info[1])
 
 
+#: Maximum stderr characters quoted in an unreliable-run error message.
+_STDERR_EXCERPT_LIMIT = 300
+
+#: Exit codes vulture uses when it really ran (0 clean, 1 legacy/invalid, 3 dead code).
+_VULTURE_EXIT_CODES = (0, 1, 3)
+
+_FIX_HINT = "install the dev extra (`uv sync --extra dev`) or run through `uv run`"
+
+
+def _vulture_available() -> bool:
+    """Return True when the interpreter that will run vulture can import it."""
+    return importlib.util.find_spec("vulture") is not None
+
+
+def _unreliable_run_error(proc: subprocess.CompletedProcess[str], findings: bool) -> str | None:
+    """Return an error message when ``proc`` proves vulture did not really run.
+
+    vulture exits 0 for "nothing found" and signals "dead code found" with 3
+    (2.16; older releases used 1). It also exits 1 for invalid input, and
+    ``python -m vulture`` with the module missing exits 1 too (issue #1142).
+    A non-zero exit without any interpretable finding is therefore a failed
+    run, and any code outside {0, 1, 3} is an unexpected failure.
+    """
+    stderr = (proc.stderr or "").strip()[:_STDERR_EXCERPT_LIMIT]
+    detail = f": {stderr}" if stderr else ""
+    if proc.returncode not in _VULTURE_EXIT_CODES:
+        return f"vulture failed with exit code {proc.returncode}{detail}; {_FIX_HINT}"
+    if proc.returncode != 0 and not findings:
+        return f"vulture exited {proc.returncode} without interpretable findings{detail}; {_FIX_HINT}"
+    return None
+
+
 def _run_vulture(root: Path) -> tuple[list[tuple[str, int, str]], str | None]:
-    """Run vulture over REPORT_SCOPE and return (findings, error)."""
+    """Run vulture over REPORT_SCOPE and return (findings, error).
+
+    ``error`` is set whenever vulture did not really run, so the caller never
+    treats a missing module as a clean measurement.
+    """
+    if not _vulture_available():
+        return [], f"vulture is not importable by {sys.executable}; {_FIX_HINT}"
     targets = [str(root / part) for part in REPORT_SCOPE if (root / part).is_dir()]
     cmd = [sys.executable, "-m", "vulture", *targets]
     try:
@@ -282,9 +337,11 @@ def _run_vulture(root: Path) -> tuple[list[tuple[str, int, str]], str | None]:
     except OSError as exc:
         return [], f"cannot run vulture ({exc})"
 
-    # vulture exits 0 when nothing is found, 1 when dead code is found.
-    # Treat both as normal; only an OSError is a real failure.
-    return parse_vulture_output(proc.stdout), None
+    findings = parse_vulture_output(proc.stdout)
+    error = _unreliable_run_error(proc, bool(findings))
+    if error is not None:
+        return [], error
+    return findings, None
 
 
 def _pin_output_encoding() -> None:
@@ -343,6 +400,7 @@ def main(argv: list[str] | None = None) -> int:
         for sym in sorted(dead_symbols):
             print(f"  {sym}")
         print("  Delete the symbol(s) above or update BASELINE in scripts/check_vulture_guard.py")
+        print("  (stacked chains: raise BASELINE with rationale in the slice, ratchet it back in the consumer — issue #1146)")
         return 1
 
     print(f"check_vulture_guard: OK ({count} confirmed-dead symbol(s), within BASELINE of {BASELINE})")

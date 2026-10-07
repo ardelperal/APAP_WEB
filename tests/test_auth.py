@@ -148,7 +148,8 @@ def test_get_user_by_email_returns_row_when_active() -> None:
 
     query, params = fake.calls[0]
     assert params == ["a@b.com"]
-    assert "WHERE email = $1" in query
+    # Case-insensitive WHERE — see GET_USER_BY_EMAIL_SQL docstring (issue #1003).
+    assert "lower(email) = lower($1)" in query
     assert "AND activo = true" in query
     assert user == {
         "id": "u-1",
@@ -645,3 +646,98 @@ def test_ensure_schema_seeds_when_no_active_developer_exists() -> None:
     assert "SELECT $1, 'developer', true" in insert[0]
     # The key assertion: activo = true filter in the subquery
     assert "activo = true" in insert[0]
+
+
+def test_get_user_by_email_uses_case_insensitive_where() -> None:
+    """Lookup uses ``lower(email) = lower($1)`` so case variants match (issue #1003).
+
+    The DB lookup normalizes both sides so an admin seeded with a
+    mixed-case ``APAP_INITIAL_ADMIN_EMAIL`` (e.g. ``Admin@Example.com``)
+    still resolves when the magic-link verify path looks them up with
+    the lowercase email. Mirrors :mod:`app.core.auth_cache` ``.lower()``
+    convention. The application-layer use case already calls
+    :func:`normalize_email` on the input before reaching the adapter;
+    this test pins the defense-in-depth SQL shape so the lookup stays
+    case-insensitive even if a future caller bypasses the use case
+    (the magic-link ``_lookup_authorized_user`` helper is exactly that
+    bypass — it goes straight to ``port.get_user_by_email``).
+    """
+    fake = _FakeSqlExecutor()
+    fake.set_response(
+        [{"id": "u-1", "email": "admin@example.com", "rol": "developer", "activo": True}],
+    )
+
+    user = get_user_by_email(fake, "Admin@Example.com")
+
+    query, params = fake.calls[0]
+    # The use case normalizes the input before delegating; the SQL
+    # receives the canonical (lowercase) form regardless of how the
+    # caller typed the address.
+    assert params == ["admin@example.com"]
+    # The defense-in-depth WHERE clause that resolves case-variant rows.
+    assert "lower(email) = lower($1)" in query
+    assert "AND activo = true" in query
+    assert user == {
+        "id": "u-1",
+        "email": "admin@example.com",
+        "rol": "developer",
+        "activo": True,
+    }
+
+
+def test_ensure_schema_normalizes_initial_admin_email_to_lowercase() -> None:
+    """Mixed-case ``initial_admin_email`` is normalized via ``normalize_email`` (issue #1003).
+
+    Without normalization, a typo in ``APAP_INITIAL_ADMIN_EMAIL`` such as
+    ``Admin@Example.com`` would persist in the table as-is and the
+    magic-link verify path would fail to find the admin when they log
+    in with the lowercase form. The seed runs the canonical form
+    through :func:`app.core.auth_helpers.normalize_email` (strip +
+    lowercase) so the stored email matches what the lookup expects.
+    """
+    fake = _FakeSqlExecutor()
+    fake.set_responses(
+        [],  # CREATE TABLE → no rows
+        [{"id": "u-1", "email": "admin@example.com", "rol": "developer"}],  # INSERT → row
+    )
+    settings = _settings(initial_admin_email="Admin@Example.com")
+
+    ensure_schema_and_seed(fake, settings)
+
+    assert len(fake.calls) == 2
+    insert = fake.calls[1]
+    assert "INSERT INTO usuarios_autorizados" in insert[0]
+    # Lowercased + stripped via app.core.auth_helpers.normalize_email.
+    assert insert[1] == ["admin@example.com"]
+
+
+def test_ensure_schema_seed_is_idempotent_under_mixed_case() -> None:
+    """Re-running the bootstrap with mixed-case email does not duplicate the row (issue #1003).
+
+    The SQL ``WHERE NOT EXISTS`` guard inside ``SEED_ADMIN_SQL`` already
+    prevents a second bootstrap admin from being inserted; the
+    normalization at the use case ensures the guard operates on the
+    canonical (lowercase) form, so a mixed-case env var does not
+    subvert the idempotency check by comparing against a different
+    case form.
+    """
+    fake = _FakeSqlExecutor()
+    fake.set_responses(
+        [],  # 1st CREATE
+        [],  # 1st INSERT — no row returned (already seeded)
+        [],  # 2nd CREATE
+        [],  # 2nd INSERT — no row returned (still idempotent)
+    )
+    settings = _settings(initial_admin_email="Admin@Example.com")
+
+    ensure_schema_and_seed(fake, settings)
+    ensure_schema_and_seed(fake, settings)
+
+    inserts = [call for call in fake.calls if "INSERT INTO usuarios_autorizados" in call[0]]
+    assert len(inserts) == 2
+    # Both INSERTs received the same normalized email — idempotency key.
+    assert inserts[0][1] == ["admin@example.com"]
+    assert inserts[1][1] == ["admin@example.com"]
+    # And the SQL carries the existing NOT EXISTS guard.
+    assert "WHERE NOT EXISTS" in inserts[0][0]
+    assert "WHERE NOT EXISTS" in inserts[1][0]

@@ -58,6 +58,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
+
 from app.modules.adopciones import service as adopciones_service
 from app.modules.animals.lifecycle_events import LifecycleEventType
 from app.modules.lifecycle.application.close_previous_situation import (
@@ -68,7 +70,24 @@ from app.modules.lifecycle.application.close_previous_situation import (
 
 
 ADOPCION_UUID = "33333333-3333-3333-3333-333333333333"
+
+#: Fixed actor UUID for tests (issue #945: lifecycle-event writes
+#: require the acting user's UUID before any write).
+ACTOR_ID = "00000000-0000-4000-8000-000000000001"
 ANIMAL_UUID = "11111111-1111-1111-1111-111111111111"
+
+
+class _FakeBoundExecutor:
+    """Executor bound to the fake transaction, journaling tx-scope queries."""
+
+    def __init__(self, parent: FakeSqlExecutor) -> None:
+        self._parent = parent
+
+    def execute_sql(
+        self, query: str, params: list[Any] | None = None
+    ) -> list[dict[str, Any]]:
+        self._parent.tx_queries.append(" ".join(query.split()))
+        return self._parent.execute_sql(query, params)
 
 
 class FakeSqlExecutor:
@@ -104,6 +123,13 @@ class FakeSqlExecutor:
         self.calls: list[tuple[str, list[Any]]] = []
         self._insert_row = insert_row
         self._update_row = update_row
+        # Issue #1067: transaction recording + fault injection.
+        self.fail_on: str | None = None
+        self.transaction_opened = False
+        self.committed = False
+        self.rolled_back = False
+        #: Normalized queries issued through the transaction-bound executor.
+        self.tx_queries: list[str] = []
 
     def execute_sql(
         self, query: str, params: list[Any] | None = None
@@ -111,6 +137,11 @@ class FakeSqlExecutor:
         normalized = query.strip()
         params_list = list(params or [])
         self.calls.append((normalized, params_list))
+
+        # Issue #1067 fault injection: a forced failure models the
+        # mid-unit crash whose damage the transaction must undo.
+        if self.fail_on is not None and self.fail_on in normalized:
+            raise RuntimeError(f"forced failure on {self.fail_on!r} (issue #1067)")
 
         # FK validation SELECTs — the service layer checks each
         # referenced id is active before issuing the INSERT / UPDATE.
@@ -135,6 +166,29 @@ class FakeSqlExecutor:
             return [self._update_row or _default_update_row()]
         return []
 
+
+    def transaction(self) -> Any:
+        """Open the fake atomic unit and yield a bound recording executor.
+
+        Mirrors the ``_FakeTransactionalExecutor`` pattern of
+        ``tests/test_animals_chip_cascade_saga.py``: every statement the
+        service issues through the yielded executor is journaled in
+        ``tx_queries`` so tests can pin that the whole unit travelled
+        through one ``transaction()`` block, and ``__exit__`` records
+        commit vs rollback.
+        """
+        self.transaction_opened = True
+        return self
+
+    def __enter__(self) -> _FakeBoundExecutor:
+        return _FakeBoundExecutor(self)
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+        if exc_type is not None:
+            self.rolled_back = True
+            return False
+        self.committed = True
+        return False
 
 def _default_insert_row() -> dict[str, Any]:
     """Canonical returned row for the ``INSERT INTO adopciones`` mock.
@@ -243,7 +297,7 @@ def test_create_adopcion_emits_adoption_started_event() -> None:
     """
     executor = FakeSqlExecutor()
 
-    result = adopciones_service.create_adopcion(executor, _params_minimal())
+    result = adopciones_service.create_adopcion(executor, _params_minimal(), actor_user_id=ACTOR_ID)
 
     assert isinstance(result, adopciones_service.Adopcion)
 
@@ -278,8 +332,8 @@ def test_create_adopcion_emits_adoption_started_event() -> None:
     assert params[7] is None  # legacy_source_id
     # metadata is serialised to JSON when present, None when absent.
     assert params[8] is None
-    # ``created_by`` records the service-layer call site as the actor.
-    assert params[9] == "adopciones.create_adopcion"
+    # ``created_by`` is the acting user's UUID (issue #945).
+    assert params[9] == ACTOR_ID
 
 
 def test_create_adopcion_emits_foster_closed_by_adoption_event() -> None:
@@ -294,7 +348,7 @@ def test_create_adopcion_emits_foster_closed_by_adoption_event() -> None:
     """
     executor = FakeSqlExecutor()
 
-    adopciones_service.create_adopcion(executor, _params_minimal())
+    adopciones_service.create_adopcion(executor, _params_minimal(), actor_user_id=ACTOR_ID)
 
     inserts = _lifecycle_event_inserts(executor.calls)
     closing_events = [
@@ -324,8 +378,8 @@ def test_create_adopcion_emits_foster_closed_by_adoption_event() -> None:
     assert params[4] == "adopciones"  # source_entity_type
     assert params[5] == ADOPCION_UUID  # source_entity_id
     # The closing event is sourced from the adopciones side; no legacy
-    # fields. ``created_by`` falls back to the use case default.
-    assert params[6] == "lifecycle.close_previous_situation"
+    # fields. ``created_by`` is the same acting user's UUID (issue #945).
+    assert params[6] == ACTOR_ID
 
     # Source-of-truth invariant (AGENTS.md §33.4): the closing is
     # event-sourced, never UPDATE against ``entradas`` / ``acogidas`` /
@@ -353,7 +407,7 @@ def test_create_adopcion_updates_animal_current_state() -> None:
     """
     executor = FakeSqlExecutor()
 
-    adopciones_service.create_adopcion(executor, _params_minimal())
+    adopciones_service.create_adopcion(executor, _params_minimal(), actor_user_id=ACTOR_ID)
 
     cache_upserts = _animal_current_state_inserts(executor.calls)
     assert len(cache_upserts) >= 1, (
@@ -393,6 +447,7 @@ def test_adopcion_return_updates_animal_state() -> None:
         executor,
         ADOPCION_UUID,
         _params_returned(),
+        actor_user_id=ACTOR_ID,
     )
 
     assert result is not None
@@ -423,7 +478,7 @@ def test_adopcion_return_updates_animal_state() -> None:
     assert params[6] is None  # legacy_source_table
     assert params[7] is None  # legacy_source_id
     assert params[8] is None  # metadata
-    assert params[9] == "adopciones.update_adopcion"
+    assert params[9] == ACTOR_ID
 
     # close_previous_situation is NOT called from the return path
     # (ADOPTION_RETURNED is a single event, not a paired close). The
@@ -476,6 +531,45 @@ def test_adopcion_return_updates_animal_state() -> None:
     )
 
 
+def test_update_adopcion_return_runs_all_writes_in_one_transaction() -> None:
+    """Issue #1067: the UPDATE, the ADOPTION_RETURNED event INSERT and the
+    ``animal_current_state`` refresh are ONE atomic unit of work.
+
+    Without the transaction, each ``execute_sql`` committed alone: a
+    failure between the UPDATE and the event INSERT left the adoption
+    row persisted while the event log and the state cache went stale.
+    """
+    executor = FakeSqlExecutor()
+
+    adopciones_service.update_adopcion(
+        executor, ADOPCION_UUID, _params_returned(), actor_user_id=ACTOR_ID
+    )
+
+    assert executor.transaction_opened is True
+    assert executor.committed is True
+    assert executor.rolled_back is False
+
+    joined = "\n".join(executor.tx_queries)
+    assert "UPDATE adopciones" in joined, "the row UPDATE must travel inside the transaction"
+    assert "INSERT INTO animal_lifecycle_events" in joined, "the event INSERT must travel inside the transaction"
+    assert "INSERT INTO animal_current_state" in joined, "the cache refresh must travel inside the transaction"
+
+
+def test_update_adopcion_event_failure_rolls_back_the_update() -> None:
+    """Issue #1067: a mid-unit failure undoes the UPDATE — the adoption
+    row does not survive without its ADOPTION_RETURNED event."""
+    executor = FakeSqlExecutor()
+    executor.fail_on = "INSERT INTO animal_lifecycle_events"
+
+    with pytest.raises(RuntimeError, match="forced failure"):
+        adopciones_service.update_adopcion(
+            executor, ADOPCION_UUID, _params_returned(), actor_user_id=ACTOR_ID
+        )
+
+    assert executor.rolled_back is True
+    assert executor.committed is False
+
+
 # --- close_previous_situation category mapping ----------------------------
 
 
@@ -503,7 +597,7 @@ def test_close_previous_situation_passes_correct_category() -> None:
 
     executor = FakeSqlExecutor()
 
-    adopciones_service.create_adopcion(executor, _params_minimal())
+    adopciones_service.create_adopcion(executor, _params_minimal(), actor_user_id=ACTOR_ID)
 
     inserts = _lifecycle_event_inserts(executor.calls)
     foster_closing = [

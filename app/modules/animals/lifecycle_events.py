@@ -50,6 +50,7 @@ import json
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, Final
+from uuid import UUID
 
 from app.core.data_access import SqlExecutor
 from app.modules.lifecycle import build_lifecycle_port
@@ -167,6 +168,36 @@ class CausalPairViolation(ValueError):
 
 
 # --- helpers --------------------------------------------------------------
+
+
+class ActorRequiredError(ValueError):
+    """Raised when a lifecycle write has no acting user to record.
+
+    ``animal_lifecycle_events.created_by`` is ``UUID NOT NULL``: every
+    event names the user who caused it. Flows reject the operation
+    before any write instead of inventing a system actor (issue #945,
+    maintainer decision option a). The message is built here (not at
+    the call site) so ``require_actor`` stays TRY003-clean.
+    """
+
+    def __init__(self, actor_user_id: str | None = None) -> None:
+        message = (
+            f"acting user id is not a UUID: {actor_user_id!r}"
+            if actor_user_id
+            else "an acting user is required to record lifecycle events"
+        )
+        super().__init__(message)
+        self.actor_user_id = actor_user_id
+
+
+def require_actor(actor_user_id: str | None) -> str:
+    """Return ``actor_user_id`` as a canonical UUID string or raise."""
+    if not actor_user_id:
+        raise ActorRequiredError(actor_user_id)
+    try:
+        return str(UUID(actor_user_id))
+    except ValueError as exc:
+        raise ActorRequiredError(actor_user_id) from exc
 
 
 def _coerce_event_type(value: Any) -> LifecycleEventType:
@@ -479,11 +510,13 @@ def validate_causal_pair(
 
 __all__ = [
     "CAUSAL_PAIR_DECISION_ID",
+    "ActorRequiredError",
     "CORE_EVENT_TYPES",
     "CausalPairViolation",
     "LifecycleEventType",
     "SUPPORTING_EVENT_TYPES",
     "actualizar_estado_animal",
     "record_event",
+    "require_actor",
     "validate_causal_pair",
 ]

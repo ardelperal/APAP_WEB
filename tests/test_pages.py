@@ -304,7 +304,7 @@ async def test_unauthorized_redirects_anonymous_users_to_login(
     "path",
     [
         "/animales",
-        "/animales/abc-123/update",
+        "/animales/abc12345-0000-4000-8000-000000000001/update",
         "/entradas",
         "/entradas/ent-123/update",
         "/voluntarios",

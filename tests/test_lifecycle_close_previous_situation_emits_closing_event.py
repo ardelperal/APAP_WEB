@@ -19,7 +19,6 @@ import pytest
 
 from app.modules.lifecycle.application.close_previous_situation import (
     CLOSING_EVENT_BY_CATEGORY,
-    DEFAULT_CREATED_BY,
     UnknownSituationCategoryError,
     close_previous_situation,
 )
@@ -89,6 +88,7 @@ def test_close_previous_situation_emits_foster_closing_event() -> None:
         event_timestamp="2026-08-02T00:00:00Z",
         source_entity_type="acogidas",
         source_entity_id="acogida-uuid-2",
+        created_by="tester",
     )
     inserts = _insert_params(executor.calls)
     assert inserts[0][1] == "FOSTER_CLOSED_BY_ADOPTION"
@@ -106,6 +106,7 @@ def test_close_previous_situation_emits_adoption_returned() -> None:
         event_timestamp="2026-08-03T00:00:00Z",
         source_entity_type="adopciones",
         source_entity_id="adopcion-uuid-3",
+        created_by="tester",
     )
     inserts = _insert_params(executor.calls)
     assert inserts[0][1] == "ADOPTION_RETURNED"
@@ -128,6 +129,7 @@ def test_close_previous_situation_raises_for_unknown_category() -> None:
             category="UNKNOWN",
             caused_by_event_id="trigger-event-uuid-4",
             event_timestamp="2026-08-04T00:00:00Z",
+            created_by="tester",
         )
     assert excinfo.value.category == "UNKNOWN"
     assert "UNKNOWN" in str(excinfo.value)
@@ -158,6 +160,7 @@ def test_close_previous_situation_coerces_datetime_to_isoformat() -> None:
         category="INTAKE",
         caused_by_event_id="trigger-event-uuid-5",
         event_timestamp=datetime(2026, 8, 5, 12, 30, 0),
+        created_by="tester",
     )
     inserts = _insert_params(executor.calls)
     assert inserts[0][2] == "2026-08-05T12:30:00", (
@@ -179,24 +182,30 @@ def test_close_previous_situation_source_entity_optional() -> None:
         category="FOSTER",
         caused_by_event_id="trigger-event-uuid-6",
         event_timestamp="2026-08-06T00:00:00Z",
+        created_by="tester",
     )
     inserts = _insert_params(executor.calls)
     assert inserts[0][4] is None
     assert inserts[0][5] is None
 
 
-def test_close_previous_situation_uses_default_created_by() -> None:
-    """When the caller omits ``created_by`` the audit-trail actor is the default."""
+def test_close_previous_situation_requires_created_by() -> None:
+    """``created_by`` is a required keyword (issue #945, A-13): no default actor.
+
+    ``animal_lifecycle_events.created_by`` is ``UUID NOT NULL``; a
+    caller that omits the acting user's id gets a ``TypeError`` before
+    any SQL runs, instead of a semantically-empty default actor label.
+    """
     executor = _FakeSqlExecutor()
-    close_previous_situation(
-        executor,
-        animal_id="animal-uuid-7",
-        category="INTAKE",
-        caused_by_event_id="trigger-event-uuid-7",
-        event_timestamp="2026-08-07T00:00:00Z",
-    )
-    inserts = _insert_params(executor.calls)
-    assert inserts[0][6] == DEFAULT_CREATED_BY
+    with pytest.raises(TypeError):
+        close_previous_situation(
+            executor,
+            animal_id="animal-uuid-7",
+            category="INTAKE",
+            caused_by_event_id="trigger-event-uuid-7",
+            event_timestamp="2026-08-07T00:00:00Z",
+        )
+    assert executor.calls == []
 
 
 def test_close_previous_situation_never_updates_source_tables() -> None:
@@ -215,6 +224,7 @@ def test_close_previous_situation_never_updates_source_tables() -> None:
         category="ADOPTION",
         caused_by_event_id="trigger-event-uuid-8",
         event_timestamp="2026-08-08T00:00:00Z",
+        created_by="tester",
     )
     for sql, _params in executor.calls:
         normalized = sql.strip().upper()
@@ -275,6 +285,7 @@ def test_close_previous_situation_calls_lifecycle_port_after_emitting_event():
         category="INTAKE",
         caused_by_event_id="trigger-ev-99",
         event_timestamp="2026-08-01T00:00:00Z",
+        created_by="tester",
         lifecycle_port=lifecycle_port,
     )
 
@@ -294,6 +305,7 @@ def test_close_previous_situation_no_state_update_when_port_is_none():
         category="FOSTER",
         caused_by_event_id="trigger-ev-2",
         event_timestamp="2026-08-01T00:00:00Z",
+        created_by="tester",
     )
     inserts = _insert_params(executor.calls)
     assert len(inserts) == 1

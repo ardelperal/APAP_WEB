@@ -113,13 +113,21 @@ def route_client() -> _NoSqlRouteClient:
     app.dependency_overrides.pop(get_animals_port, None)
 
 
+#: Issue #945 (A-13): ``create_acogida``/``close_acogida`` now validate
+#: the acting user's id as a UUID (``require_actor``) before any write.
+#: The key_user fixture session must carry a real UUID so the
+#: end-to-end ``_feed_handler`` tests below (real, unmocked service)
+#: still reach the INSERT/UPDATE instead of a 422 from ``ActorRequiredError``.
+ACTOR_UUID = "00000000-0000-4000-8000-000000000001"
+
+
 def _login_as_key_user(client: httpx.AsyncClient) -> None:
     """Mint a session cookie with a known CSRF token bound to it."""
     token = write_session(
         {
             "email": "ana@example.com",
             "rol": "key_user",
-            "user_id": "u-ana",
+            "user_id": ACTOR_UUID,
             "is_authorized": True,
             "csrf_token": "test-csrf-token-acogidas",
         },
@@ -323,6 +331,186 @@ async def test_new_acogida_form_renders_with_csrf(
     assert "Fecha de inicio" in body
 
 
+# --- 4b. GET /acogidas/new?<query> — asignar redirect prefill (issue #1008) --
+
+
+class _FakePrefillAnimalsPort:
+    """Animals port stub backing the /new prefill validation (issue #1008).
+
+    The real ``get_animal_by_id`` application function delegates to this
+    port, so the stub decides whether the queried animal "exists".
+    """
+
+    def __init__(self, animal: object | None) -> None:
+        self._animal = animal
+        self.requested_ids: list[str] = []
+
+    def get_animal_by_id(self, animal_id: str) -> object | None:
+        self.requested_ids.append(animal_id)
+        return self._animal
+
+
+_ANIMAL_UUID = "11111111-1111-1111-1111-111111111111"
+_CASA_UUID = "33333333-3333-3333-3333-333333333333"
+_OVERRIDE_UUID = "44444444-4444-4444-4444-444444444444"
+
+
+async def test_new_acogida_form_prefills_animal_and_casa_from_query_params(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+) -> None:
+    """GET /acogidas/new?animal_id=X&casa_acogida_id=Y prefills the form.
+
+    Issue #1008: the /asignar 303 redirect carries the operator's ids as
+    query params; the /new handler must consume them so the form renders
+    with those values (previously form_data={} ignored them entirely).
+    """
+    _login_as_key_user(client)
+    app.dependency_overrides[get_animals_port] = lambda: _FakePrefillAnimalsPort(
+        object()
+    )
+
+    response = await client.get(
+        "/acogidas/new",
+        params={"animal_id": _ANIMAL_UUID, "casa_acogida_id": _CASA_UUID},
+    )
+
+    assert response.status_code == 200
+    body = response.text
+    assert f'name="animal_id" value="{_ANIMAL_UUID}"' in body
+    assert f'name="casa_acogida_id" value="{_CASA_UUID}"' in body
+    # No override in the query -> no hidden override field.
+    assert 'name="override_id"' not in body
+
+
+async def test_new_acogida_form_prefills_hidden_override_id(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+) -> None:
+    """A well-formed override_id query param renders the hidden field.
+
+    Issue #142 contract: the override recorded at /asignar must survive
+    into the create POST so ``create_acogida`` can link the
+    ``foster_capacity_overrides`` row (issue #1008 makes the redirect
+    contract real downstream).
+    """
+    _login_as_key_user(client)
+
+    response = await client.get(
+        "/acogidas/new", params={"override_id": _OVERRIDE_UUID}
+    )
+
+    assert response.status_code == 200
+    assert f'name="override_id" value="{_OVERRIDE_UUID}"' in response.text
+
+
+async def test_new_acogida_form_drops_malformed_override_id(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+) -> None:
+    """A malformed override_id is never echoed into the form.
+
+    Reflected-garbage guard: a hand-crafted ?override_id=<garbage> must
+    not surface in the rendered HTML (neither in the hidden field nor
+    anywhere else).
+    """
+    _login_as_key_user(client)
+    garbage = 'not-a-uuid"><script>alert(1)</script>'
+
+    response = await client.get("/acogidas/new", params={"override_id": garbage})
+
+    assert response.status_code == 200
+    body = response.text
+    assert garbage not in body
+    assert 'name="override_id"' not in body
+
+
+async def test_new_acogida_form_returns_404_for_unknown_animal_id(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+) -> None:
+    """A well-formed but nonexistent animal_id 404s (detail-route parity).
+
+    Consistency rule (issue #1008): GET /acogidas/{id} 404s unknown ids;
+    the prefill params identify real entities, so an unknown animal_id
+    gets the same treatment instead of silently rendering an empty form.
+    """
+    _login_as_key_user(client)
+    app.dependency_overrides[get_animals_port] = lambda: _FakePrefillAnimalsPort(
+        None
+    )
+
+    response = await client.get("/acogidas/new", params={"animal_id": _ANIMAL_UUID})
+
+    assert response.status_code == 404
+
+
+async def test_new_acogida_form_prefills_wellformed_unknown_casa_acogida_id(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+) -> None:
+    """A well-formed but nonexistent casa_acogida_id still prefills.
+
+    Documented asymmetry (issue #1008): the animal check runs through
+    the slice's injected ``AnimalsPort``, but the foster slice does not
+    expose its casa lookup via its public package root (check_layers
+    slice-internals rule) and this lane does not own foster/**, so casa
+    existence is enforced at submit time — ``create_acogida`` fails
+    closed with a 422 on an unknown casa. The producer only ever
+    redirects with a casa it just evaluated, so this only fires on
+    hand-crafted URLs. Malformed casa ids still 404 (see the malformed
+    parametrized test).
+    """
+    _login_as_key_user(client)
+    app.dependency_overrides[get_animals_port] = lambda: _FakePrefillAnimalsPort(
+        object()
+    )
+
+    response = await client.get(
+        "/acogidas/new",
+        params={"animal_id": _ANIMAL_UUID, "casa_acogida_id": _CASA_UUID},
+    )
+
+    assert response.status_code == 200
+    assert f'name="casa_acogida_id" value="{_CASA_UUID}"' in response.text
+
+
+@pytest.mark.parametrize(
+    ("params", "label"),
+    [
+        ({"animal_id": "garbage-not-a-uuid"}, "animal_id"),
+        (
+            {"animal_id": _ANIMAL_UUID, "casa_acogida_id": "garbage-not-a-uuid"},
+            "casa_acogida_id",
+        ),
+    ],
+)
+async def test_new_acogida_form_returns_404_for_malformed_entity_ids(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+    params: dict[str, str],
+    label: str,
+) -> None:
+    """A non-UUID animal_id/casa_acogida_id 404s; nothing is reflected.
+
+    The /asignar producer only ever emits real UUIDs, so a malformed id
+    means a hand-crafted URL: fail closed with 404 — a non-UUID can
+    never reference a row, so this mirrors the detail routes' not-found
+    outcome — and never echo the value.
+    """
+    _login_as_key_user(client)
+    app.dependency_overrides[get_animals_port] = lambda: _FakePrefillAnimalsPort(
+        object()
+    )
+
+    response = await client.get("/acogidas/new", params=params)
+
+    assert response.status_code == 404, f"malformed {label} must 404"
+    for value in params.values():
+        assert value not in response.text
+
+
 # --- 5. POST /acogidas (create, happy path) -------------------------------
 
 
@@ -334,15 +522,18 @@ async def test_create_acogida_valid_records_redirects_to_detail(
     """Valid create form -> service returns the estancia -> 303 to detail."""
     _login_as_key_user(client)
     estancia = _acogida()
-    calls: list[tuple[LocalPostgresExecutor, dict[str, Any]]] = []
+    calls: list[tuple[LocalPostgresExecutor, dict[str, Any], str | None]] = []
     # FOSTER-03 (#45): skip the species gate; this test exercises the
     # CRUD service path, not the gate itself.
     _bypass_species_gate(monkeypatch)
 
     def fake_create(
-        service_client: LocalPostgresExecutor, params: dict[str, Any]
+        service_client: LocalPostgresExecutor,
+        params: dict[str, Any],
+        *,
+        actor_user_id: str | None = None,
     ) -> acogidas_service.Acogida:
-        calls.append((service_client, params))
+        calls.append((service_client, params, actor_user_id))
         return estancia
 
     monkeypatch.setattr(acogidas_service, "create_acogida", fake_create)
@@ -362,6 +553,9 @@ async def test_create_acogida_valid_records_redirects_to_detail(
     assert len(calls) == 1
     assert calls[0][0] is route_client
     assert calls[0][1]["animal_id"] == "11111111-1111-1111-1111-111111111111"
+    # Issue #945 (A-13): the acting user's id flows from the auth
+    # payload to the service via the kwarg.
+    assert calls[0][2] == ACTOR_UUID
 
 
 # --- 6. POST /acogidas (create, sad path) --------------------------------
@@ -383,7 +577,10 @@ async def test_create_acogida_sad_validation_rerenders_form_with_422(
     _bypass_species_gate(monkeypatch)
 
     def fake_create(
-        service_client: LocalPostgresExecutor, params: dict[str, Any]
+        service_client: LocalPostgresExecutor,
+        params: dict[str, Any],
+        *,
+        actor_user_id: str | None = None,
     ) -> acogidas_service.Acogida:
         raise ValueError("fecha_inicio es obligatorio y no puede estar vacio")
 
@@ -431,7 +628,10 @@ async def test_create_acogida_route_translates_fk_violation_to_422(
     _bypass_species_gate(monkeypatch)
 
     def fake_create(
-        service_client: LocalPostgresExecutor, params: dict[str, Any]
+        service_client: LocalPostgresExecutor,
+        params: dict[str, Any],
+        *,
+        actor_user_id: str | None = None,
     ) -> acogidas_service.Acogida:
         # Simulate a PostgreSQL FK violation arriving via PostgREST.
         raise BackendError(
@@ -640,12 +840,15 @@ async def test_close_acogida_redirects_to_detail_when_successful(
     """Close stay -> 303 redirect to detail page."""
     _login_as_key_user(client)
     estancia = _acogida()
-    calls: list[tuple[LocalPostgresExecutor, str]] = []
+    calls: list[tuple[LocalPostgresExecutor, str, str | None]] = []
 
     def fake_close(
-        service_client: LocalPostgresExecutor, acogida_id: str
+        service_client: LocalPostgresExecutor,
+        acogida_id: str,
+        *,
+        actor_user_id: str | None = None,
     ) -> acogidas_service.Acogida | None:
-        calls.append((service_client, acogida_id))
+        calls.append((service_client, acogida_id, actor_user_id))
         return estancia
 
     monkeypatch.setattr(acogidas_service, "close_acogida", fake_close)
@@ -659,7 +862,7 @@ async def test_close_acogida_redirects_to_detail_when_successful(
 
     assert response.status_code == 303
     assert response.headers["location"] == "/acogidas/acog-123"
-    assert calls == [(route_client, "acog-123")]
+    assert calls == [(route_client, "acog-123", ACTOR_UUID)]
 
 
 # --- 13. POST /acogidas/{id}/close (404 when missing) --------------------
@@ -673,7 +876,7 @@ async def test_close_acogida_returns_404_when_id_missing(
     """``close_acogida`` returning ``None`` -> 404 (no redirect)."""
     _login_as_key_user(client)
     monkeypatch.setattr(
-        acogidas_service, "close_acogida", lambda _c, _id: None
+        acogidas_service, "close_acogida", lambda _c, _id, **_kw: None
     )
 
     response = await make_csrf_request(
@@ -684,6 +887,45 @@ async def test_close_acogida_returns_404_when_id_missing(
     )
 
     assert response.status_code == 404
+
+
+# --- 13b. POST /acogidas/{id}/close (403 without an actor) ---------------
+
+
+async def test_close_acogida_without_actor_returns_403(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No acting user -> ``ActorRequiredError`` from the service -> 403.
+
+    Issue #945 (A-13): ``FOSTER_RETURNED`` needs the acting user's
+    UUID; a session without one cannot close a stay. The mapping lives
+    in ``acogidas/_actor_flow.py`` (mutation-site ratchet:
+    ``acogidas/routes.py`` has no headroom for an inline try/except).
+    """
+    from app.modules.animals import ActorRequiredError
+
+    _login_as_key_user(client)
+
+    def fake_close(
+        service_client: LocalPostgresExecutor,
+        acogida_id: str,
+        *,
+        actor_user_id: str | None = None,
+    ) -> acogidas_service.Acogida | None:
+        raise ActorRequiredError(actor_user_id)
+
+    monkeypatch.setattr(acogidas_service, "close_acogida", fake_close)
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/acogidas/acog-123/close",
+        csrf_token="test-csrf-token-acogidas",
+    )
+
+    assert response.status_code == 403
 
 
 # --- 14. POST /acogidas/{id}/delete (happy path + 404) -------------------
@@ -892,7 +1134,7 @@ async def test_create_acogida_allows_legacy_no_casa_acogida_id(
     estancia = _acogida()
     calls: list[Any] = []
 
-    def fake_create(_c, _p):
+    def fake_create(_c, _p, *, actor_user_id=None):
         calls.append(_p)
         return estancia
 

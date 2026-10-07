@@ -28,10 +28,42 @@ Hard rules (web-tdd-philosophy):
 """
 from __future__ import annotations
 
+import os
+
 import pytest
-from playwright.sync_api import Page
+from playwright.sync_api import BrowserContext, Page
 
 pytestmark = pytest.mark.e2e
+
+E2E_SECRET_HEADER = "X-E2E-Secret"
+
+
+@pytest.fixture
+def authenticated_session(
+    browser_context: BrowserContext, base_url: str
+) -> tuple[Page, str]:
+    """A Page with a session cookie minted by ``/e2e/login``.
+
+    Copied verbatim from ``test_cesiones_auth.py`` (self-contained
+    convention: ``conftest.py`` ships no ``authenticated_session``
+    fixture, and referencing it made every atom here error at setup
+    instead of skipping — issue #1160). Skips when the secret is unset.
+    """
+    secret = os.environ.get("APAP_E2E_AUTH_SECRET")
+    if secret is None:
+        pytest.skip("APAP_E2E_AUTH_SECRET not set.")
+
+    response = browser_context.request.get(
+        f"{base_url}/e2e/login",
+        headers={E2E_SECRET_HEADER: secret},
+    )
+    assert response.status == 200
+    payload = response.json()
+    csrf_token = payload.get("csrf_token")
+    assert isinstance(csrf_token, str) and csrf_token
+
+    page = browser_context.new_page()
+    return page, csrf_token
 
 
 @pytest.fixture

@@ -16,15 +16,21 @@ route, ``GET /e2e/login``, that mints a session directly when:
    :mod:`app.core.auth_flow` stands),
 2. The ``X-E2E-Secret`` request header matches ``Settings.e2e_auth_secret``
    (constant-time comparison, defence against timing-leak probes),
-3. The email is one the operator opted in to via
-   ``Settings.e2e_auth_default_email`` or ``?email=…``.
+3. The target email is allowlisted: ``Settings.e2e_auth_default_email``
+   or ``?email=…`` must exist as an **active row in
+   ``usuarios_autorizados``** (issue #1073 — the DB is the single
+   allowlist; any other email is a 400 with an audited
+   ``invalid_request`` entry).
 
 The session payload is identical in shape to the OAuth callback's
 output (``email``, ``rol``, ``user_id``, ``is_authorized=True``,
-``csrf_token``) and the in-process auth cache is pre-populated so
-:func:`app.core.auth_dependencies.require_authorized_user` accepts
-the cookie without consulting the database — the mock is therefore
-independent of the ``usuarios_autorizados`` seed.
+``csrf_token``) but the ``rol`` and ``user_id`` are READ FROM THE
+DATABASE (issue #1073) — the endpoint never hardcodes a role and
+never elevates one. The in-process auth cache is deliberately NOT
+pre-populated: :func:`app.core.auth_dependencies.require_authorized_user`
+remains the single cache writer and revalidates against the DB on
+the first authorized request, so no cache entry can ever hold a
+role that differs from ``usuarios_autorizados``.
 
 This is a **test-only** surface. The route name (``/e2e/...``)
 and the gating (env-var + secret header) are deliberately loud so
@@ -33,46 +39,247 @@ nothing in production routes accidentally points at it.
 from __future__ import annotations
 
 import hmac
-from typing import Annotated
+from collections.abc import Iterator
+from dataclasses import dataclass
+from typing import Annotated, Any, NoReturn
 
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from app.core.auth_cache import set_cached_auth
-from app.core.config import get_settings
+from app.core.auth import get_user_by_email
+from app.core.config import Settings, get_settings
 from app.core.csrf import generate_csrf_token
+from app.core.data_access import SqlExecutor
+from app.core.logging import log_safe
+from app.core.rate_limit import _extract_identity
 from app.core.session import (
     session_cookie_name,
     write_session,
 )
 
-# Fixed UUID for the mock user — deterministic so log lines / session
-# payloads are stable across E2E runs and so a future change to the
-# UUID does not accidentally drift past the database seed.
-MOCK_USER_ID: str = "00000000-0000-0000-0000-0000000000e2e"
 
-# Default role the mock mints. Matches the ``developer`` role used
-# by the legacy admin route — the only role with full backend
-# access, which is what E2E flow tests want.
-MOCK_USER_ROL: str = "developer"
+def _sql_executor(request: Request) -> Iterator[SqlExecutor | None]:
+    """Yield the lifespan-owned SqlExecutor, or ``None`` when absent.
+
+    Tolerant variant of
+    :func:`app.core.di.auth_dependencies_session_di.get_local_backend_client_dep`
+    (same ``request.app.state.sql_executor`` attribute, same production
+    wiring): composition tests probe the 401/404 paths without entering
+    the lifespan, and a missing executor must fail the allowlist lookup
+    CLOSED (503, audited) instead of crashing with ``AttributeError``.
+    """
+    yield getattr(request.app.state, "sql_executor", None)
 
 
-def _mock_session_payload(*, email: str, csrf_token: str) -> dict[str, object]:
+def _secret_matches(provided: str | None, expected: str) -> bool:
+    """Constant-time secret comparison that tolerates non-ASCII probes.
+
+    ASGI decodes header bytes with latin-1, so a probe sending a raw
+    non-ASCII byte reaches this module as a non-ASCII str. Feeding such
+    a str to ``hmac.compare_digest`` raises ``TypeError`` (unhandled
+    500 with no audit entry). The ASCII guard routes any non-ASCII
+    probe to the invalid-secret path instead: it can never match an
+    ASCII expected secret, so denying it without a byte comparison is
+    behaviourally identical and audit-covered.
+    """
+    if provided is None or not provided.isascii():
+        return False
+    return hmac.compare_digest(
+        provided.encode("utf-8"), expected.encode("utf-8")
+    )
+
+
+def _mock_session_payload(
+    *, email: str, rol: str, user_id: str, csrf_token: str
+) -> dict[str, object]:
     """Build the session payload the OAuth callback would have minted.
 
-    Mirrors :func:`app.core.auth_flow.callback` exactly so the cookie
-    shape is identical: ``email``, ``rol``, ``user_id``,
-    ``is_authorized=True``, ``csrf_token``. The auth cache call below
-    is what makes the middleware accept the cookie without a DB
-    round-trip.
+    Mirrors :func:`app.core.auth_flow.callback` so the cookie shape is
+    identical: ``email``, ``rol``, ``user_id``, ``is_authorized=True``,
+    ``csrf_token``. Issue #1073: ``rol`` and ``user_id`` come from the
+    ``usuarios_autorizados`` row resolved by the caller — never
+    hardcoded, never elevated.
     """
     return {
         "email": email,
-        "rol": MOCK_USER_ROL,
-        "user_id": MOCK_USER_ID,
+        "rol": rol,
+        "user_id": user_id,
         "is_authorized": True,
         "csrf_token": csrf_token,
     }
+
+
+def _origin_ip(request: Request, settings: Settings) -> str:
+    """Resolve the origin IP for audit purposes (issue #904 AC1).
+
+    Reuses the rate-limiter's identity resolution so the audit entry and
+    the ``e2e_login`` bucket agree on what "origin IP" means (honours
+    ``Settings.trust_xff`` behind the Coolify reverse proxy). Under the
+    rightmost-hop policy (issue #1007) the value is the proxy-appended
+    X-Forwarded-For entry when XFF trust is active, and the direct peer
+    otherwise — never a client-supplied leftmost entry.
+    """
+    return _extract_identity(request, settings).ip or "unknown"
+
+
+# Cap applied to the raw, unvalidated ``?email=`` query param before it
+# reaches ``log_safe`` (issue #904 fix round 1, JD-B-006): an unbounded
+# probe value must not bloat the audit trail.
+AUDIT_TARGET_EMAIL_MAX_LEN = 120
+
+
+def _cap_target_email(email: str | None) -> str:
+    """Strip and truncate the raw requested email for audit recording."""
+    return (email or "").strip()[:AUDIT_TARGET_EMAIL_MAX_LEN]
+
+
+def _audit_attempt(
+    *, outcome: str, email: str | None, request: Request, settings: Settings
+) -> None:
+    """Emit the audit entry for one attempt (issue #904 AC1).
+
+    Every branch of the handler calls this exactly once — rejected
+    secrets (``invalid_secret``), invalid requests (``invalid_request``,
+    the 400 empty-target-email branch), server misconfiguration
+    (``server_misconfigured``, the 503 empty-secret branch), rate-limited
+    probes (``rate_limited``, emitted by the rate-limit middleware) and
+    success (``ok``). The raw requested email is capped before logging;
+    field names stay outside the closed redaction list on purpose
+    (``target_email``/``client_ip``) because the issue mandates those
+    values; the secret is never a field.
+    """
+    log_safe(
+        "e2e.login",
+        outcome=outcome,
+        target_email=_cap_target_email(email),
+        client_ip=_origin_ip(request, settings),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _Rejection:
+    """One audited rejection branch: outcome + HTTP status + detail."""
+
+    outcome: str
+    status_code: int
+    detail: str
+
+
+_MISCONFIGURED_EMPTY_SECRET = _Rejection(
+    outcome="server_misconfigured",
+    status_code=503,
+    detail=(
+        "e2e_auth_enabled=True but e2e_auth_secret is "
+        "empty; the mock cannot accept any request."
+    ),
+)
+_INVALID_SECRET = _Rejection(
+    outcome="invalid_secret",
+    status_code=401,
+    detail="X-E2E-Secret missing or invalid.",
+)
+_EMPTY_TARGET_EMAIL = _Rejection(
+    outcome="invalid_request",
+    status_code=400,
+    detail=(
+        "email query param is empty and "
+        "e2e_auth_default_email is unset."
+    ),
+)
+_DB_UNAVAILABLE = _Rejection(
+    outcome="server_misconfigured",
+    status_code=503,
+    detail=(
+        "could not verify the email against "
+        "usuarios_autorizados; refusing to mint a session."
+    ),
+)
+_EMAIL_NOT_ALLOWLISTED = _Rejection(
+    outcome="invalid_request",
+    status_code=400,
+    detail=(
+        "email is not an active usuarios_autorizados row; "
+        "the E2E mock only accepts allowlisted emails."
+    ),
+)
+
+
+def _reject(
+    request: Request,
+    settings: Settings,
+    email: str | None,
+    rejection: _Rejection,
+) -> NoReturn:
+    """Audit one rejected attempt, then raise the matching HTTPException."""
+    _audit_attempt(
+        outcome=rejection.outcome, email=email, request=request, settings=settings
+    )
+    raise HTTPException(status_code=rejection.status_code, detail=rejection.detail)
+
+
+def _gate_secret(
+    request: Request,
+    settings: Settings,
+    email: str | None,
+    provided_secret: str | None,
+) -> None:
+    """Enforce the two secret branches: empty configured secret and bad header."""
+    expected_secret = settings.e2e_auth_secret
+    if not expected_secret:
+        # The env-var is set but the secret is empty — treat that as a
+        # configuration bug, not as "disable auth". Still audited (issue
+        # #904 fix round 1, JD-B-002/JD-A-002): AC1 requires an entry on
+        # EVERY attempt.
+        _reject(request, settings, email, _MISCONFIGURED_EMPTY_SECRET)
+    if not _secret_matches(provided_secret, expected_secret):
+        _reject(request, settings, email, _INVALID_SECRET)
+
+
+def _resolve_allowlisted_user(
+    client: SqlExecutor | None,
+    settings: Settings,
+    request: Request,
+    email: str | None,
+) -> tuple[str, dict[str, Any]]:
+    """Resolve the target email against the DB allowlist (issue #1073).
+
+    The fixed + authorized-users model: the target email — ``?email=…``
+    or ``Settings.e2e_auth_default_email`` — must exist as an ACTIVE row
+    in ``usuarios_autorizados`` (the same ``get_user_by_email`` seam
+    :func:`require_authorized_user` revalidates through). The row's real
+    ``rol``/``id`` are returned; nothing is elevated or hardcoded.
+
+    Raises (each audited exactly once):
+    - 400 ``invalid_request`` — no usable target email, or the target is
+      not an active ``usuarios_autorizados`` row (nothing is cached);
+    - 503 ``server_misconfigured`` — the DB lookup itself failed or no
+      executor is wired (fail closed: never mint a session on an
+      unverifiable email).
+    """
+    target_email = (email or settings.e2e_auth_default_email).strip()
+    if not target_email:
+        # Valid secret but no usable target — a client error that is
+        # still an attempt, so it is audited too (JD-B-002/JD-A-002).
+        _reject(request, settings, email, _EMPTY_TARGET_EMAIL)
+    if client is None:
+        # Fail closed: no executor wired (lifespan never ran) — the
+        # email cannot be verified, so no session may be minted.
+        _reject(request, settings, target_email, _DB_UNAVAILABLE)
+    try:
+        user = get_user_by_email(client, target_email)
+    except Exception:
+        # Fail closed on ANY lookup failure (JD-A-001, issue #1073).
+        # The production executor (LocalPostgresExecutor) raises
+        # DatabaseError/QueryError from the RuntimeError hierarchy —
+        # NOT Protocol-level BackendError — so a narrow catch let a
+        # real DB outage escape to the generic 502 handler with zero
+        # e2e.login audit entries. This route is a fail-closed auth
+        # gate: no matter what the lookup raises, the only allowed
+        # outcome is the audited 503, never a minted session.
+        _reject(request, settings, target_email, _DB_UNAVAILABLE)
+    if user is None:
+        _reject(request, settings, target_email, _EMAIL_NOT_ALLOWLISTED)
+    return target_email, user
 
 
 def register_e2e_auth_routes(app: FastAPI) -> None:
@@ -89,11 +296,13 @@ def register_e2e_auth_routes(app: FastAPI) -> None:
 
     @app.get("/e2e/login")
     def _e2e_login(
+        request: Request,
         email: Annotated[
             str | None,
             Query(
                 description=(
-                    "Email to mint the session for. Defaults to "
+                    "Email to mint the session for. Must be an active "
+                    "usuarios_autorizados row (issue #1073). Defaults to "
                     "Settings.e2e_auth_default_email when omitted."
                 )
             ),
@@ -110,13 +319,20 @@ def register_e2e_auth_routes(app: FastAPI) -> None:
                 ),
             ),
         ] = None,
+        client: Annotated[SqlExecutor | None, Depends(_sql_executor)] = None,
     ) -> JSONResponse:
-        """Mint a signed session cookie for the configured E2E user.
+        """Mint a signed session cookie for an allowlisted E2E user.
 
         Returns ``{"authenticated": true, "email": ...}`` with the
-        ``apap_session`` cookie set on success. The auth cache is
-        pre-populated so the very next request from the test client
-        is authorized without a DB round-trip.
+        ``apap_session`` cookie set on success. The role and user id
+        are READ FROM ``usuarios_autorizados`` (issue #1073); the auth
+        cache is NOT seeded — ``require_authorized_user`` revalidates
+        the first authorized request against the DB and stays the
+        single cache writer.
+
+        The ``X-E2E-Email`` header some CI fixtures send is ignored
+        (issue #1073): the target comes from ``?email=`` or the
+        configured default only.
 
         GET (not POST) on purpose: the mock is test-only and the
         X-E2E-Secret header is a non-guessable shared secret that
@@ -128,56 +344,36 @@ def register_e2e_auth_routes(app: FastAPI) -> None:
         it does not yet have (the token comes back in the
         response).
         """
-        expected_secret = settings.e2e_auth_secret
-        if not expected_secret:
-            # The env-var is set but the secret is empty — treat
-            # that as a configuration bug, not as "disable auth".
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    "e2e_auth_enabled=True but e2e_auth_secret is "
-                    "empty; the mock cannot accept any request."
-                ),
-            )
-        if x_e2e_secret is None or not hmac.compare_digest(
-            x_e2e_secret, expected_secret
-        ):
-            raise HTTPException(
-                status_code=401,
-                detail="X-E2E-Secret missing or invalid.",
-            )
-
-        target_email = (email or settings.e2e_auth_default_email).strip()
-        if not target_email:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "email query param is empty and "
-                    "e2e_auth_default_email is unset."
-                ),
-            )
-
-        csrf_token = generate_csrf_token()
-        payload = _mock_session_payload(email=target_email, csrf_token=csrf_token)
-        # Pre-populate the in-process auth cache so the very next
-        # request the test makes (and any subsequent request from
-        # the same browser context) bypasses the DB lookup. The
-        # middleware reads from this cache on every authorized
-        # request.
-        set_cached_auth(
-            target_email,
-            is_authorized=True,
-            rol=MOCK_USER_ROL,
+        _gate_secret(request, settings, email, x_e2e_secret)
+        target_email, user = _resolve_allowlisted_user(
+            client, settings, request, email
         )
 
+        csrf_token = generate_csrf_token()
+        payload = _mock_session_payload(
+            email=target_email,
+            rol=str(user["rol"]),
+            user_id=str(user["id"]),
+            csrf_token=csrf_token,
+        )
         session_token = write_session(payload, secret=settings.session_secret)
+
+        # Audit entry (issue #904 AC1): every attempt is logged, with the
+        # same field-name policy as the rejected path in
+        # ``_audit_rejected_attempt``.
+        log_safe(
+            "e2e.login",
+            outcome="ok",
+            target_email=_cap_target_email(target_email),
+            client_ip=_origin_ip(request, settings),
+        )
 
         response = JSONResponse(
             {
                 "authenticated": True,
                 "email": target_email,
-                "user_id": MOCK_USER_ID,
-                "rol": MOCK_USER_ROL,
+                "user_id": payload["user_id"],
+                "rol": payload["rol"],
                 "csrf_token": csrf_token,
             }
         )

@@ -3,6 +3,8 @@
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CHECKER_PATH = REPO_ROOT / "scripts" / "check_mutation_sites.py"
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
@@ -47,6 +49,14 @@ def test_counts_documented_ast_mutation_targets(tmp_path: Path) -> None:
 
 
 def test_flags_new_file_over_budget(tmp_path: Path) -> None:
+    """A file with no baseline that exceeds ``max_sites`` is a NOTE (issue #968).
+
+    Before #968 this was a hard violation that forced authors to either
+    split the file or grow ``BASELINE_MUTATION_SITES`` to land a clean
+    PR. The gate's AST-node count does not detect defects, so it is now
+    informational — the same finding appears in the lint log and the
+    author is still encouraged to split, but the gate no longer blocks.
+    """
     checker = _load_checker()
     _write(tmp_path, "app/sample.py", _source())
 
@@ -56,14 +66,21 @@ def test_flags_new_file_over_budget(tmp_path: Path) -> None:
         baseline={},
     )
 
-    assert notices == []
-    assert len(violations) == 1
-    assert "app/sample.py" in violations[0]
-    assert "8 mutation sites" in violations[0]
-    assert "check_module_size.py" in violations[0]
+    assert violations == []
+    assert len(notices) == 1
+    assert "app/sample.py" in notices[0]
+    assert "8 mutation sites" in notices[0]
+    assert "check_module_size.py" in notices[0]
 
 
-def test_ratchet_rejects_baselined_file_growth(tmp_path: Path) -> None:
+def test_ratchet_reports_baselined_file_growth_as_note(tmp_path: Path) -> None:
+    """Growth beyond a baselined file's budget is a NOTE (issue #968).
+
+    Before #968 the ratchet required either a follow-up commit to lower
+    the baseline or splitting the file in the same PR — even when no
+    defect was introduced. Now the growth is informational; the
+    follow-up to lower the baseline or split still shows up in the log.
+    """
     checker = _load_checker()
     _write(tmp_path, "migration/sample.py", _source())
 
@@ -73,9 +90,9 @@ def test_ratchet_rejects_baselined_file_growth(tmp_path: Path) -> None:
         baseline={"migration/sample.py": 7},
     )
 
-    assert notices == []
-    assert len(violations) == 1
-    assert "grew beyond its baseline of 7" in violations[0]
+    assert violations == []
+    assert len(notices) == 1
+    assert "grew beyond its baseline of 7" in notices[0]
 
 
 def test_ratchet_reports_file_improvement(tmp_path: Path) -> None:
@@ -94,7 +111,14 @@ def test_ratchet_reports_file_improvement(tmp_path: Path) -> None:
     assert "lower BASELINE_MUTATION_SITES" in notices[0]
 
 
-def test_stale_baseline_entry_is_a_violation(tmp_path: Path) -> None:
+def test_stale_baseline_entry_is_a_note(tmp_path: Path) -> None:
+    """A BASELINE entry whose file no longer exists is a NOTE (issue #968).
+
+    The previous contract treated headroom as fatal so it could not
+    silently drift. The new contract mirrors ``check_ruff_ratchet``:
+    the entry shows up in the log so a follow-up can delete it, but
+    landing a clean PR no longer requires the cleanup in the same PR.
+    """
     checker = _load_checker()
     (tmp_path / "app").mkdir()
 
@@ -103,9 +127,29 @@ def test_stale_baseline_entry_is_a_violation(tmp_path: Path) -> None:
         baseline={"app/gone.py": 300},
     )
 
-    assert notices == []
-    assert len(violations) == 1
-    assert "stale BASELINE_MUTATION_SITES" in violations[0]
+    assert violations == []
+    assert len(notices) == 1
+    assert "stale BASELINE_MUTATION_SITES" in notices[0]
+
+
+def test_main_exits_zero_with_only_notes(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``main()`` exits 0 when every finding is informational (issue #968).
+
+    The whole script is now advisory — it still runs in the lint job
+    (the CI wiring test below pins that), but it never blocks the PR.
+    """
+    checker = _load_checker()
+    _write(tmp_path, "app/sample.py", _source())
+
+    rc = checker.main([str(tmp_path), "--max-sites", "7"])
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "NOTE" in out
+    assert "informational" in out.lower()
 
 
 def test_baseline_matches_current_tree_offenders() -> None:

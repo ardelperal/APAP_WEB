@@ -18,6 +18,7 @@ contract.
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import nullcontext
 from datetime import date
 from typing import Any
 
@@ -25,6 +26,11 @@ import pytest
 
 from app.core.data_access import BackendError
 from app.modules.acogidas import service as acogidas_service
+from app.modules.animals import ActorRequiredError
+
+#: Fixed actor UUID for tests (issue #945: ``create_acogida`` /
+#: ``close_acogida`` require an acting user's UUID before any write).
+ACTOR_ID = "00000000-0000-4000-8000-000000000001"
 
 
 class _ErrorResponse:
@@ -75,6 +81,12 @@ class _FakeSqlExecutor:
         if self._responses:
             return self._responses.pop(0)
         return []
+
+    def transaction(self) -> Any:
+        """Yield this fake unchanged: unit tests exercise one round-trip at a
+        time, so every ``execute_sql`` call inside the service's
+        ``transaction()`` block hits this same recording fake."""
+        return nullcontext(self)
 
     def close(self) -> None:
         pass  # no-op for fake
@@ -279,6 +291,36 @@ def _lifecycle_query_response(query: str) -> list[dict[str, object]] | None:
     return None
 
 
+# --- actor requirement (issue #945, A-13) ----------------------------------
+
+
+def test_create_acogida_without_actor_raises_before_any_write() -> None:
+    """No ``actor_user_id`` -> ``ActorRequiredError`` before any SQL runs.
+
+    ``animal_lifecycle_events.created_by`` is ``UUID NOT NULL``; the
+    maintainer decision (option a) rejects the write instead of
+    inventing a system actor.
+    """
+    client, captured = _make_client(_make_handler())
+
+    with pytest.raises(ActorRequiredError):
+        acogidas_service.create_acogida(client, _params_minimal())
+
+    assert captured == []
+
+
+def test_close_acogida_without_actor_raises_before_any_write() -> None:
+    """No ``actor_user_id`` -> ``ActorRequiredError`` before the UPDATE runs."""
+    client, captured = _make_client(_make_handler())
+
+    with pytest.raises(ActorRequiredError):
+        acogidas_service.close_acogida(
+            client, "22222222-2222-2222-2222-222222222222"
+        )
+
+    assert captured == []
+
+
 # --- create: happy path ---------------------------------------------------
 
 
@@ -286,7 +328,7 @@ def test_create_acogida_inserts_with_all_columns() -> None:
     """Happy path: all valid FKs + required fields -> row inserted."""
     client, captured = _make_client(_make_handler())
 
-    result = acogidas_service.create_acogida(client, _params_minimal())
+    result = acogidas_service.create_acogida(client, _params_minimal(), actor_user_id=ACTOR_ID)
 
     assert isinstance(result, acogidas_service.Acogida)
     assert result.id == "22222222-2222-2222-2222-222222222222"
@@ -322,7 +364,7 @@ def test_create_acogida_with_all_voluntarios_valid() -> None:
     })
     client, captured = _make_client(_make_handler(inserted))
 
-    result = acogidas_service.create_acogida(client, params)
+    result = acogidas_service.create_acogida(client, params, actor_user_id=ACTOR_ID)
 
     assert result.voluntario_acogida_id == "vol-acog"
     assert result.voluntario_seguimiento1_id == "vol-seg1"
@@ -343,7 +385,7 @@ def test_create_acogida_with_casa_acogida_valid() -> None:
     inserted = _row({"casa_acogida_id": "casa-1"})
     client, captured = _make_client(_make_handler(inserted))
 
-    result = acogidas_service.create_acogida(client, params)
+    result = acogidas_service.create_acogida(client, params, actor_user_id=ACTOR_ID)
 
     assert result.casa_acogida_id == "casa-1"
     # Casa check + animal check + insert.
@@ -355,7 +397,7 @@ def test_create_acogida_with_null_casa_acogida_skips_casa_check() -> None:
     """When casa_acogida_id is None, the FK existence check is skipped."""
     client, captured = _make_client(_make_handler())
 
-    acogidas_service.create_acogida(client, _params_minimal())
+    acogidas_service.create_acogida(client, _params_minimal(), actor_user_id=ACTOR_ID)
 
     # No ``FROM casas_acogida`` SELECT should have run.
     casa_checks = [c for c in captured if "FROM casas_acogida" in c[0]]
@@ -368,7 +410,7 @@ def test_create_acogida_with_entrada_origen_valid() -> None:
     inserted = _row({"entrada_origen_id": "ent-1"})
     client, captured = _make_client(_make_handler(inserted))
 
-    result = acogidas_service.create_acogida(client, params)
+    result = acogidas_service.create_acogida(client, params, actor_user_id=ACTOR_ID)
 
     assert result.entrada_origen_id == "ent-1"
     entrada_check = next(c for c in captured if "FROM entradas" in c[0] and "WHERE id = $1" in c[0])
@@ -384,7 +426,7 @@ def test_create_acogida_rejects_empty_animal_id() -> None:
 
     with pytest.raises(ValueError, match="animal_id es obligatorio"):
         acogidas_service.create_acogida(
-            client, {**_params_minimal(), "animal_id": ""}
+            client, {**_params_minimal(), "animal_id": ""}, actor_user_id=ACTOR_ID
         )
     assert captured == []
 
@@ -395,7 +437,7 @@ def test_create_acogida_rejects_empty_fecha_inicio() -> None:
 
     with pytest.raises(ValueError, match="fecha_inicio es obligatorio"):
         acogidas_service.create_acogida(
-            client, {**_params_minimal(), "fecha_inicio": ""}
+            client, {**_params_minimal(), "fecha_inicio": ""}, actor_user_id=ACTOR_ID
         )
     assert captured == []
 
@@ -412,7 +454,7 @@ def test_create_acogida_accepts_malformed_fecha_inicio() -> None:
 
     # Use a malformed fecha -- the service passes through.
     acogidas_service.create_acogida(
-        client, {**_params_minimal(), "fecha_inicio": "ayer"}
+        client, {**_params_minimal(), "fecha_inicio": "ayer"}, actor_user_id=ACTOR_ID
     )
     insert_call = next(c for c in captured if "INSERT INTO acogidas" in c[0])
     assert "ayer" in insert_call[1]
@@ -432,7 +474,7 @@ def test_create_acogida_rejects_inactive_animal() -> None:
     client, captured = _make_client(_handler)
 
     with pytest.raises(ValueError, match="animal_id debe apuntar"):
-        acogidas_service.create_acogida(client, _params_minimal())
+        acogidas_service.create_acogida(client, _params_minimal(), actor_user_id=ACTOR_ID)
     # No INSERT runs.
     insert_calls = [c for c in captured if "INSERT INTO acogidas" in c[0]]
     assert insert_calls == []
@@ -452,7 +494,9 @@ def test_create_acogida_rejects_inactive_casa() -> None:
 
     with pytest.raises(ValueError, match="casa_acogida_id debe apuntar"):
         acogidas_service.create_acogida(
-            client, {**_params_minimal(), "casa_acogida_id": "casa-1"}
+            client,
+            {**_params_minimal(), "casa_acogida_id": "casa-1"},
+            actor_user_id=ACTOR_ID,
         )
     insert_calls = [c for c in captured if "INSERT INTO acogidas" in c[0]]
     assert insert_calls == []
@@ -476,7 +520,9 @@ def test_create_acogida_rejects_inactive_voluntario() -> None:
 
     with pytest.raises(ValueError, match="voluntario.*debe apuntar"):
         acogidas_service.create_acogida(
-            client, {**_params_minimal(), "voluntario_acogida_id": "vol-1"}
+            client,
+            {**_params_minimal(), "voluntario_acogida_id": "vol-1"},
+            actor_user_id=ACTOR_ID,
         )
     insert_calls = [c for c in captured if "INSERT INTO acogidas" in c[0]]
     assert insert_calls == []
@@ -560,7 +606,7 @@ def test_close_acogida_sets_fecha_final() -> None:
     client, captured = _make_client(_make_handler(inserted))
 
     result = acogidas_service.close_acogida(
-        client, "22222222-2222-2222-2222-222222222222"
+        client, "22222222-2222-2222-2222-222222222222", actor_user_id=ACTOR_ID
     )
 
     assert result is not None
@@ -579,7 +625,7 @@ def test_close_acogida_returns_none_when_id_missing() -> None:
 
     client, _ = _make_client(_handler)
     result = acogidas_service.close_acogida(
-        client, "missing-id"
+        client, "missing-id", actor_user_id=ACTOR_ID
     )
 
     assert result is None

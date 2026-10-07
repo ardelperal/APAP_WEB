@@ -4,12 +4,11 @@ Pin the expected layout invariants at three viewports so any future
 regression of the responsive collapse surfaces immediately at CI time
 rather than as a 1-star App Store review.
 
-The base template's ``<nav>`` renders all module links inline. At
-mobile viewports (iPhone SE 375px) it overflows the viewport by
-~550px (see the unfixed mobile-first bug, screenshots in
-``docs/audits/mobile-menu-overflow-*.png``). These tests capture that
-behaviour as failing assertions; once a fix lands (burger menu or
-flex-wrap collapse), they should pass without code changes.
+The base template's ``<nav id="nav-main">`` renders as the sidebar
+rail (issue #868): a 268px vertical column at md+, hidden below md
+where the burger toggle takes over (issue #819). The sentinels below
+accept both renderings — rail chrome or a horizontal top nav — and pin
+"no overflow" at each viewport.
 
 Tests in this module rely on the Playwright fixtures defined in
 ``tests/e2e/conftest.py`` (``page``, ``browser_context``, ``base_url``)
@@ -52,6 +51,12 @@ LAYOUT_TOLERANCE_PX = 4
 # the protected routes without requiring a session cookie.
 PUBLIC_ROUTE = "/login"
 
+# Width of the desktop sidebar rail (issue #868): the ``w-[268px]``
+# utility in ``base.html``. The rail replaced the old single-row top
+# nav, so desktop nav sentinels must accept both renderings (issue
+# #1153).
+RAIL_WIDTH_PX = 268
+
 
 def _skip_if_login_unavailable(page: Page, base_url: str) -> None:
     """Skip when /login returns 503 (OAuth not configured in dev)."""
@@ -66,31 +71,49 @@ def _skip_if_login_unavailable(page: Page, base_url: str) -> None:
 # --- mobile sentinels ----------------------------------------------------
 
 
-def test_nav_does_not_overflow_on_mobile(page: Page, base_url: str) -> None:
-    """At 375px the primary nav must fit within the viewport.
+def _nav_display(page: Page) -> str | None:
+    """Return the computed display of the first ``<nav>``, or None."""
+    return page.evaluate(
+        "() => { const n = document.querySelector('nav');"
+        "  return n ? getComputedStyle(n).display : null; }"
+    )
 
-    Fails today (mobile-first bug): the nav renders 7+ items inline and
-    extends to x=700+, producing horizontal page scroll that hides the
-    Salir button and the right side of the nav on real iPhone SE
-    hardware. Once a burger menu or flex-wrap collapse lands, this
-    test passes without further changes.
+
+def test_nav_does_not_overflow_on_mobile(page: Page, base_url: str) -> None:
+    """At 375px the nav must not overflow the viewport when it renders.
+
+    The deployed chrome (#819/#868) hides ``#nav-main`` below md and
+    hands mobile over to the burger toggle, so two renderings are
+    valid: the hidden-nav rail chrome (assert the burger takes over)
+    and a visible nav (assert the bounds). Neither branch is vacuous
+    (issue #1153).
     """
     _skip_if_login_unavailable(page, base_url)
     page.set_viewport_size(MOBILE_VIEWPORT)
     page.goto(f"{base_url}{PUBLIC_ROUTE}", wait_until="domcontentloaded")
 
-    nav = page.locator("nav").first
-    nav.wait_for(state="visible")
-    bbox = nav.bounding_box()
-    assert bbox is not None, "nav must be visible at /login"
+    if _nav_display(page) == "none":
+        burger = page.locator("#nav-burger-toggle")
+        assert burger.count() == 1, (
+            "nav is hidden below md (rail chrome): the burger toggle must "
+            "take over at mobile viewports"
+        )
+        assert burger.evaluate("el => el.getClientRects().length > 0"), (
+            "burger toggle must be effectively rendered at mobile viewports"
+        )
+    else:
+        nav = page.locator("nav").first
+        nav.wait_for(state="visible")
+        bbox = nav.bounding_box()
+        assert bbox is not None, "nav must be visible at /login"
 
-    right_edge = bbox["x"] + bbox["width"]
-    assert right_edge <= MOBILE_VIEWPORT["width"] + LAYOUT_TOLERANCE_PX, (
-        f"nav overflows mobile viewport: "
-        f"right_edge={right_edge:.0f}px, "
-        f"viewport_width={MOBILE_VIEWPORT['width']}px, "
-        f"bbox={bbox}"
-    )
+        right_edge = bbox["x"] + bbox["width"]
+        assert right_edge <= MOBILE_VIEWPORT["width"] + LAYOUT_TOLERANCE_PX, (
+            f"nav overflows mobile viewport: "
+            f"right_edge={right_edge:.0f}px, "
+            f"viewport_width={MOBILE_VIEWPORT['width']}px, "
+            f"bbox={bbox}"
+        )
 
 
 def test_page_has_no_horizontal_scroll_on_mobile(
@@ -129,7 +152,15 @@ def test_page_has_no_horizontal_scroll_on_mobile(
 
 
 def test_nav_renders_inline_on_desktop(page: Page, base_url: str) -> None:
-    """At 1280px the nav must render inline (single row, not stacked)."""
+    """At 1280px the nav renders as a single row or as the #868 rail.
+
+    The deployed chrome (#868) renders ``#nav-main`` as a vertical
+    268px rail pinned to the viewport, so the old single-row-only
+    assertion can never hold against a deployed revision (issue
+    #1153). The sentinel branches on the measured box: rail chrome
+    must stay within its 268px budget and the viewport; a horizontal
+    top nav must still be a single row.
+    """
     _skip_if_login_unavailable(page, base_url)
     page.set_viewport_size(DESKTOP_VIEWPORT)
     page.goto(f"{base_url}{PUBLIC_ROUTE}", wait_until="domcontentloaded")
@@ -138,11 +169,18 @@ def test_nav_renders_inline_on_desktop(page: Page, base_url: str) -> None:
     nav.wait_for(state="visible")
     bbox = nav.bounding_box()
     assert bbox is not None
-    # Single-row inline nav at 1280px is ~40px tall; 80px catches a
-    # stacked layout or accidental flex-col regression.
-    assert bbox["height"] < 80, (
-        f"nav is stacked/too tall on desktop: height={bbox['height']:.0f}px"
-    )
+    if bbox["height"] > bbox["width"]:
+        # Rail chrome (#868): vertical column with a bounded width.
+        assert bbox["width"] <= RAIL_WIDTH_PX + LAYOUT_TOLERANCE_PX, (
+            f"nav rail is wider than its {RAIL_WIDTH_PX}px budget: "
+            f"width={bbox['width']:.0f}px"
+        )
+    else:
+        # Single-row inline nav at 1280px is ~40px tall; 80px catches a
+        # stacked layout or accidental flex-col regression.
+        assert bbox["height"] < 80, (
+            f"nav is stacked/too tall on desktop: height={bbox['height']:.0f}px"
+        )
     assert bbox["x"] + bbox["width"] <= DESKTOP_VIEWPORT["width"] + LAYOUT_TOLERANCE_PX, (
         f"nav overflows desktop viewport: bbox={bbox}"
     )

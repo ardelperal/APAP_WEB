@@ -14,11 +14,15 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple, Protocol
+
+# Sibling module: `python scripts/check_issue_specs.py` puts scripts/ on sys.path.
+import check_branch_name
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FORM_DIR = REPO_ROOT / ".github" / "ISSUE_TEMPLATE"
@@ -45,10 +49,33 @@ APPROVAL_LABEL = "status:approved"
 AUTOMATED_ACTORS = frozenset({"dependabot[bot]"})
 EMPTY_RESPONSES = frozenset({"", "_No response_"})
 PAGE_SIZE = 100
-REFERENCE_RE = re.compile(
-    r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+"
-    r"(?:https://github\.com/(?P<owner>[^/\s]+)/(?P<repo>[^/\s]+)/issues/)?#?(?P<number>\d+)"
-)
+CHAIN_PARTIAL_LABEL = "chain:partial"
+# Issue #956: traceability is derived from the head branch, the PR labels and
+# GitHub's structured closingIssuesReferences, never from PR-body prose. The
+# body is read only as a trigger for the late-registration retry below
+# (friction B11): the verdict itself always comes from the structured field.
+_BRANCH_ISSUE_RE = re.compile(r"^[a-z]+/(?P<number>[0-9]+)-")
+_CLOSING_KEYWORD_RE = re.compile(r"(?i)\b(?:closes|fixes|resolves)\s+#(?P<number>[0-9]+)\b")
+_CLOSING_RETRY_ENV = "ISSUE_SPEC_CLOSING_RETRY_SECONDS"
+# GitHub populates closingIssuesReferences seconds after PR creation, so a
+# fresh PR can fail the gate spuriously. Re-query at these offsets (seconds)
+# before concluding the reference is absent; worst case adds 90s to CI, and
+# only when the reference is missing while the body declares the keyword.
+_DEFAULT_CLOSING_RETRY_DELAYS: tuple[float, ...] = (30.0, 60.0, 90.0)
+_EXEMPT_HEAD_PREFIXES = ("archive/", "skill-fleet/")
+_EXEMPT_HEADS = frozenset({"main"})
+_CLOSING_REFERENCES_QUERY = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      labels(first: 100) { nodes { name } }
+      closingIssuesReferences(first: 100) {
+        nodes { number repository { nameWithOwner } }
+      }
+    }
+  }
+}
+"""
 
 SIGNALS = {
     "evidence": re.compile(r"(?i)\bevidencia\b|\bevidence\b|reproducci[oó]n|reproduction"),
@@ -83,6 +110,16 @@ class GitHubApiError(RuntimeError):
         """Build an invalid issue-page payload error."""
         return cls("payload validation", f"issue page {page}")
 
+    @classmethod
+    def invalid_pull_request(cls, target: str) -> GitHubApiError:
+        """Build an invalid pull-request payload error."""
+        return cls("payload validation", target)
+
+    @classmethod
+    def pull_request_not_found(cls, target: str) -> GitHubApiError:
+        """Build a pull-request-not-found payload error."""
+        return cls("payload validation", target, "pull request not found")
+
 
 class FormLoadError(ValueError):
     """Raised when an issue form cannot be loaded as YAML."""
@@ -96,6 +133,16 @@ class FormShapeError(TypeError):
 
     def __init__(self, path: Path) -> None:
         super().__init__(f"{path}: expected a YAML mapping")
+
+
+class ClosingRetryEnvError(ValueError):
+    """Raised when ISSUE_SPEC_CLOSING_RETRY_SECONDS is malformed."""
+
+    def __init__(self, value: str) -> None:
+        super().__init__(
+            f"{_CLOSING_RETRY_ENV}: delays must be comma-separated "
+            f"non-negative seconds, got {value!r}"
+        )
 
 
 def parse_sections(body: str) -> dict[str, str]:
@@ -123,7 +170,16 @@ def body_contract_errors(body: str) -> list[str]:
 
 def issue_contract_errors(issue: Mapping[str, Any]) -> list[str]:
     """Return actionable contract violations for one GitHub issue."""
-    errors = [f"missing or empty section: {heading}" for heading in body_contract_errors(issue.get("body") or "")]
+    missing_sections = body_contract_errors(issue.get("body") or "")
+    errors = [f"missing or empty section: {heading}" for heading in missing_sections]
+    if missing_sections:
+        # Issue #1217: authors who bypass the form templates (`gh issue create
+        # --body`) discover the contract red, section by section, unless the
+        # failure itself names the full six-section contract.
+        errors.append(
+            "the issue contract requires all six canonical sections: "
+            + "; ".join(REQUIRED_SECTIONS)
+        )
     labels = {
         label["name"] if isinstance(label, Mapping) else str(label)
         for label in issue.get("labels", [])
@@ -204,20 +260,34 @@ def validate_forms(form_dir: Path = FORM_DIR) -> list[str]:
     return violations
 
 
-def extract_closing_issue_numbers(body: str, repository: str) -> list[int]:
-    """Extract same-repository issue numbers named by closing keywords."""
-    owner, repo = repository.split("/", maxsplit=1)
-    numbers: set[int] = set()
-    for match in REFERENCE_RE.finditer(body):
-        referenced_owner = match.group("owner")
-        referenced_repo = match.group("repo")
-        if referenced_owner and (referenced_owner.lower(), referenced_repo.lower()) != (
-            owner.lower(),
-            repo.lower(),
-        ):
-            continue
-        numbers.add(int(match.group("number")))
-    return sorted(numbers)
+class PullRequestLinks(NamedTuple):
+    """Labels and same-repository closing references of one pull request."""
+
+    labels: frozenset[str]
+    closing_issues: tuple[int, ...]
+
+
+def parse_pull_request_links(payload: object, repository: str, number: int) -> PullRequestLinks:
+    """Reduce a GraphQL response to the fields the gate reads."""
+    target = f"{repository}#{number}"
+    if not isinstance(payload, Mapping):
+        raise GitHubApiError.invalid_pull_request(target)
+    if payload.get("errors"):
+        raise GitHubApiError("graphql", target, payload["errors"])
+    try:
+        pull_request = payload["data"]["repository"]["pullRequest"]
+        label_nodes = pull_request["labels"]["nodes"]
+        closing_nodes = pull_request["closingIssuesReferences"]["nodes"]
+    except (KeyError, TypeError) as exc:
+        raise GitHubApiError.pull_request_not_found(target) from exc
+    labels = frozenset(str(node["name"]) for node in label_nodes)
+    # Cross-repository references cannot be validated against this repository.
+    closing = sorted(
+        int(node["number"])
+        for node in closing_nodes
+        if str(node["repository"]["nameWithOwner"]).lower() == repository.lower()
+    )
+    return PullRequestLinks(labels=labels, closing_issues=tuple(closing))
 
 
 class GitHubClient:
@@ -226,6 +296,12 @@ class GitHubClient:
     def __init__(self, token: str = "", api_url: str = "https://api.github.com") -> None:
         self._token = token
         self._api_url = api_url.rstrip("/")
+        # GHES serves GraphQL at <host>/api/graphql, REST at <host>/api/v3.
+        self._graphql_url = (
+            "https://api.github.com/graphql"
+            if self._api_url == "https://api.github.com"
+            else self._api_url.removesuffix("/v3") + "/graphql"
+        )
 
     def get(self, path: str) -> tuple[Any, Mapping[str, str]]:
         headers = {
@@ -252,6 +328,31 @@ class GitHubClient:
             raise GitHubApiError.invalid_issue(number)
         return payload
 
+    def pull_request_links(self, repository: str, number: int) -> PullRequestLinks:
+        owner, name = repository.split("/", maxsplit=1)
+        body = json.dumps(
+            {
+                "query": _CLOSING_REFERENCES_QUERY,
+                "variables": {"owner": owner, "name": name, "number": number},
+            }
+        ).encode()
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+            "User-Agent": "APAP_WEB-issue-spec-check",
+        }
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
+        request = urllib.request.Request(  # noqa: S310
+            self._graphql_url, data=body, headers=headers, method="POST"
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
+                payload = json.load(response)
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+            raise GitHubApiError("graphql", f"{repository}#{number}", exc) from exc
+        return parse_pull_request_links(payload, repository, number)
+
     def issues(self, repository: str, cutoff: int) -> list[Mapping[str, Any]]:
         issues: list[Mapping[str, Any]] = []
         page = 1
@@ -275,32 +376,167 @@ class GitHubClient:
         return sorted(issues, key=lambda item: int(item["number"]))
 
 
-def validate_pr_event(event: Mapping[str, Any], client: GitHubClient) -> list[str]:
-    """Validate every issue that a human PR declares it will close."""
+class PullRequestClient(Protocol):
+    """The read-only GitHub surface the PR gate needs."""
+
+    def issue(self, repository: str, number: int) -> Mapping[str, Any]: ...
+
+    def pull_request_links(self, repository: str, number: int) -> PullRequestLinks: ...
+
+
+def body_declares_closing_keyword(body: str, issue_number: int) -> bool:
+    """Return whether the body verbatim declares a closing keyword for the issue.
+
+    This is a retry trigger for friction B11, never evidence: a passing
+    verdict still requires GitHub's structured closingIssuesReferences.
+    """
+    return any(
+        int(match.group("number")) == issue_number
+        for match in _CLOSING_KEYWORD_RE.finditer(body)
+    )
+
+
+def closing_retry_delays(environ: Mapping[str, str] | None = None) -> tuple[float, ...]:
+    """Return the seconds to wait before each closing-reference re-query."""
+    source = os.environ if environ is None else environ
+    raw = source.get(_CLOSING_RETRY_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_CLOSING_RETRY_DELAYS
+    delays = []
+    for part in raw.split(","):
+        try:
+            value = float(part)
+        except ValueError as exc:
+            raise ClosingRetryEnvError(part) from exc
+        if value < 0:
+            raise ClosingRetryEnvError(part)
+        delays.append(value)
+    return tuple(delays)
+
+
+def _branch_issue_number(head_ref: str) -> int | None:
+    """Return N from a valid `<tipo>/<N>-<slug>` head branch, else None."""
+    branch_violations, _notices = check_branch_name.check(head_ref)
+    match = _BRANCH_ISSUE_RE.match(head_ref)
+    if branch_violations or match is None:
+        return None
+    return int(match.group("number"))
+
+
+def _branch_issue_errors(client: PullRequestClient, repository: str, number: int) -> list[str]:
+    """Validate the issue named by the branch: exists, open, approved, full spec."""
+    try:
+        issue = client.issue(repository, number)
+    except GitHubApiError as exc:
+        # Issue #952: a missing or unreadable issue is a contract violation
+        # to report, not a crash of the gate.
+        return [f"#{number}: cannot read the issue ({exc})"]
+    if "pull_request" in issue:
+        return [f"#{number}: reference resolves to a pull request"]
+    errors = [] if issue.get("state") == "open" else [f"#{number}: the branch issue must be open"]
+    return [*errors, *(f"#{number}: {error}" for error in issue_contract_errors(issue))]
+
+
+def _other_closing_errors(client: PullRequestClient, repository: str, number: int) -> list[str]:
+    """Validate an additional issue the PR will close on merge."""
+    try:
+        issue = client.issue(repository, number)
+    except GitHubApiError as exc:
+        return [f"#{number}: cannot read the issue ({exc})"]
+    if "pull_request" in issue:
+        return [f"#{number}: reference resolves to a pull request"]
+    # Closed approved issues predate full section requirements (issue #641)
+    if issue.get("state") == "closed" and APPROVAL_LABEL in _labels(issue):
+        return []
+    return [f"#{number}: {error}" for error in issue_contract_errors(issue)]
+
+
+def _retry_delays(retry_delays: Sequence[float] | None) -> Sequence[float]:
+    """Resolve injected retry delays, falling back to the environment."""
+    return closing_retry_delays() if retry_delays is None else retry_delays
+
+
+def validate_pr_event(
+    event: Mapping[str, Any],
+    client: PullRequestClient,
+    retry_delays: Sequence[float] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+) -> list[str]:
+    """Validate PR traceability from branch, labels and closing references.
+
+    When the branch issue is absent from closingIssuesReferences while the PR
+    body declares a verbatim closing keyword for it, the lookup is retried
+    with backoff (friction B11: GitHub registers the reference late). The
+    delays are injected by tests and default to the
+    ISSUE_SPEC_CLOSING_RETRY_SECONDS environment or 30/60/90 seconds.
+    """
     pull_request = event.get("pull_request") or {}
     actor = (pull_request.get("user") or {}).get("login", "")
     head_ref = (pull_request.get("head") or {}).get("ref", "")
     # Automated actors and catalog propagation branches do not follow the
     # issue-first contract: the traceability lives in the catalog
     # (DysTelefonica/team-skills), not in the consumer repo.
-    if actor in AUTOMATED_ACTORS or head_ref.startswith("skill-fleet/"):
+    if (
+        actor in AUTOMATED_ACTORS
+        or head_ref in _EXEMPT_HEADS
+        or head_ref.startswith(_EXEMPT_HEAD_PREFIXES)
+    ):
         return []
     repository = (event.get("repository") or {}).get("full_name", "")
     if not repository or "/" not in repository:
         return ["event does not identify repository.full_name"]
-    numbers = extract_closing_issue_numbers(pull_request.get("body") or "", repository)
-    if not numbers:
-        return ["PR body must close at least one approved issue"]
-    violations: list[str] = []
-    for number in numbers:
-        issue = client.issue(repository, number)
-        if "pull_request" in issue:
-            violations.append(f"#{number}: reference resolves to a pull request")
-            continue
-        # Closed approved issues predate full section requirements (issue #641)
-        if issue.get("state") == "closed" and APPROVAL_LABEL in _labels(issue):
-            continue
-        violations.extend(f"#{number}: {error}" for error in issue_contract_errors(issue))
+    pr_number = pull_request.get("number")
+    if not isinstance(pr_number, int):
+        return ["event does not identify the pull request number"]
+    issue_number = _branch_issue_number(head_ref)
+    if issue_number is None:
+        return [
+            f"head branch {head_ref!r} must be <tipo>/<N>-<slug> so the gate can "
+            "identify the issue it traces to (AGENTS.md section 15.2)"
+        ]
+    violations = _branch_issue_errors(client, repository, issue_number)
+    if any("cannot read the issue" in violation for violation in violations):
+        return violations
+    body = pull_request.get("body") or ""
+
+    def links_with_retry(delays: Sequence[float]) -> PullRequestLinks:
+        """Look up PR links, retrying when the closing reference registers late."""
+        links = client.pull_request_links(repository, pr_number)
+        if (
+            issue_number in links.closing_issues
+            or CHAIN_PARTIAL_LABEL in links.labels
+            or not body_declares_closing_keyword(body, issue_number)
+        ):
+            return links
+        # Friction B11: GitHub populates closingIssuesReferences seconds after
+        # PR creation. Re-query with backoff before concluding it is absent.
+        for delay in delays:
+            sleep(delay)
+            links = client.pull_request_links(repository, pr_number)
+            if issue_number in links.closing_issues:
+                break
+        return links
+
+    try:
+        links = links_with_retry(_retry_delays(retry_delays))
+    except GitHubApiError as exc:
+        return [*violations, f"PR #{pr_number}: cannot read the pull request links ({exc})"]
+    closes_branch_issue = issue_number in links.closing_issues
+    if CHAIN_PARTIAL_LABEL in links.labels and closes_branch_issue:
+        violations.append(
+            f"PR has {CHAIN_PARTIAL_LABEL} but GitHub would close #{issue_number} on merge: "
+            f"remove the closing keyword for #{issue_number} from the PR body AND title "
+            f"(closing keywords in either location create the reference; use Refs #N in "
+            f"prose) or drop the {CHAIN_PARTIAL_LABEL} label if this is the final slice"
+        )
+    elif CHAIN_PARTIAL_LABEL not in links.labels and not closes_branch_issue:
+        violations.append(
+            f"PR must close #{issue_number} (from branch {head_ref!r}): add 'Closes #{issue_number}' "
+            f"to the PR body, or label the PR {CHAIN_PARTIAL_LABEL} if it is an intermediate slice"
+        )
+    for other in links.closing_issues:
+        if other != issue_number:
+            violations.extend(_other_closing_errors(client, repository, other))
     return violations
 
 

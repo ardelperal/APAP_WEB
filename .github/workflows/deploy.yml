@@ -81,11 +81,228 @@ jobs:
           echo "::error::Refusing to deploy: ${{ steps.check.outputs.source }}."
           exit 1
 
+  release-e2e-gate:
+    name: release-e2e-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # Issues #1082 and #1131: fail-closed gate on the production verdicts of
+    # the PREVIOUSLY DEPLOYED revision (head_sha of the latest successful
+    # deploy.yml run on main, excluding this run). Two commit statuses must
+    # both be valid for that SHA: release/smoke-production (written by the
+    # production-smoke job after the deploy) and release/e2e-production
+    # (opened as pending or resolved as not-required by release-e2e-record;
+    # when the range is e2e-sensitive the operator resolves it per
+    # docs/runbooks/e2e-production.md: success, failure, or a skipped:<reason>
+    # bypass valid for that one SHA). A pending, failed or absent verdict
+    # blocks the next deploy until the operator rolls back or records
+    # success/bypass. The previous SHA is exposed as an output so
+    # release-e2e-record can decide whether this range needs the e2e battery.
+    # It runs no e2e suite and holds no secret. Issue #1221: it no longer
+    # consults the Actions API, so it holds no Actions-read scope either.
+    permissions:
+      contents: read
+      statuses: read
+    outputs:
+      previous_sha: ${{ steps.gate.outputs.previous_sha }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      # The hosted image ships no `python` (issue #533 precedent).
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: .python-version
+
+      - name: Require the previous revision's smoke and e2e verdicts
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_HEALTH_URL: ${{ vars.APAP_DEPLOY_HEALTH_URL }}
+        run: |
+          set -euo pipefail
+          # Issue #1221: the previous revision is the one ACTUALLY serving
+          # traffic, resolved from the same health endpoint the deploy job
+          # verifies against post-deploy (`/healthz` -> `.revision`). The old
+          # heuristic (head_sha of the most recent successful deploy.yml run,
+          # from the non-transactional Actions search index) selected the
+          # third-most-recent revision in silence once (run 37028750019).
+          prev_sha=""
+          if [ -n "$DEPLOY_HEALTH_URL" ]; then
+            if ! body=$(curl -fsS --max-time 30 "$DEPLOY_HEALTH_URL"); then
+              echo "::error::the health endpoint did not answer; refusing to guess the serving revision."
+              exit 1
+            fi
+            prev_sha=$(printf '%s' "$body" | jq -r '.revision // empty' || true)
+            if [ -z "$prev_sha" ]; then
+              echo "::error::the health payload carries no .revision; refusing to guess the serving revision."
+              exit 1
+            fi
+          fi
+          echo "previous_sha=${prev_sha}" >> "$GITHUB_OUTPUT"
+          if [ -z "$prev_sha" ]; then
+            echo "::notice::release-e2e-gate: APAP_DEPLOY_HEALTH_URL is not configured (first deploy); nothing to verify."
+            exit 0
+          fi
+
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}"
+          status=$(mktemp)
+          code=$(curl -sS -o "$status" -w '%{http_code}' --max-time 30 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${api}/commits/${prev_sha}/status")
+          if [ "$code" != "200" ]; then
+            echo "::error::the release verdict query for ${prev_sha} failed (HTTP ${code})."
+            exit 1
+          fi
+          # Evaluate both contexts so one run reports every missing verdict.
+          failed=0
+          for context in release/smoke-production release/e2e-production; do
+            python scripts/check_release_evidence.py --sha "$prev_sha" --context "$context" < "$status" || failed=1
+          done
+          exit "$failed"
+
+  ui-e2e-gate:
+    name: ui-e2e-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # Issue #895: fail-closed gate for the UI path to deployment. It runs NO
+    # e2e suite and holds NO secret: it recomputes ui_changed for the merged
+    # revision (same UI surface single source of truth as ci.yml, consumed
+    # via --print-ui-paths) and, when UI paths changed, verifies via the
+    # read-only check-runs API that a CI run on the reviewed revision had
+    # the `e2e` job conclude success. Failure, cancellation, unexpected
+    # skip, incomplete run or absent check all fail this gate and, via
+    # deploy's needs:, block the deployment. A revision with no UI-path
+    # change passes with an explicit exemption line.
+    permissions:
+      contents: read
+      checks: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # The parent-commit diff and the HEAD^2 resolution need history.
+          fetch-depth: 0
+
+      # The hosted image ships no `python` (issue #533 precedent).
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: .python-version
+
+      - name: Gate the UI revision on green e2e evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          # Issue #895 fix round 1 (JD-B-001): fail-closed INVERTED detection.
+          # The checker prints the NON-UI allowlist and classifies the
+          # changed-file set (via --ui-changed); ui_changed is true unless
+          # EVERY changed file is allowlisted — all of app/** affects the
+          # browser (FastAPI renders Jinja from Python), so a UI prefix list
+          # could never be exhaustive.
+          NON_UI_PATHS="$(python scripts/check_required_jobs.py --print-ui-paths)"
+          ui_changed=true
+          CHANGED=""
+          if [ -n "$(git rev-parse --verify -q 'HEAD^')" ]; then
+            # Issue #895 fix round 1 (JD-B-002): the diff base is
+            # github.event.before — the main tip this push replaced, i.e.
+            # exactly the revision delta against what is already deployed.
+            # HEAD^ only covers the last commit of a multi-commit push and
+            # stays as the fallback (zero-SHA initial push, dispatch).
+            BEFORE="$EVENT_BEFORE"
+            if [ -n "$BEFORE" ] \
+               && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] \
+               && git cat-file -e "$BEFORE" 2>/dev/null; then
+              CHANGED="$(git diff --name-only "$BEFORE" 'HEAD')"
+              ui_changed="$(printf '%s\n' "$CHANGED" | python scripts/check_required_jobs.py --ui-changed)"
+            else
+              CHANGED="$(git diff --name-only 'HEAD^' 'HEAD')"
+              ui_changed="$(printf '%s\n' "$CHANGED" | python scripts/check_required_jobs.py --ui-changed)"
+            fi
+          else
+            echo "::warning::no event.before and no parent commit; assuming UI changed (fail-closed)" >&2
+          fi
+
+          # ANTI-SELF-EXEMPTION toll (issue #895 fix round 1, JD-A-001): the
+          # gate's own source cannot be edited without paying the e2e toll —
+          # these three files DEFINE the detection, so a change to any of
+          # them forces ui_changed=true in BOTH workflow consumers.
+          for path in $CHANGED; do
+            case "$path" in
+              scripts/check_required_jobs.py|.github/workflows/ci.yml|.github/workflows/deploy.yml)
+                ui_changed=true
+                echo "::notice::gate-source change ($path) forces ui_changed=true (anti-self-exemption toll, issue #895)."
+                break
+                ;;
+            esac
+          done
+
+          if [ "$ui_changed" != "true" ]; then
+            echo "::notice::ui-e2e-gate exemption: no UI-relevant change in this revision; e2e evidence not required (issue #895)."
+            exit 0
+          fi
+
+          # pull_request check-runs are reported on the PR head SHA, not on
+          # the merge commit, so resolve the reviewed head (evidence-job
+          # precedent) and bind the tree before querying.
+          if head2=$(git rev-parse --verify -q 'HEAD^2'); then
+            tree_merged=$(git rev-parse 'HEAD^{tree}')
+            tree_branch=$(git rev-parse "${head2}^{tree}")
+            if [ "$tree_merged" != "$tree_branch" ]; then
+              echo "::error::main moved: merged tree differs from the reviewed branch tree; cannot bind e2e evidence to this revision. Recovery: update the branch on the new main (merge or rebase), let ci.yml run green on the updated branch, then re-merge — re-running ci.yml by dispatch on the existing merge commit does NOT satisfy this gate."
+              exit 1
+            fi
+            reviewed_sha="$head2"
+          else
+            reviewed_sha="$GITHUB_SHA"
+          fi
+
+          # filter=latest (F4, JD-B-006/JD-A-002): return only the most
+          # recent check run per check name/app instead of every historical
+          # run. Accepted fail-closed limitation: the response is one page
+          # of at most 100 check runs; if the e2e check is not in the first
+          # page (page-1 limit), the query below reports "no e2e check run"
+          # and the gate fails closed rather than passing without evidence.
+          # The jq selections are scoped to .app.slug == "github-actions" so
+          # a third-party check app reporting an 'e2e' check cannot satisfy
+          # the gate.
+          body=$(mktemp)
+          code=$(curl -sS -o "$body" -w '%{http_code}' --max-time 30 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${reviewed_sha}/check-runs?per_page=100&filter=latest")
+          if [ "$code" != "200" ]; then
+            echo "::error::the e2e-evidence query itself failed (HTTP ${code})."
+            exit 1
+          fi
+
+          e2e_count=$(jq '[.check_runs[] | select(.name == "e2e" and .app.slug == "github-actions")] | length' "$body")
+          if [ "${e2e_count:-0}" -eq 0 ]; then
+            echo "::error::no e2e check run for ${reviewed_sha} although the revision changed UI paths. A UI change cannot deploy without e2e on the integrated revision; run ci.yml (e2e job) on that SHA — see .github/workflows/ci.yml."
+            exit 1
+          fi
+          pending=$(jq '[.check_runs[] | select(.name == "e2e" and .app.slug == "github-actions" and .status != "completed")] | length' "$body")
+          if [ "${pending:-0}" -gt 0 ]; then
+            echo "::error::the e2e check run for ${reviewed_sha} has not completed; wait for ci.yml to finish before deploying."
+            exit 1
+          fi
+          bad=$(jq -r '[.check_runs[] | select(.name == "e2e" and .app.slug == "github-actions") | .conclusion] | map(select(. != "success")) | join(", ")' "$body")
+          if [ -n "$bad" ]; then
+            echo "::error::e2e on ${reviewed_sha} did not conclude success (conclusions: ${bad} — failure, cancellation or unexpected skip). A UI change cannot deploy without green e2e on the integrated revision; see .github/workflows/ci.yml."
+            exit 1
+          fi
+          echo "::notice::ui-e2e-gate: e2e concluded success on ${reviewed_sha} for a UI-changing revision (issue #895). (non-UI allowlist: ${NON_UI_PATHS})"
+
   deploy:
     name: deploy
-    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble, deploy]
+    runs-on: [self-hosted, Linux, ARM64, apap, oracle, coolify, noble]
     timeout-minutes: 30
-    needs: [evidence]
+    needs: [evidence, release-e2e-gate, ui-e2e-gate]
     if: needs.evidence.outputs.verified == 'true'
     # id-token: write lets Cosign exchange this job's short-lived GitHub OIDC
     # token for an ephemeral Fulcio certificate (keyless signing, no stored
@@ -102,6 +319,35 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Preflight the deploy tooling (fail loud)
+        # Issue #1222: the deploy job must work on ANY pool runner. The fleet
+        # diverges in out-of-band installed tooling (the historic `noble` had
+        # `gettext-base` installed by hand; -2/-3 do not), and a missing host
+        # tool used to surface as an opaque exit 127 deep inside third-party
+        # tooling (`envsubst: command not found`, run 37037386528). Check the
+        # job's host tooling contract up front and name every missing tool
+        # plus the Debian package that provides it. cosign, python and trivy
+        # are self-provisioned (downloaded in-job, composite action, container
+        # image) and are deliberately not checked here.
+        run: |
+          set -euo pipefail
+          missing=0
+          check() {
+            local tool="$1" package="$2"
+            if ! command -v "$tool" >/dev/null 2>&1; then
+              echo "::error::MISSING TOOL: ${tool} (Debian package: ${package})"
+              missing=1
+            fi
+          }
+          check docker docker.io
+          check jq jq
+          check curl curl
+          if ! docker buildx version >/dev/null 2>&1; then
+            echo "::error::MISSING TOOL: docker buildx plugin (Debian package: docker-buildx-plugin)"
+            missing=1
+          fi
+          exit "$missing"
 
       - name: Set up locked Python environment
         uses: ./.github/actions/setup-python
@@ -175,10 +421,40 @@ jobs:
             image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed \
             "${IMAGE}@${DIGEST}"
 
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
-        with:
-          cosign-release: v3.1.3
+      - name: Install Cosign (direct pinned download)
+        # Issue #1222: sigstore/cosign-installer renders its download URL
+        # with `envsubst` (gettext-base), which the fleet's pool runners do
+        # not ship — the step failed with exit 127 (`envsubst: command not
+        # found`, run 37037386528). Install cosign directly instead, with the
+        # checksums pinned from the official cosign_checksums.txt of the
+        # release, mirroring the actionlint download pattern in ci.yml. No
+        # third-party action internals, no gettext dependency.
+        env:
+          COSIGN_VERSION: v3.1.3
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64)
+              asset="cosign-linux-amd64"
+              sha256="4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71"
+              ;;
+            aarch64)
+              asset="cosign-linux-arm64"
+              sha256="c5d324e091826b0d7a78eb16fef316450b4eb9aaec045611c08ba06f5e73220a"
+              ;;
+            *)
+              echo "::error::unsupported runner architecture: $(uname -m)" >&2
+              exit 1
+              ;;
+          esac
+          dest="${RUNNER_TEMP:-$(mktemp -d)}/cosign-${COSIGN_VERSION}"
+          mkdir -p "$dest"
+          curl -fsSL --retry 3 \
+            "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/${asset}" \
+            -o "${dest}/cosign"
+          echo "${sha256}  ${dest}/cosign" | sha256sum --check --strict -
+          chmod +x "${dest}/cosign"
+          echo "${dest}" >> "$GITHUB_PATH"
 
       - name: Sign the published digest with GitHub OIDC
         env:
@@ -278,3 +554,161 @@ jobs:
           python scripts/verify_deployment.py \
             --url "$DEPLOY_HEALTH_URL" --revision "$PREVIOUS_REVISION"
           echo "::error::Deployment failed and was rolled back to ${PREVIOUS_DIGEST}."
+
+  production-smoke:
+    name: production-smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    needs: [deploy]
+    if: needs.deploy.result == 'success'
+    # Issue #1131: automatic, unauthenticated smoke of the deployed revision.
+    # It holds NO secret (the health URL is a repository variable, not a
+    # secret) and logs nobody in: /healthz reports this SHA, /login answers
+    # and an anonymous / redirects to /login. It always records the verdict as
+    # the commit status release/smoke-production on the deployed SHA (target
+    # is this run) and fails the job when the smoke failed, so the next deploy
+    # is blocked by release-e2e-gate. It is NOT the authenticated e2e battery.
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      # The hosted image ships no `python` (issue #533 precedent).
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: .python-version
+
+      - name: Run the unauthenticated production smoke
+        env:
+          DEPLOY_HEALTH_URL: ${{ vars.APAP_DEPLOY_HEALTH_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DEPLOY_HEALTH_URL" ]; then
+            echo "::error::APAP_DEPLOY_HEALTH_URL is not configured."
+            exit 1
+          fi
+          python scripts/production_smoke.py --health-url "$DEPLOY_HEALTH_URL" --revision "$GITHUB_SHA"
+
+      - name: Record release/smoke-production on the deployed revision
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          if [ "$JOB_STATUS" = "success" ]; then
+            state=success
+            description="production smoke passed for ${GITHUB_SHA:0:8}"
+          else
+            state=failure
+            description="production smoke failed for ${GITHUB_SHA:0:8}; see the run"
+          fi
+          body=$(mktemp)
+          payload=$(jq -n \
+            --arg state "$state" \
+            --arg description "$description" \
+            --arg url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            '{state: $state, context: "release/smoke-production", description: $description, target_url: $url}')
+          code=$(curl -sS -o "$body" -w '%{http_code}' --max-time 30 -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -d "$payload" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}")
+          if [ "$code" != "201" ]; then
+            echo "::error::could not record release/smoke-production=${state} on ${GITHUB_SHA} (HTTP ${code})."
+            exit 1
+          fi
+          echo "::notice::release/smoke-production=${state} recorded on ${GITHUB_SHA}."
+
+  release-e2e-record:
+    name: release-e2e-record
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    needs: [release-e2e-gate, deploy]
+    if: needs.deploy.result == 'success'
+    # Issues #1082 and #1131: production e2e validation happens AFTER deploy
+    # (see docs/runbooks/e2e-production.md), so the evidence is bound to the
+    # deployed revision instead of a global repository variable. This job
+    # decides whether the range since the previous deployed revision touches an
+    # e2e-sensitive path (scripts/check_release_e2e_required.py, which needs
+    # the full history): exit 10 (required, also when it cannot decide) opens
+    # the validation window with release/e2e-production=pending; exit 0 records
+    # success with a not-required description; anything else fails the job. No
+    # previous deploy means required. The operator then records success,
+    # failure (=> digest rollback) or a bypass (success with description
+    # skipped:<reason>) on that same SHA, and scripts/check_release_evidence.py
+    # evaluates it. It runs NO e2e suite, holds NO secret beyond the job token
+    # and writes nothing but a status.
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # The range base..head needs the history between the two deploys.
+          fetch-depth: 0
+
+      # The hosted image ships no `python` (issue #533 precedent).
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: .python-version
+
+      - name: Decide and record the e2e verdict window
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS_SHA: ${{ needs.release-e2e-gate.outputs.previous_sha }}
+        run: |
+          set -euo pipefail
+          runbook="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/main/docs/runbooks/e2e-production.md"
+
+          required=true
+          if [ -n "$PREVIOUS_SHA" ]; then
+            rc=0
+            python scripts/check_release_e2e_required.py --base "$PREVIOUS_SHA" --head "$GITHUB_SHA" || rc=$?
+            case "$rc" in
+              0) required=false ;;
+              10) required=true ;;
+              *)
+                echo "::error::scripts/check_release_e2e_required.py exited ${rc}; cannot decide whether e2e is required."
+                exit 1
+                ;;
+            esac
+          else
+            echo "::notice::no previous deployed revision (first deploy); the e2e validation is required."
+          fi
+
+          if [ "$required" = "true" ]; then
+            state=pending
+            description="awaiting runbook validation: e2e-sensitive paths changed"
+          else
+            state=success
+            description="not-required: no e2e-sensitive path changed since ${PREVIOUS_SHA:0:8}"
+          fi
+
+          body=$(mktemp)
+          payload=$(jq -n \
+            --arg state "$state" \
+            --arg description "$description" \
+            --arg url "$runbook" \
+            '{state: $state, context: "release/e2e-production", description: $description, target_url: $url}')
+          code=$(curl -sS -o "$body" -w '%{http_code}' --max-time 30 -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -d "$payload" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}")
+          if [ "$code" != "201" ]; then
+            echo "::error::could not record the ${state} release/e2e-production status on ${GITHUB_SHA} (HTTP ${code})."
+            exit 1
+          fi
+          if [ "$required" = "true" ]; then
+            echo "::notice::release/e2e-production is pending on ${GITHUB_SHA}. Validate production and record the verdict on that SHA per docs/runbooks/e2e-production.md."
+          else
+            echo "::notice::release/e2e-production is not required on ${GITHUB_SHA}: ${description}."
+          fi

@@ -1,0 +1,14 @@
+# actionlint configuration (https://github.com/rhysd/actionlint/blob/main/docs/config.md).
+# Issue #1154: declares the custom labels of the self-hosted runner fleet so
+# the `runner-label` check does not fail on the legitimate `runs-on` values.
+# The exact list mirrors the deploy job in .github/workflows/deploy.yml
+# (line 296 at the time of writing): keep both lists in sync.
+self-hosted-runner:
+  labels:
+    - self-hosted
+    - Linux
+    - ARM64
+    - apap
+    - oracle
+    - coolify
+    - noble

@@ -124,7 +124,7 @@ class _OneShotMagicLinkPort:
 @pytest.fixture
 def _fake_magic_link_port(
     monkeypatch: pytest.MonkeyPatch,
-) -> Iterator[_OneShotMagicLinkPort]:
+) -> Iterator[tuple[_OneShotMagicLinkPort, str]]:
     """Wire a fake ``MagicLinkPort`` onto ``app.state.magic_link_port``.
 
     The lifespan (``app.main.lifespan``) wires the real port + SMTP
@@ -135,37 +135,58 @@ def _fake_magic_link_port(
     without both set the route raises ``AttributeError`` before the
     302 redirect is returned. The fixture wires both.
 
+    Issue #1004: the handler also requires a single-use ``state``
+    bound to the presented token, so the fixture pre-binds one for the
+    stub token and yields ``(fake, state)`` — tests build the verify
+    URL from both values, mirroring the emailed-link shape.
+
     Annotated as ``Iterator[...]`` because the fixture is a generator
     (yield + no return value); mypy requires the annotation to
-    reflect that. The yielded value (the fake port instance) is the
-    type the test sees.
+    reflect that.
     """
     from app.core.config import get_settings
+    from app.core.local_backend.magic_link import _issue_state
     from app.main import app as _app
 
     fake = _OneShotMagicLinkPort()
     _app.state.magic_link_port = fake
     _app.state.session_secret = get_settings().session_secret
-    yield fake
+    state = _issue_state(_app, "test-token")
+    yield fake, state
     _app.state.__dict__.pop("magic_link_port", None)
     _app.state.__dict__.pop("session_secret", None)
+    _app.state.__dict__.pop("_magic_link_states", None)
 
 
 async def test_get_auth_magic_verify_is_not_403(
     client: httpx.AsyncClient,
-    _fake_magic_link_port: _OneShotMagicLinkPort,
+    _fake_magic_link_port: tuple[_OneShotMagicLinkPort, str],
 ) -> None:
-    """GET ``/auth/magic/verify?token=...`` MUST NOT be 403.
+    """GET ``/auth/magic/verify?token=...&state=...`` MUST NOT be 403.
 
     The middleware short-circuits because the path is in
-    ``_CSRF_EXEMPT_PATHS``. The handler consumes the fake token,
-    sets the ``apap_session`` cookie, and 302-redirects to ``/``.
-    The atom proves the exemption works WITHOUT depending on the
-    cookie payload shape (verified by the dedicated
-    ``test_magic_link_routes.py`` integration atoms).
+    ``_CSRF_EXEMPT_PATHS``. The handler consumes the state + fake
+    token, resolves the ACTIVE user via the default conftest spy (which
+    now answers ``GET_USER_BY_EMAIL_SQL``, judgment-day JD-B-002), sets
+    the ``apap_session`` cookie, and 302-redirects to ``/``. This atom
+    pins the full cookie-minting contract — not just the NOT-403 shape:
+
+    - status 302 with ``location: /`` (the happy-path redirect);
+    - ``Set-Cookie`` carrying ``apap_session`` (the session mint).
+
+    The detailed payload-shape assertions live in the dedicated
+    ``test_magic_link_routes.py`` integration atoms; here we only pin
+    that the exemption lets the verify handler run to completion and
+    mint the session. The URL carries the state pre-bound by the
+    fixture (issue #1004) AND the request presents the matching
+    ``apap_magic_state`` cookie as an explicit header: since the
+    round-1 fix, the browser binding requires cookie == URL state, and
+    the unit-test client never ran ``/start`` to earn it.
     """
+    state = _fake_magic_link_port[1]
     response = await client.get(
-        "/auth/magic/verify?token=test-token",
+        "/auth/magic/verify?token=test-token&state=" + state,
+        headers={"Cookie": f"apap_magic_state={state}"},
         follow_redirects=False,
     )
     assert response.status_code != 403, (
@@ -173,20 +194,27 @@ async def test_get_auth_magic_verify_is_not_403(
         f"{response.status_code}; the path must be exempt. "
         f"Body: {response.text!r}"
     )
-    # Sanity: the handler ran (the redirect was issued by the
-    # route, not the auth middleware). The status is either 200/302
-    # (happy path) or 422 (Pydantic validation); both are NOT-403
-    # AND not the auth middleware's 302 to ``/login``.
-    if response.status_code == 302:
-        location = response.headers.get("location", "")
-        # The auth middleware's redirect to ``/login`` would mean
-        # the route was NOT reached; that's a regression.
-        assert location != "/login", (
-            f"/auth/magic/verify was redirected to /login "
-            f"({location!r}); the magic-link handler did not run. "
-            f"Either the exemption is not active or the magic_link_port "
-            f"fixture did not wire correctly."
-        )
+    # Full contract (no longer vacuous): the handler ran AND minted the
+    # session. A 302 to ``/login`` would mean the route was NOT reached
+    # (auth-gate or fail-closed regression); a missing ``apap_session``
+    # Set-Cookie would mean the cookie-minting branch was skipped.
+    assert response.status_code == 302, (
+        f"expected the verify handler's 302, got "
+        f"{response.status_code}: {response.text!r}"
+    )
+    assert response.headers["location"] == "/", (
+        f"verify redirected to {response.headers.get('location')!r}, "
+        f"not '/'; either the auth gate intercepted the request or the "
+        f"handler failed closed (default spy did not answer "
+        f"GET_USER_BY_EMAIL_SQL with an active user)."
+    )
+    set_cookie = response.headers.get("set-cookie", "")
+    assert "apap_session=" in set_cookie, (
+        f"verify did not mint the apap_session cookie; "
+        f"set-cookie={set_cookie!r}. The cookie-minting branch requires "
+        f"the auth lookup to succeed (default spy must answer "
+        f"GET_USER_BY_EMAIL_SQL with an active user row)."
+    )
 
 
 # --- parametrized negative coverage -------------------------------------
@@ -199,8 +227,8 @@ async def test_get_auth_magic_verify_is_not_403(
         ("POST", "/voluntarios"),
         ("POST", "/entradas"),
         ("POST", "/admin/users"),
-        ("PUT", "/animales/abc-123"),
-        ("DELETE", "/animales/abc-123"),
+        ("PUT", "/animales/abc12345-0000-4000-8000-000000000001"),
+        ("DELETE", "/animales/abc12345-0000-4000-8000-000000000001"),
     ],
 )
 async def test_exemption_does_not_extend_to_other_routes(

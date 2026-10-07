@@ -83,10 +83,16 @@ class LocalBackendAuthUsersAdapter:
     def get_user_by_email(self, email: str) -> AuthorizedUser | None:
         """Return the active user with this email, or ``None``.
 
-        The application layer is responsible for normalizing the
-        email before this call; the adapter still uses a
-        case-insensitive WHERE clause as a defense-in-depth against
-        pre-existing case-variant duplicates (issue #278).
+        The WHERE clause in :data:`GET_USER_BY_EMAIL_SQL` is
+        case-insensitive (``lower(email) = lower($1)``), so a row
+        seeded with a mixed-case email (``Admin@Example.com``)
+        resolves when the lookup arrives with the canonical
+        lowercase form (``admin@example.com``) — defense-in-depth
+        against callers that bypass the application-layer
+        normalization (the magic-link ``_lookup_authorized_user``
+        helper is exactly that bypass). Mirrors
+        :mod:`app.core.auth_cache` ``.lower()`` convention
+        (issues #278 / #1003).
         """
         rows = self._executor.execute_sql(GET_USER_BY_EMAIL_SQL, [email])
         if not rows:

@@ -2,12 +2,26 @@
 
 This preserves the existing service-test fixtures while keeping production
 code coupled only to the backend-agnostic ``SqlExecutor`` contract.
+
+Known limitation (issue #1146): this fake performs NO column-type
+validation. Params are JSON-serialized and handed to the response handler
+as-is, so a value that only real Postgres would reject — e.g. a non-UUID
+string bound to a UUID column such as ``anadido_por`` — passes every
+fake-backed test here and only surfaces later as a ``QueryError`` against
+the real backend (lived: PR #1138). Generic per-column type checking is
+not feasible in this fake: the handler contract carries no schema, so
+there is no column-type information to validate against. Services whose
+correctness depends on database-side type enforcement need integration
+coverage against real Postgres (tests/integration/) before merge. The
+criteria for when that is required live in
+``docs/quality/real-postgres-test-guide.md`` (issue #1205).
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from contextlib import nullcontext
 from typing import Any, Protocol
 
 import httpx
@@ -66,6 +80,12 @@ class HandlerSqlExecutor:
         if not isinstance(body, list):
             raise AssertionError(f"SQL handler returned a non-list body: {body!r}")
         return body
+
+    def transaction(self) -> Any:
+        """Yield this fake unchanged: unit tests exercise one round-trip at
+        a time, so every ``execute_sql`` call inside the service's
+        ``transaction()`` block hits this same handler-backed fake."""
+        return nullcontext(self)
 
     def close(self) -> None:
         """Mirror closable historical fixtures without owning resources."""

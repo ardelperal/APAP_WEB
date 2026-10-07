@@ -33,10 +33,7 @@ rather than re-implementing the reverse pipeline.
 
 from __future__ import annotations
 
-import os
 import re
-import secrets
-import subprocess
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -44,10 +41,8 @@ from pathlib import Path
 
 from migration.verify_fallback_helpers import (
     _drop_ephemeral_schema,
-    _pick_free_port,
     _provision_ephemeral_schema,
     _run_subprocess_check,
-    _wait_for_healthz,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -162,15 +157,11 @@ def check_web_to_legacy_check_only() -> CheckResult:
     sandbox use; it is committed to the repo and the README mandates
     copy-before-mutate discipline).
 
-    M0 of self-host-backend-coolify (issue #641): the CLI's
-    ``StubAuthUsersPort`` now points at the local backend when
-    ``APAP_LOCAL_BACKEND=true`` and ``APAP_INSFORGE_URL`` targets it.
-    If ``APAP_LOCAL_DB_URL`` is set in the parent env, this check
-    auto-wires both: it provisions an ephemeral APAP schema, spawns
-    the local backend on a free port, runs the migration CLI against
-    it, and tears everything down. Without ``APAP_LOCAL_DB_URL`` the
-    check falls back to the operator's manual setup (LocalBackend remote
-    must be reachable).
+    If ``APAP_LOCAL_DB_URL`` is set, provision an ephemeral schema and
+    pass its DSN and search path to the migration CLI. The CLI composes
+    ``LocalPostgresExecutor`` directly; no HTTP backend or service key is
+    needed. Without a resolved DSN, fail closed rather than allow the CLI
+    to read an unisolated default schema.
 
     This is a soft check: if the CLI returns non-zero, we report FAIL
     but the orchestrator continues (other conditions may still
@@ -184,83 +175,30 @@ def check_web_to_legacy_check_only() -> CheckResult:
             evidence=f"legacy fixture missing at {legacy_path}",
         )
 
-    # M0 fixture wiring: if APAP_LOCAL_DB_URL is set, stand up the
-    # local backend in-process with a fresh ephemeral schema, run the
-    # check, then tear down. Otherwise inherit the parent's env
-    # (operator must ensure the target — LocalBackend or local — is reachable).
-    extra_env: dict[str, str] = {}
-    backend_proc = None
-    ephemeral_schema: str | None = None
-    local_db_url = os.environ.get("APAP_LOCAL_DB_URL")
-    if local_db_url:
-        try:
-            ephemeral_schema = _provision_ephemeral_schema(local_db_url)
-        except Exception as exc:  # noqa: BLE001
-            return CheckResult(
-                name="web_to_legacy_check_only",
-                status="FAIL",
-                evidence=f"could not provision ephemeral schema: {exc}",
-            )
-        try:
-            port = _pick_free_port()
-        except OSError as exc:
-            _drop_ephemeral_schema(local_db_url, ephemeral_schema)
-            return CheckResult(
-                name="web_to_legacy_check_only",
-                status="FAIL",
-                evidence=f"could not find a free port for the local backend: {exc}",
-            )
-        rawsql_auth_token = secrets.token_urlsafe()
-        backend_proc = subprocess.Popen(
-            [
-                sys.executable,
-                "-m",
-                "uvicorn",
-                "app.core.local_backend.app:create_app",
-                "--factory",
-                "--port",
-                str(port),
-                "--host",
-                "127.0.0.1",
-            ],
-            cwd=REPO_ROOT,
-            env={
-                **os.environ,
-                "APAP_LOCAL_DB_URL": local_db_url,
-                "APAP_LOCAL_DB_SCHEMA": ephemeral_schema,
-                "APAP_RAWSQL_AUTH_TOKEN": rawsql_auth_token,
-            },
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
+    # Isolate the dry-run from the operator's schema on the same database.
+    from app.core.config import Settings
+
+    # Match the child CLI's env/.env precedence, anchored to its cwd.
+    # BaseSettings accepts _env_file dynamically; mypy sees only Settings fields.
+    local_db_url = Settings(_env_file=REPO_ROOT / ".env").local_db_url  # type: ignore[call-arg]
+    if not local_db_url:
+        return CheckResult(
+            name="web_to_legacy_check_only",
+            status="FAIL",
+            evidence="APAP_LOCAL_DB_URL is not configured for isolated fallback check",
         )
-        try:
-            if not _wait_for_healthz(port, timeout_seconds=5.0):
-                stderr_bytes = backend_proc.stderr.read() if backend_proc.stderr else b""
-                stderr_text = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
-                return CheckResult(
-                    name="web_to_legacy_check_only",
-                    status="FAIL",
-                    evidence=(
-                        f"local backend did not become healthy on port {port} "
-                        f"within 5s; stderr={stderr_text[-300:]!r}"
-                    ),
-                )
-            extra_env = {
-                "APAP_LOCAL_BACKEND": "true",
-                "APAP_INSFORGE_URL": f"http://127.0.0.1:{port}",
-                # The compatibility client sends this value as its bearer token.
-                "APAP_INSFORGE_SERVICE_KEY": rawsql_auth_token,
-                # migration.cli builds its own LocalPostgresExecutor directly
-                # against Postgres now (issue #690) rather than going through
-                # the local-backend HTTP server this function also spins up;
-                # it needs the same ephemeral-schema search_path the backend
-                # process above was given, or it reads/writes the wrong
-                # schema on the shared test database.
-                "APAP_LOCAL_DB_SCHEMA": ephemeral_schema,
-            }
-        except Exception:
-            backend_proc.kill()
-            raise
+    try:
+        ephemeral_schema = _provision_ephemeral_schema(local_db_url)
+    except Exception as exc:  # noqa: BLE001
+        return CheckResult(
+            name="web_to_legacy_check_only",
+            status="FAIL",
+            evidence=f"could not provision ephemeral schema: {exc}",
+        )
+    extra_env = {
+        "APAP_LOCAL_DB_URL": local_db_url,
+        "APAP_LOCAL_DB_SCHEMA": ephemeral_schema,
+    }
 
     try:
         rc, stdout, stderr = _run_subprocess_check(
@@ -276,20 +214,13 @@ def check_web_to_legacy_check_only() -> CheckResult:
                 str(legacy_path),
             ],
             cwd=REPO_ROOT,
-            extra_env=extra_env or None,
+            extra_env=extra_env,
         )
     finally:
-        if backend_proc is not None:
-            backend_proc.terminate()
-            try:
-                backend_proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                backend_proc.kill()
-        if ephemeral_schema is not None and local_db_url is not None:
-            try:
-                _drop_ephemeral_schema(local_db_url, ephemeral_schema)
-            except Exception:  # noqa: BLE001
-                pass  # best-effort cleanup
+        try:
+            _drop_ephemeral_schema(local_db_url, ephemeral_schema)
+        except Exception:  # noqa: BLE001
+            pass  # best-effort cleanup
 
     if rc == 0:
         return CheckResult(

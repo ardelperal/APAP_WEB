@@ -5,8 +5,11 @@ import subprocess
 import sys
 import tomllib
 from pathlib import Path
+from typing import Any
 
 import pytest
+
+from tests import _workflow_yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
@@ -15,45 +18,47 @@ WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 DEPLOY_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "deploy.yml"
 PR_NAME_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "pr-name.yml"
 PR_SIZE_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "pr-size.yml"
+MAIN_AUDIT_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "main-audit.yml"
+MAIN_AUDIT_SCRIPT_PATH = REPO_ROOT / ".github" / "scripts" / "main_history_audit.py"
 MAKEFILE_PATH = REPO_ROOT / "Makefile"
 CHECK_RULES_SCRIPT_PATH = REPO_ROOT / "scripts" / "check_rules.py"
 BRANCH_PROTECTION_PATH = REPO_ROOT / ".github" / "branch-protection.md"
 DEVELOPMENT_GUIDE_PATH = REPO_ROOT / "docs" / "development.md"
 CI_CD_GUIDE_PATH = REPO_ROOT / "docs" / "codebase" / "ci-cd.md"
+MERGE_WORKFLOW_PATH = REPO_ROOT / "docs" / "codebase" / "merge-workflow.md"
+PROCESS_PATH = REPO_ROOT / "docs" / "proceso.md"
+
+
+def _doc(path: Path) -> dict[str, Any]:
+    """Parse a workflow file into structured YAML (issue #963)."""
+    return _workflow_yaml.load(path)
+
+
+def _job(path: Path, job_id: str) -> dict[str, Any]:
+    """Return one job of a workflow as parsed YAML (asserts when absent)."""
+    return _workflow_yaml.job(_doc(path), job_id)
+
+
+def _triggers(path: Path) -> dict[str, Any]:
+    """Map each trigger name under ``on:`` to its structured config."""
+    return _workflow_yaml.on_triggers(_doc(path))
+
+
+def _run_index(job_id: str, fragment: str) -> int:
+    """Position of the first ci.yml step of ``job_id`` whose run has fragment."""
+    runs = [
+        str(step.get("run", ""))
+        for step in _workflow_yaml.steps(_job(WORKFLOW_PATH, job_id))
+    ]
+    for position, run in enumerate(runs):
+        if fragment in run:
+            return position
+    raise AssertionError(f"no step in job {job_id!r} runs {fragment!r}")
 
 
 def _workflow_job_names(path: Path) -> set[str]:
-    """Return top-level job keys without adding a YAML test dependency."""
-    workflow = path.read_text(encoding="utf-8")
-    jobs = workflow[workflow.index("\njobs:\n") :]
-    return set(re.findall(r"^  ([a-z][a-z0-9-]+):$", jobs, flags=re.MULTILINE))
-
-
-def _trigger_lines(workflow: str) -> dict[str, str]:
-    """Map each top-level trigger under ``on:`` to the text of its block.
-
-    Deliberately string-based, like every other assertion in this file: pyyaml
-    lives in the ``etl`` extra, not in ``dev``, so a yaml import here would pass
-    locally and fail in the CI test job.
-    """
-    blocks: dict[str, str] = {}
-    current: str | None = None
-    inside = False
-    for line in workflow.splitlines():
-        if line.startswith("on:"):
-            inside = True
-            continue
-        if inside and line and not line.startswith((" ", "\t", "#")):
-            break  # next top-level key ends the on: block
-        if not inside or not line.strip() or line.lstrip().startswith("#"):
-            continue
-        indent = len(line) - len(line.lstrip())
-        if indent == 2:
-            current = line.strip()
-            blocks[current] = ""
-        elif current is not None:
-            blocks[current] += line.strip() + "\n"
-    return blocks
+    """Return the top-level job ids of a workflow, from parsed YAML."""
+    return set(_doc(path).get("jobs") or {})
 
 
 def _make_target_command(target: str) -> str:
@@ -84,47 +89,158 @@ def _seed_detectors_5_through_8(repo_root: Path) -> None:
 
 
 def test_ci_workflow_defines_lint_test_and_build_jobs() -> None:
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    doc = _doc(WORKFLOW_PATH)
 
-    assert "name: ci" in workflow
-    assert "pull_request:" in workflow
-    # Both main and staging must trigger CI. main is gated (only the
-    # user promotes there) but PRs landing on main still need to be
-    # validated; staging is where every change lands first under the
-    # project's stagingOnly policy.
-    assert "branches: [main, staging]" in workflow
-    assert "lint:" in workflow
-    assert "test:" in workflow
-    assert "build:" in workflow
-    assert "python-version-file: pyproject.toml" in workflow
-    assert "ruff check ." in workflow
-    assert "python -m pytest -W error::DeprecationWarning" in workflow
-    assert "python -m build" in workflow
+    assert doc.get("name") == "ci"
+    triggers = _workflow_yaml.on_triggers(doc)
+    # Issue #933: an unfiltered pull_request trigger covers PRs into main too.
+    assert "pull_request" in triggers
+    assert "branches" not in (triggers["pull_request"] or {})
+    for job_id in ("lint", "test", "build"):
+        _workflow_yaml.job(doc, job_id)
+    lint_runs = _workflow_yaml.runs_text(_workflow_yaml.job(doc, "lint"))
+    test_runs = _workflow_yaml.runs_text(_workflow_yaml.job(doc, "test"))
+    build_runs = _workflow_yaml.runs_text(_workflow_yaml.job(doc, "build"))
+
+    setup_action = "./.github/actions/setup-python"
+    for job_id in ("lint", "test", "build"):
+        uses = [
+            str(step.get("uses", ""))
+            for step in _workflow_yaml.steps(_workflow_yaml.job(doc, job_id))
+        ]
+        assert setup_action in uses, (
+            f"job {job_id!r} must install the frozen environment through "
+            "the shared setup action"
+        )
+    assert "ruff check ." in lint_runs
+    assert "python -m pytest -W error::DeprecationWarning" in test_runs
+    assert "python -m build" in build_runs
 
 
 def test_ci_workflow_runs_release_e2e_job_with_playwright() -> None:
-    """Issue #780: E2E has no feature flag but runs only for release events.
-
-    Tags and manual dispatch must execute the Playwright suite; pull requests,
-    regular pushes, and the removed schedule trigger must not reach the job.
+    """E2E executes the Playwright suite on release events and, since issue
+    #895, on any pull_request / branch push whose ui-detection job detected
+    a UI-path change.
     """
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    e2e_job = _job(WORKFLOW_PATH, "e2e")
+    if_clause = str(e2e_job.get("if", ""))
+    e2e_runs = _workflow_yaml.runs_text(e2e_job)
 
-    assert "e2e:" in workflow
-    assert "vars.ENABLE_E2E" not in workflow, (
+    assert "vars.ENABLE_E2E" not in e2e_runs, (
         "the ENABLE_E2E feature flag has been retired"
     )
-    start = workflow.index("\n  e2e:")
-    section = workflow[start : workflow.index("\n  required:", start)]
-    if_clause = section[section.index("if:") : section.index("services:")]
     assert "github.event_name == 'workflow_dispatch'" in if_clause
     assert "startsWith(github.ref, 'refs/tags/')" in if_clause
     assert "github.event_name == 'schedule'" not in if_clause
     assert "pull_request" not in if_clause
-    assert "playwright install" in workflow
-    assert "playwright" in workflow.lower()
+    assert "playwright install" in e2e_runs
+    assert "playwright" in e2e_runs.lower()
     # And it must actually execute the suite.
-    assert "pytest tests/e2e_ci/" in workflow
+    assert "pytest tests/e2e_ci/" in e2e_runs
+
+
+# --- issue #895: UI e2e gate ------------------------------------------------
+
+
+def test_ci_workflow_defines_ui_detection_job_consuming_the_checker() -> None:
+    """Issue #895 (design D1/D2): ci.yml must define a ``ui-detection`` job
+    whose UI path list comes from the single source of truth in
+    scripts/check_required_jobs.py (``--print-ui-paths``), never from an
+    inline copy that could drift from the checker and the deploy gate.
+    """
+    block = _workflow_yaml.job_text(_job(WORKFLOW_PATH, "ui-detection"))
+
+    assert "scripts/check_required_jobs.py --print-ui-paths" in block
+    # The marker is published as a job output so `required`'s checker can
+    # verify the skip semantics structurally from toJSON(needs).
+    assert "ui_changed:" in block
+    assert 'echo "ui_changed=' in block
+    # The diff needs the full history.
+    assert "fetch-depth: 0" in block
+    # pull_request: merge-base diff against the event base ref (same shape
+    # as pr-size.yml, issue #525); push/dispatch: event.before with the
+    # parent commit as fallback (fix round 1, JD-B-002).
+    assert "github.base_ref" in block
+    assert "merge-base" in block
+    assert "github.event.before" in block
+    assert "HEAD^" in block
+
+
+def test_ci_workflow_ui_detection_fails_closed_by_default() -> None:
+    """Issue #895 fix round 1 (JD-B-001, workflow half): detection is
+    inverted — the step starts from ``ui_changed=true`` and only reports
+    false when the checker's fail-closed classifier (``--ui-changed``)
+    proves every changed file is inside the NON-UI allowlist. A diff base
+    that cannot be resolved also fails closed.
+    """
+    block = _workflow_yaml.job_text(_job(WORKFLOW_PATH, "ui-detection"))
+
+    assert "ui_changed=true" in block, (
+        "ui-detection must default to ui_changed=true (fail-closed)"
+    )
+    assert "--ui-changed" in block, (
+        "the changed-file set must be classified by the checker's "
+        "fail-closed classifier, not by inline prefix matching"
+    )
+    assert "--print-ui-paths" in block
+    assert "assuming UI changed (fail-closed)" in block
+
+
+def test_ci_workflow_ui_detection_pays_the_gate_file_toll() -> None:
+    """Anti-self-exemption toll (JD-A-001, workflow half): editing any of
+    the gate's own source files forces ui_changed=true — the gate cannot
+    be edited without paying the e2e toll.
+    """
+    block = _workflow_yaml.job_text(_job(WORKFLOW_PATH, "ui-detection"))
+
+    toll_pattern = (
+        "scripts/check_required_jobs.py|.github/workflows/ci.yml"
+        "|.github/workflows/deploy.yml"
+    )
+    assert toll_pattern in block, (
+        "the ui-detection step must force ui_changed=true when any gate "
+        "source file changes (anti-self-exemption toll)"
+    )
+
+
+def test_ci_workflow_push_diff_uses_event_before_with_parent_fallback() -> None:
+    """JD-B-002: on push the diff base must be github.event.before (the SHA
+    the branch pointed at before the push), not HEAD^ — the parent-commit
+    diff only covers the LAST commit, so a UI change hidden in an earlier
+    commit of a multi-commit push used to skip e2e. HEAD^ remains only as
+    the fallback for a zero-SHA initial push and for workflow_dispatch.
+    """
+    block = _workflow_yaml.job_text(_job(WORKFLOW_PATH, "ui-detection"))
+
+    assert "EVENT_BEFORE: ${{ github.event.before }}" in block
+    # Zero-SHA guard for the initial push.
+    assert "0000000000000000000000000000000000000000" in block
+    assert "git diff --name-only" in block
+
+
+def test_ci_workflow_e2e_runs_when_ui_changed_or_on_release_events() -> None:
+    """Issue #895 (design D2): the e2e job must run on the SHA under test
+    when ui-detection reports ui_changed=true, in addition to the release
+    events from issue #780. A UI change can no longer reach a merge with a
+    silently skipped e2e.
+    """
+    e2e_job = _job(WORKFLOW_PATH, "e2e")
+
+    assert _workflow_yaml.needs(e2e_job) == ["build", "ui-detection"]
+    assert "needs.ui-detection.outputs.ui_changed == 'true'" in str(
+        e2e_job.get("if", "")
+    )
+
+
+def test_ci_workflow_required_consumes_the_ui_detection_output() -> None:
+    """Issue #895: ``required`` must depend on ui-detection so its
+    ``ui_changed`` output is part of the ``toJSON(needs)`` payload the
+    checker reads structurally (no second, drift-prone env channel).
+    """
+    required = _job(WORKFLOW_PATH, "required")
+
+    assert "ui-detection" in _workflow_yaml.needs(required)
+    assert "CI_NEEDS_JSON: ${{ toJSON(needs) }}" in _workflow_yaml.job_text(required)
 
 
 def test_e2e_minio_endpoint_and_pytest_credentials_reach_both_processes() -> None:
@@ -159,10 +275,13 @@ def test_e2e_builds_fixed_minio_source_and_runs_verified_image_id() -> None:
 
 def test_ci_workflow_does_not_include_diagnostic_secret_leak_scan() -> None:
     """Issue #393: placeholder secret-leak scan step removed in favor of gitleaks (#381)."""
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    ci_runs = "\n".join(
+        _workflow_yaml.runs_text(entry)
+        for entry in (_doc(WORKFLOW_PATH).get("jobs") or {}).values()
+    )
 
-    assert "Diagnostic secret-leak scan" not in workflow
-    assert "grep -rE '(http://|https://|sk-|ghp_)[A-Za-z0-9]+'" not in workflow
+    assert "Diagnostic secret-leak scan" not in ci_runs
+    assert "grep -rE '(http://|https://|sk-|ghp_)[A-Za-z0-9]+'" not in ci_runs
 
 
 def test_pr_name_workflow_declares_explicit_contents_read() -> None:
@@ -170,27 +289,25 @@ def test_pr_name_workflow_declares_explicit_contents_read() -> None:
     level so the GITHUB_TOKEN does not silently widen if a future repo
     default broadens the implicit token scope.
     """
-    workflow = PR_NAME_WORKFLOW_PATH.read_text(encoding="utf-8")
+    perms = _workflow_yaml.permissions(_doc(PR_NAME_WORKFLOW_PATH))
 
     # The block MUST sit at the workflow level, not nested under a job.
-    workflow_block = workflow[: workflow.index("\njobs:\n")]
-    assert "permissions:" in workflow_block, (
+    assert perms, (
         "pr-name.yml must declare a workflow-level permissions block"
     )
-    assert "contents: read" in workflow_block
+    assert perms.get("contents") == "read"
 
 
 def test_pr_size_workflow_declares_explicit_contents_read() -> None:
     """Issue #682: pr-size.yml must declare ``contents: read`` at the
     workflow level for the same reason as pr-name.yml.
     """
-    workflow = PR_SIZE_WORKFLOW_PATH.read_text(encoding="utf-8")
+    perms = _workflow_yaml.permissions(_doc(PR_SIZE_WORKFLOW_PATH))
 
-    workflow_block = workflow[: workflow.index("\njobs:\n")]
-    assert "permissions:" in workflow_block, (
+    assert perms, (
         "pr-size.yml must declare a workflow-level permissions block"
     )
-    assert "contents: read" in workflow_block
+    assert perms.get("contents") == "read"
 
 
 def test_branch_protection_note_lists_required_ci_checks() -> None:
@@ -261,7 +378,6 @@ def test_ci_workflow_test_job_enforces_global_coverage_floor() -> None:
     value (85%) — raising it is a welcome separate PR; lowering it
     is blocked by this test.
     """
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
     with (REPO_ROOT / "pyproject.toml").open("rb") as fh:
         pyproject = tomllib.load(fh)
     fail_under = pyproject["tool"]["coverage"]["report"]["fail_under"]
@@ -269,15 +385,10 @@ def test_ci_workflow_test_job_enforces_global_coverage_floor() -> None:
     # The declared floor itself must not silently drift below 80.
     assert fail_under >= 80
 
-    # Scope to the test job's executable lines only: slice the job
-    # section and drop YAML comments, so a comment that merely mentions
-    # the flags (like the explanatory block above the run: step) can
-    # never satisfy these assertions.
-    test_job_start = workflow.index("\n  test:")
-    test_job = workflow[test_job_start : workflow.index("\n  build:", test_job_start)]
-    executable = "\n".join(
-        line for line in test_job.splitlines() if not line.lstrip().startswith("#")
-    )
+    # Scope to the test job's ``run:`` bodies: structure-derived, so a
+    # comment that merely mentions the flags (like the explanatory block
+    # above the run: step) can never satisfy these assertions (issue #963).
+    executable = _workflow_yaml.runs_text(_job(WORKFLOW_PATH, "test"))
 
     # Coverage must be measured over the app package...
     assert "--cov=app" in executable
@@ -295,25 +406,22 @@ def test_ci_workflow_test_job_enforces_global_coverage_floor() -> None:
 
 def test_ci_workflow_runs_postgres_toctou_regression_in_test_job() -> None:
     """Issue #282: CI provisions PostgreSQL and executes the TOCTOU regression."""
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-    test_job_start = workflow.index("\n  test:")
-    test_job = workflow[test_job_start : workflow.index("\n  build:", test_job_start)]
-    executable = "\n".join(
-        line for line in test_job.splitlines() if not line.lstrip().startswith("#")
-    )
+    test_job = _job(WORKFLOW_PATH, "test")
+    job_text = _workflow_yaml.job_text(test_job)
+    executable = _workflow_yaml.runs_text(test_job)
 
-    assert "services:" in test_job
-    assert "postgres:" in test_job
-    assert "POSTGRES_DB: apap_test" in test_job
+    services = test_job.get("services") or {}
+    assert "postgres" in services
+    assert "POSTGRES_DB: apap_test" in job_text
     # The DSN moved out of the job-level `env:` block in #532: the `job` context
     # that carries the assigned host port is not available there, so it is built
     # in a step and exported through $GITHUB_ENV instead.
-    assert "APAP_TEST_POSTGRES_DSN=" in test_job
-    assert "job.services.postgres.ports['5432']" in test_job
+    assert "APAP_TEST_POSTGRES_DSN=" in job_text
+    assert "job.services.postgres.ports['5432']" in job_text
     # And it must refuse to proceed on an unresolved port rather than hand the
     # suite a DSN that cannot connect — tests/test_voluntarios_concurrent.py
     # would pytest.skip() on that, which reads as a pass.
-    assert 'if [ -z "$POSTGRES_HOST_PORT" ]' in test_job
+    assert 'if [ -z "$POSTGRES_HOST_PORT" ]' in job_text
     assert "--deselect tests/test_voluntarios_concurrent.py" not in executable
 
 def test_postgres_toctou_contract_uses_test_dsn_not_http_base_url() -> None:
@@ -347,17 +455,11 @@ def test_ci_workflow_lint_job_runs_check_rules_gate(tmp_path: Path) -> None:
     Removing this step from ci.yml is a blocked change (AGENTS.md
     rule 20).
     """
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-
-    # Scope to the lint job's executable lines only (same rationale as
-    # test_ci_workflow_test_job_enforces_global_coverage_floor): slice
-    # the job section and drop YAML comments so a comment mentioning
-    # the command can never satisfy the assertion.
-    lint_job_start = workflow.index("\n  lint:")
-    lint_job = workflow[lint_job_start : workflow.index("\n  test:", lint_job_start)]
-    executable = "\n".join(
-        line for line in lint_job.splitlines() if not line.lstrip().startswith("#")
-    )
+    # Scope to the lint job's ``run:`` bodies (same rationale as
+    # test_ci_workflow_test_job_enforces_global_coverage_floor): the text
+    # is structure-derived, so a YAML comment mentioning the command can
+    # never satisfy the assertion (issue #963).
+    executable = _workflow_yaml.runs_text(_job(WORKFLOW_PATH, "lint"))
 
     make_command = _make_target_command("check-rules")
     command = shlex.split(make_command)
@@ -413,25 +515,21 @@ def test_ci_workflow_defines_typecheck_job_running_mypy() -> None:
     Removing this job from ci.yml is a blocked change (AGENTS.md
     rule 24).
     """
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    # The job lookup itself asserts that the typecheck job exists
+    # (issue #201, AGENTS.md rule 24).
+    typecheck_job = _job(WORKFLOW_PATH, "typecheck")
 
-    assert "\n  typecheck:" in workflow, (
-        "ci.yml must define a typecheck job (issue #201, AGENTS.md rule 24)"
-    )
-
-    # Scope to the typecheck job's executable lines only (same rationale
-    # as test_ci_workflow_lint_job_runs_check_rules_gate): slice the job
-    # section and drop YAML comments so a comment mentioning mypy can
-    # never satisfy the assertion.
-    typecheck_job_start = workflow.index("\n  typecheck:")
-    typecheck_job = workflow[typecheck_job_start : workflow.index("\n  test:", typecheck_job_start)]
-    executable = "\n".join(
-        line for line in typecheck_job.splitlines() if not line.lstrip().startswith("#")
-    )
+    # Scope to the typecheck job's own structure (same rationale as
+    # test_ci_workflow_lint_job_runs_check_rules_gate): run bodies and
+    # ``uses:`` values, never the whole file (issue #963).
+    executable = _workflow_yaml.runs_text(typecheck_job)
+    uses_values = [
+        str(step.get("uses", "")) for step in _workflow_yaml.steps(typecheck_job)
+    ]
 
     # The shared action installs the frozen dev environment and the job runs
     # the config-driven mypy command.
-    assert "uses: ./.github/actions/setup-python" in executable
+    assert "./.github/actions/setup-python" in uses_values
     assert "python -m mypy" in executable, (
         "The typecheck job must run `python -m mypy` (scope lives in "
         "pyproject.toml [tool.mypy]) — the same command as `make typecheck`."
@@ -451,92 +549,6 @@ def test_ci_workflow_defines_typecheck_job_running_mypy() -> None:
     assert "migration" in mypy_files
 
 
-def _extract_deploy_job_if_clause(workflow: str) -> str:
-    """Extract the job-level ``if:`` clause from the deploy job.
-
-    Finds ``  deploy:`` by indentation, then reads the ``if:`` expression
-    on the next non-comment, non-empty line before the ``steps:`` block.
-    """
-    # Find deploy job start — must be at ``  deploy:`` (2 spaces)
-    deploy_marker = "\n  deploy:"
-    idx = workflow.index(deploy_marker)
-    # Scan forward until we hit ``steps:`` (same indentation level as ``deploy:``)
-    lines = workflow[idx:].splitlines()
-    for line in lines[1:]:
-        stripped = line.lstrip()
-        if stripped.startswith("if:"):
-            # Strip the leading indentation (2 spaces for a job-level key)
-            return line.strip()
-        if stripped.startswith("steps:"):
-            break
-    raise AssertionError("deploy job has no job-level if: clause")
-
-
-def _extract_deploy_section(workflow: str) -> str:
-    """Extract the entire deploy job section text.
-
-    Starts after the ``  deploy:`` line and ends before the next top-level
-    ``  <name>:`` job (same indentation as ``deploy:``), or at end of file.
-    """
-    import re
-
-    deploy_marker = "\n  deploy:"
-    deploy_job_start = workflow.index(deploy_marker)
-    # Slice to content after the newline that ends the ``  deploy:`` line
-    after_deploy_newline = deploy_job_start + len(deploy_marker)
-    remaining = workflow[after_deploy_newline:]
-    # Find the next top-level job: ``\n  <word>:`` (newline + 2 spaces + name + colon)
-    next_job_match = re.search(r"\n  [a-zA-Z_]+:", remaining)
-    return remaining[: next_job_match.start()] if next_job_match else remaining
-
-
-def _parse_if_clauses(if_expr: str) -> list[tuple[str, str | None]]:
-    """Parse ``key == 'value'`` or ``key == null`` clauses from a GitHub Actions if expression.
-
-    Returns [(key, value | None), ...] in the order they appear.
-    ``github.event.pull_request == null`` is treated as (github.event.pull_request, None).
-    """
-    import re
-
-    # Combined pattern: match both string and null equality, capturing the value.
-    # Uses (?:\s|$) instead of \b after the alternative — \b fails when the
-    # preceding character is a non-word char (e.g. the closing ' of a string
-    # literal followed by &&, where ' &&' has no word boundary).
-    pattern = re.compile(r"(\S+)\s*==\s*(?:'([^']*)'|null)(?:\s|$)")
-    clauses: list[tuple[str, str | None]] = []
-    for m in pattern.finditer(if_expr):
-        key = m.group(1)
-        str_val = m.group(2)
-        value: str | None = str_val if str_val is not None else None
-        clauses.append((key, value))
-    return clauses
-
-
-def _evaluate_if_clauses(clauses: list[tuple[str, str | None]], payload: dict[str, object]) -> bool:
-    """Evaluate a list of (key, value) equality clauses against a payload dict.
-
-    GitHub Actions expressions use ``github.<path>`` syntax
-    (e.g. ``github.event_name``, ``github.event.pull_request``).
-    The payload mirrors the GitHub context structure as nested dicts:
-      - ``event.name`` corresponds to ``github.event_name``
-      - ``event.pull_request`` corresponds to ``github.event.pull_request``
-    """
-    for key, expected in clauses:
-        # Strip the leading ``github.`` prefix
-        lookup_key = key.removeprefix("github.")
-        # Map top-level event_name to event.name (GitHub context quirk)
-        if lookup_key == "event_name":
-            lookup_key = "event.name"
-        actual: object = payload
-        for part in lookup_key.split("."):
-            if not isinstance(actual, dict):
-                return False
-            actual = actual.get(part)  # type: ignore[assignment]
-        if actual != expected:
-            return False
-    return True
-
-
 def test_deploy_workflow_gates_on_evidence() -> None:
     """CD-01: deploy exists in its own workflow and runs only on proven evidence.
 
@@ -548,19 +560,26 @@ def test_deploy_workflow_gates_on_evidence() -> None:
     The gating moved with it. Deploy no longer depends on jobs at all; it depends
     on the `evidence` job having found a green ci run for the merged head.
     """
-    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+    deploy_job = _job(DEPLOY_WORKFLOW_PATH, "deploy")
 
-    assert "  deploy:" in workflow
-    assert "  name: deploy" in workflow
-    assert "needs: [evidence]" in workflow
-    assert "if: needs.evidence.outputs.verified == 'true'" in workflow, (
+    assert deploy_job.get("name") == "deploy"
+    # Issue #895: ui-e2e-gate joined the needs list. Issue #1082 replaced the
+    # variable-based release-e2e-gate with one that reads the previous
+    # revision's per-SHA verdict (recorded after deploy by release-e2e-record).
+    assert _workflow_yaml.needs(deploy_job) == [
+        "evidence",
+        "release-e2e-gate",
+        "ui-e2e-gate",
+    ]
+    assert deploy_job.get("if") == "needs.evidence.outputs.verified == 'true'", (
         "deploy must run only when the evidence job proved the tree was verified"
     )
 
     # The historical failure modes must stay absent (see the deploy job comment
     # in git history: a merge-commit skip block once cancelled every deploy).
-    assert "pull_request == null" not in workflow
-    assert 'grep -q "^Merge pull request #' not in workflow
+    deploy_text = _workflow_yaml.job_text(deploy_job)
+    assert "pull_request == null" not in deploy_text
+    assert 'grep -q "^Merge pull request #' not in deploy_text
 
 
 def test_deploy_workflow_runs_on_main_push() -> None:
@@ -571,11 +590,11 @@ def test_deploy_workflow_runs_on_main_push() -> None:
     than a job-level `if:`, which is a stronger statement: the job cannot fire on
     an event the workflow does not listen to.
     """
-    triggers = _trigger_lines(DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8"))
+    triggers = _triggers(DEPLOY_WORKFLOW_PATH)
 
-    assert "push:" in triggers, "deploy.yml must listen to push"
-    assert "branches: [main]" in triggers["push:"], (
-        f"deploy.yml must deploy main and nothing else; got {triggers['push:']!r}"
+    assert "push" in triggers, "deploy.yml must listen to push"
+    assert triggers["push"].get("branches") == ["main"], (
+        f"deploy.yml must deploy main and nothing else; got {triggers['push']!r}"
     )
 
 
@@ -587,9 +606,9 @@ def test_deploy_workflow_cannot_fire_on_a_pull_request() -> None:
     a pull_request trigger, so no `if:` can be got wrong. That closes the failure
     mode this test was written for.
     """
-    triggers = _trigger_lines(DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8"))
+    triggers = _triggers(DEPLOY_WORKFLOW_PATH)
 
-    assert "pull_request:" not in triggers, (
+    assert "pull_request" not in triggers, (
         "deploy.yml must not listen to pull_request — a PR must never deploy"
     )
 
@@ -601,14 +620,34 @@ def test_ci_workflow_no_longer_runs_on_main_push() -> None:
     billed minutes, existing only to satisfy deploy's `needs`. With deploy moved
     out, that reason is gone. The pull_request run remains the gate.
     """
-    triggers = _trigger_lines(WORKFLOW_PATH.read_text(encoding="utf-8"))
+    triggers = _triggers(WORKFLOW_PATH)
 
-    assert "main" not in triggers["push:"], (
+    assert "main" not in (triggers["push"].get("branches") or []), (
         "ci.yml must not re-run on push to main; deploy.yml consumes the "
         "pull_request run's evidence instead"
     )
-    assert "main" in triggers["pull_request:"], (
+    # Issue #933: with no base-branch filter the pull_request run still gates main.
+    assert "pull_request" in triggers, (
         "the pull_request run is now the only gate for main and must stay"
+    )
+    assert "branches" not in (triggers["pull_request"] or {})
+
+
+@pytest.mark.parametrize("workflow_name", ["ci.yml", "codeql.yml"])
+def test_pull_request_checks_run_whatever_the_base_branch(workflow_name: str) -> None:
+    """Stacked PRs must get CI before they are retargeted to main (issue #933).
+
+    The 400-line budget pushes large changes into chained PRs whose base is
+    another work branch. A ``branches: [main, staging]`` filter left those
+    PRs with no ``ci`` / CodeQL run at all until retargeted, so reviewers
+    saw no evidence. pr-size already measures against ``github.base_ref``.
+    """
+    doc = _doc(REPO_ROOT / ".github" / "workflows" / workflow_name)
+    triggers = _workflow_yaml.on_triggers(doc)
+
+    assert "pull_request" in triggers
+    assert "branches" not in (triggers["pull_request"] or {}), (
+        f"{workflow_name}: pull_request must not filter by base branch (issue #933)"
     )
 
 
@@ -619,11 +658,14 @@ def test_deploy_workflow_refuses_an_unverified_tree() -> None:
     merge parent, a base that moved between the PR run and the merge, or a merged
     head with no green ci run. Silence there would deploy an untested tree.
     """
-    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+    evidence_job = _job(DEPLOY_WORKFLOW_PATH, "evidence")
+    guard_step = _workflow_yaml.find_step(
+        evidence_job, "Refuse to deploy an unverified tree"
+    )
+    guard = _workflow_yaml.job_text(guard_step)
 
-    assert "Refuse to deploy an unverified tree" in workflow
-    assert "verified != 'true'" in workflow
-    assert "exit 1" in workflow
+    assert "verified != 'true'" in guard
+    assert "exit 1" in guard
 
 
 def test_ci_workflow_deploy_job_calls_coolify_webhook() -> None:
@@ -638,20 +680,21 @@ def test_ci_workflow_deploy_job_calls_coolify_webhook() -> None:
     the prod and test paths share the same code). The workflow just
     sets the env vars and shells out to that module.
     """
-    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+    deploy_job = _job(DEPLOY_WORKFLOW_PATH, "deploy")
+    deploy_runs = _workflow_yaml.runs_text(deploy_job)
 
-    assert "Trigger Coolify webhook" in workflow
-    assert "secrets.COOLIFY_WEBHOOK_URL" in workflow
-    assert "secrets.COOLIFY_WEBHOOK_SECRET" in workflow
+    webhook_step = _workflow_yaml.find_step(deploy_job, "Trigger Coolify webhook")
+    assert "secrets.COOLIFY_WEBHOOK_URL" in _workflow_yaml.job_text(webhook_step)
+    assert "secrets.COOLIFY_WEBHOOK_SECRET" in _workflow_yaml.job_text(webhook_step)
     # The workflow MUST delegate to the unit-tested signing module,
     # NOT inline the HMAC + urllib code in a heredoc. Pinned by
     # tests/test_coolify_webhook.py.
-    assert "python scripts/coolify_webhook.py" in workflow
+    assert "python scripts/coolify_webhook.py" in deploy_runs
     # The inline heredoc + urllib path is forbidden.
-    assert "python - <<'PY'" not in workflow
-    assert "urllib.request.urlopen" not in workflow
+    assert "python - <<'PY'" not in deploy_runs
+    assert "urllib.request.urlopen" not in deploy_runs
     # A bare unsigned curl is no longer acceptable.
-    assert 'curl -fsS -X POST "$COOLIFY_WEBHOOK_URL"' not in workflow
+    assert 'curl -fsS -X POST "$COOLIFY_WEBHOOK_URL"' not in deploy_runs
 
 
 def test_ci_workflow_missing_webhook_secret_is_a_failure() -> None:
@@ -663,14 +706,17 @@ def test_ci_workflow_missing_webhook_secret_is_a_failure() -> None:
     would reject every payload. Loud fail at CI beats silent fail at
     the healthcheck-driven rollback.
     """
-    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+    validate_step = _workflow_yaml.find_step(
+        _job(DEPLOY_WORKFLOW_PATH, "deploy"), "Validate deployment configuration"
+    )
+    validate_run = str(validate_step.get("run", ""))
 
-    # The deploy step must check the secret specifically (not just the
+    # The deploy path must check the secret specifically (not just the
     # URL) and emit a ``::error::`` annotation with a clear message,
     # then exit 1.
-    assert "COOLIFY_WEBHOOK_SECRET" in workflow
-    assert "::error::COOLIFY_WEBHOOK_SECRET" in workflow
-    assert "exit 1" in workflow
+    assert "COOLIFY_WEBHOOK_SECRET" in str(validate_step.get("env", {}))
+    assert "::error::COOLIFY_WEBHOOK_SECRET" in validate_run
+    assert "exit 1" in validate_run
 
 
 def test_ci_workflow_payload_shape_matches_coolify_expectation() -> None:
@@ -682,200 +728,272 @@ def test_ci_workflow_payload_shape_matches_coolify_expectation() -> None:
     pinned by tests/test_coolify_webhook.py::test_build_push_payload_includes_required_keys.
     The workflow just sets the env vars that the module reads.
     """
-    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+    deploy_job = _job(DEPLOY_WORKFLOW_PATH, "deploy")
+    webhook_step = _workflow_yaml.find_step(deploy_job, "Trigger Coolify webhook")
+    step_env = webhook_step.get("env") or {}
 
     # The workflow must forward the env vars the module needs to build
     # the payload (ref, sha, repository, commit message).
-    assert "GITHUB_REF:" in workflow
-    assert "GITHUB_SHA:" in workflow
-    assert "GITHUB_REPOSITORY:" in workflow
-    assert "COMMIT_MESSAGE:" in workflow
+    assert "GITHUB_REF" in step_env
+    assert "GITHUB_SHA" in step_env
+    assert "GITHUB_REPOSITORY" in step_env
+    assert "COMMIT_MESSAGE" in step_env
 
 
 def test_deploy_rollback_requests_the_previous_source_revision() -> None:
     """A source-based Coolify rollback must request the previous commit."""
-    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
-    rollback = workflow.split("- name: Roll back to the previous digest", maxsplit=1)[1]
+    rollback = _workflow_yaml.find_step(
+        _job(DEPLOY_WORKFLOW_PATH, "deploy"), "Roll back to the previous digest"
+    )
 
-    assert "GITHUB_SHA: ${{ steps.publish.outputs.previous_revision }}" in rollback
+    assert rollback.get("env", {}).get("GITHUB_SHA") == (
+        "${{ steps.publish.outputs.previous_revision }}"
+    )
 
 
 def test_deploy_cosign_oidc_permission_is_scoped_to_deploy_job() -> None:
     """Keyless signing may mint an OIDC token only in the deploy job."""
-    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
-    workflow_permissions = workflow[: workflow.index("\njobs:\n")]
-    deploy = _extract_deploy_section(workflow)
+    deploy_doc = _doc(DEPLOY_WORKFLOW_PATH)
+    workflow_perms = _workflow_yaml.permissions(deploy_doc)
+    deploy_job = _workflow_yaml.job(deploy_doc, "deploy")
+    deploy_perms = _workflow_yaml.permissions(deploy_job)
+    id_token_writers = [
+        job_id
+        for job_id, entry in (deploy_doc.get("jobs") or {}).items()
+        if _workflow_yaml.permissions(entry).get("id-token") == "write"
+    ]
 
-    assert "id-token:" not in workflow_permissions
-    assert workflow.count("\n      id-token: write") == 1
-    assert "      id-token: write" in deploy
-    assert "      contents: read" in deploy
-    assert "      actions: read" in deploy
-    assert "      packages: write" in deploy
+    assert "id-token" not in workflow_perms
+    assert id_token_writers == ["deploy"], (
+        "exactly the deploy job may hold id-token: write"
+    )
+    assert deploy_perms.get("id-token") == "write"
+    assert deploy_perms.get("contents") == "read"
+    assert deploy_perms.get("actions") == "read"
+    assert deploy_perms.get("packages") == "write"
 
 
 def test_deploy_signs_the_exact_published_digest() -> None:
     """Cosign must sign the immutable digest emitted by the publish step."""
-    deploy = _extract_deploy_section(
-        DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
-    )
-    sign = deploy.split(
-        "- name: Sign the published digest with GitHub OIDC", maxsplit=1
-    )[1].split("- name:", maxsplit=1)[0]
+    deploy_job = _job(DEPLOY_WORKFLOW_PATH, "deploy")
+    sign = _workflow_yaml.find_step(deploy_job, "Sign the published digest")
 
-    assert "DIGEST: ${{ steps.publish.outputs.digest }}" in sign
-    assert 'cosign sign --yes "${IMAGE}@${DIGEST}"' in sign
-    assert ":sha-${GITHUB_SHA}" not in sign
+    assert sign.get("env", {}).get("DIGEST") == "${{ steps.publish.outputs.digest }}"
+    sign_run = str(sign.get("run", ""))
+    assert 'cosign sign --yes "${IMAGE}@${DIGEST}"' in sign_run
+    assert ":sha-${GITHUB_SHA}" not in sign_run
 
 
 def test_deploy_verifies_exact_identity_and_issuer_before_promotion() -> None:
     """The forward promotion is gated by this workflow's exact trust policy."""
-    deploy = _extract_deploy_section(
-        DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+    deploy_job = _job(DEPLOY_WORKFLOW_PATH, "deploy")
+    verify = _workflow_yaml.find_step(
+        deploy_job, "Verify the published digest is signed by this workflow"
     )
-    verify = deploy.split(
-        "- name: Verify the published digest is signed by this workflow", maxsplit=1
-    )[1].split("- name:", maxsplit=1)[0]
+    verify_run = str(verify.get("run", ""))
     identity = (
         'https://github.com/${GITHUB_REPOSITORY}/.github/workflows/'
         "deploy.yml@refs/heads/main"
     )
 
-    assert 'cosign verify "${IMAGE}@${DIGEST}"' in verify
-    assert f'--certificate-identity "{identity}"' in verify
+    assert 'cosign verify "${IMAGE}@${DIGEST}"' in verify_run
+    assert f'--certificate-identity "{identity}"' in verify_run
     assert (
         '--certificate-oidc-issuer "https://token.actions.githubusercontent.com"'
-        in verify
+        in verify_run
     )
-    assert deploy.index("- name: Verify the published digest") < deploy.index(
-        "- name: Promote the verified digest"
-    )
-    assert deploy.index("- name: Verify the published digest") < deploy.index(
-        "- name: Trigger Coolify webhook"
-    )
+    step_names = [
+        str(step.get("name", "")) for step in _workflow_yaml.steps(deploy_job)
+    ]
+    verify_at = step_names.index("Verify the published digest is signed by this workflow")
+    assert verify_at < step_names.index("Promote the verified digest")
+    assert verify_at < step_names.index("Trigger Coolify webhook")
 
 
 def test_deploy_rollback_verifies_before_promotion_and_coolify_trigger() -> None:
     """Rollback cannot promote or deploy an untrusted previous digest."""
-    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
-    rollback = workflow.split(
-        "- name: Roll back to the previous digest", maxsplit=1
-    )[1]
+    rollback = _workflow_yaml.find_step(
+        _job(DEPLOY_WORKFLOW_PATH, "deploy"), "Roll back to the previous digest"
+    )
+    rollback_run = str(rollback.get("run", ""))
     identity = (
         'https://github.com/${GITHUB_REPOSITORY}/.github/workflows/'
         "deploy.yml@refs/heads/main"
     )
 
-    assert 'cosign verify "${IMAGE}@${PREVIOUS_DIGEST}"' in rollback
-    assert f'--certificate-identity "{identity}"' in rollback
+    assert 'cosign verify "${IMAGE}@${PREVIOUS_DIGEST}"' in rollback_run
+    assert f'--certificate-identity "{identity}"' in rollback_run
     assert (
         '--certificate-oidc-issuer "https://token.actions.githubusercontent.com"'
-        in rollback
+        in rollback_run
     )
-    assert rollback.index("cosign verify") < rollback.index(
+    assert rollback_run.index("cosign verify") < rollback_run.index(
         "docker buildx imagetools create"
     )
-    assert rollback.index("cosign verify") < rollback.index(
+    assert rollback_run.index("cosign verify") < rollback_run.index(
         "python scripts/coolify_webhook.py"
     )
 
 
 def test_deploy_smoke_database_uses_ephemeral_trust_not_a_literal_password() -> None:
     """The isolated smoke network needs no reusable database credential."""
-    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
+    smoke = _workflow_yaml.find_step(
+        _job(DEPLOY_WORKFLOW_PATH, "deploy"), "Smoke-test the exact image digest"
+    )
+    smoke_run = str(smoke.get("run", ""))
 
-    assert "POSTGRES_HOST_AUTH_METHOD=trust" in workflow
-    assert "POSTGRES_PASSWORD=" not in workflow
-    assert "postgresql://apap:apap@" not in workflow
-
-
-def _job_executable(workflow: str, start: str, end: str) -> str:
-    start_index = workflow.index(start)
-    section = workflow[start_index : workflow.index(end, start_index)]
-    return "\n".join(line for line in section.splitlines() if not line.lstrip().startswith("#"))
-
-
-def _job_block(workflow: str, job_name: str) -> str:
-    """Return one top-level job's YAML, from its header to the next job's.
-
-    Unlike ``_job_executable`` (which needs the caller to name the next
-    job), this walks every top-level job header so callers can extract a
-    single job without knowing what follows it — needed to check the last
-    job in a file (e.g. ``required`` in ci.yml, ``deploy`` in deploy.yml).
-    """
-    jobs_index = workflow.index("\njobs:\n")
-    body = workflow[jobs_index:]
-    header_pattern = re.compile(r"^  [a-z][a-z0-9-]+:$", re.MULTILINE)
-    headers = list(header_pattern.finditer(body))
-    for position, match in enumerate(headers):
-        if match.group() == f"  {job_name}:":
-            end = headers[position + 1].start() if position + 1 < len(headers) else len(body)
-            return body[match.start() : end]
-    raise AssertionError(f"job {job_name!r} not found in workflow")
+    assert "POSTGRES_HOST_AUTH_METHOD=trust" in smoke_run
+    assert "POSTGRES_PASSWORD=" not in smoke_run
+    assert "postgresql://apap:apap@" not in smoke_run
 
 
 def test_ci_workflow_lint_job_runs_alantyle_lint() -> None:
-    """Issue #559, ADR d-42: ``lint`` bloquea anti-patrones alan-style.
+    """Issue #559, ADR d-42: ``lint`` ejecuta el detector alan-style.
 
-    El rollout terminó en issue #576. El step conserva el scope canónico,
-    ejecuta el detector entre ``check_rules`` y ``check_module_size`` y no
-    puede suavizar su exit code con ``continue-on-error``.
+    Informativo desde issue #1149 (decisión del operador 2026-09-30): el
+    step conserva el scope canónico, ejecuta el detector entre
+    ``check_rules`` y ``check_module_size`` y pasa el flag
+    ``--informational`` para que las violaciones se muestren en el log
+    sin fallar el job. La tolerancia vive en el flag del script, nunca en
+    ``continue-on-error`` (que ocultaría también errores de uso).
     """
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-    lint_job = _job_executable(workflow, "\n  lint:", "\n  security:")
+    lint_runs = _workflow_yaml.runs_text(_job(WORKFLOW_PATH, "lint"))
 
-    assert "scripts/check_alantyle.py" in lint_job, (
-        "el job lint debe invocar scripts/check_alantyle.py para hacer "
-        "cumplir §10 de la skill documentation-alan-style (issue #559)."
+    assert "scripts/check_alantyle.py" in lint_runs, (
+        "el job lint debe invocar scripts/check_alantyle.py para aplicar "
+        "§10 de la skill documentation-alan-style como guía de revisión "
+        "(issue #559)."
     )
-    assert "continue-on-error" not in lint_job, (
-        "el detector alan-style es un gate bloqueante desde issue #576; "
-        "continue-on-error ocultaría su exit code y reabriría el rollout."
+    assert "--informational" in lint_runs, (
+        "el detector alan-style es informativo desde issue #1149; el paso "
+        "debe pasar --informational para que las violaciones se muestren "
+        "sin fallar el job."
+    )
+    assert "continue-on-error" not in _workflow_yaml.job_text(
+        _job(WORKFLOW_PATH, "lint")
+    ), (
+        "la tolerancia del detector alan-style vive en su flag "
+        "--informational (issue #1149); continue-on-error ocultaría también "
+        "los errores de uso y cualquier otro fallo del job."
     )
     # Issue #578: el scope incluye los delta-specs de cada change. El
     # detector enmascara inline code y aplica la whitelist spec-context
     # bajo openspec/, y excluye archive/ como histórico inmutable.
-    assert "openspec/changes/*/specs/" in lint_job, (
+    assert "openspec/changes/*/specs/" in lint_runs, (
         "el gate alan-style debe cubrir los delta-specs de cada change "
         "(openspec/changes/*/specs/) desde issue #578."
     )
     # El detector debe correr después del gate AST de check_rules.py y
     # antes del ratchet de tamaño de módulo, manteniendo el orden de
     # familia de gates que el resto del job respeta.
-    assert lint_job.index("scripts/check_alantyle.py") > lint_job.index(
-        "scripts/check_rules.py"
+    assert _run_index("lint", "scripts/check_alantyle.py") > _run_index(
+        "lint", "scripts/check_rules.py"
     )
-    assert lint_job.index("scripts/check_alantyle.py") < lint_job.index(
-        "scripts/check_module_size.py"
+    assert _run_index("lint", "scripts/check_alantyle.py") < _run_index(
+        "lint", "scripts/check_module_size.py"
+    )
+
+
+#: actionlint config file declaring the self-hosted runner labels (issue #1154).
+ACTIONLINT_CONFIG_PATH = REPO_ROOT / ".github" / "actionlint.yaml"
+
+
+def test_ci_workflow_lint_job_runs_actionlint() -> None:
+    """Issue #1154: the CI ``lint`` job must gate on actionlint over all workflows.
+
+    actionlint validates the workflow schema (e.g. it caught the
+    nonexistent ``services.minio.command`` key), runs shellcheck over the
+    embedded scripts and validates ``runs-on`` labels against declared
+    self-hosted labels. Without it, a schema-invalid workflow lands on
+    main with a green build.
+
+    The binary is pinned: the step refuses to run an unversioned download
+    and verifies the release tarball checksum, so the gate cannot drift
+    with a silent upstream release.
+
+    Removing this step is a blocked change (AGENTS.md rule 20 parity:
+    every lint gate has a pin).
+    """
+    lint_runs = _workflow_yaml.runs_text(_job(WORKFLOW_PATH, "lint"))
+
+    assert "actionlint" in lint_runs, (
+        "the lint job must run actionlint over the workflows (issue #1154)"
+    )
+    # The binary must be pinned and the download must be checksum-verified,
+    # so a compromised or drifting release cannot silently change the gate.
+    assert 'version="1.7.12"' in lint_runs, (
+        "the actionlint step must pin the binary version (1.7.12, issue #1154)"
+    )
+    assert "sha256sum --check" in lint_runs, (
+        "the actionlint download must verify the pinned SHA256 checksum "
+        "so the CI gate is deterministic (issue #1154)"
+    )
+    # Findings that are declared, not fixed, must stay declared in the step
+    # itself (never dropped silently). The minio ignore is removed when PR
+    # #900 merges; the SC2129/SC2086 ignores are removed when deploy.yml
+    # scripts get their mechanical fix.
+    for declared_ignore in (
+        'unexpected key "command" for "services" section',
+        "shellcheck reported issue in this script: SC2129",
+        "shellcheck reported issue in this script: SC2086",
+    ):
+        assert declared_ignore in lint_runs, (
+            f"the actionlint step must keep the declared ignore {declared_ignore!r} "
+            "with its rationale comment (issue #1154)"
+        )
+
+
+def test_actionlint_config_declares_self_hosted_runner_labels() -> None:
+    """Issue #1154: every custom runner label of deploy.yml must be declared.
+
+    actionlint warns on unknown ``runs-on`` labels; the self-hosted fleet
+    labels live only in deploy.yml, so .github/actionlint.yaml must declare
+    them or the lint job would fail on legitimate labels.
+    """
+    assert ACTIONLINT_CONFIG_PATH.is_file(), (
+        ".github/actionlint.yaml must exist and declare the self-hosted "
+        "runner labels (issue #1154)"
+    )
+    config = _workflow_yaml.load(ACTIONLINT_CONFIG_PATH)
+    declared = config.get("self-hosted-runner", {}).get("labels", [])
+    assert isinstance(declared, list) and declared, (
+        ".github/actionlint.yaml must hold a self-hosted-runner.labels list"
+    )
+
+    deploy_runs_on = _job(DEPLOY_WORKFLOW_PATH, "deploy").get("runs-on")
+    assert isinstance(deploy_runs_on, list) and deploy_runs_on, (
+        "deploy.yml deploy job must keep its runs-on label list"
+    )
+    missing = [label for label in deploy_runs_on if label not in declared]
+    assert not missing, (
+        f".github/actionlint.yaml must declare the runner labels used by "
+        f"deploy.yml: {missing}"
     )
 
 
 def test_ci_workflow_lint_job_runs_jscpd_gate() -> None:
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-    lint_job = _job_executable(workflow, "\n  lint:", "\n  security:")
+    lint_runs = _workflow_yaml.runs_text(_job(WORKFLOW_PATH, "lint"))
 
-    assert "python scripts/check_jscpd.py" in lint_job
-    assert lint_job.index("python scripts/check_jscpd.py") > lint_job.index(
-        "python scripts/check_vulture_guard.py"
+    assert "python scripts/check_jscpd.py" in lint_runs
+    assert _run_index("lint", "python scripts/check_jscpd.py") > _run_index(
+        "lint", "python scripts/check_vulture_guard.py"
     )
 
 
 def test_ci_workflow_lint_job_runs_mutation_sites_gate() -> None:
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-    lint_job = _job_executable(workflow, "\n  lint:", "\n  security:")
+    lint_runs = _workflow_yaml.runs_text(_job(WORKFLOW_PATH, "lint"))
 
-    assert "python scripts/check_mutation_sites.py" in lint_job
-    assert lint_job.index("python scripts/check_mutation_sites.py") > lint_job.index(
-        "python scripts/check_jscpd.py"
+    assert "python scripts/check_mutation_sites.py" in lint_runs
+    assert _run_index("lint", "python scripts/check_mutation_sites.py") > _run_index(
+        "lint", "python scripts/check_jscpd.py"
     )
 
 
 def test_ci_workflow_does_not_run_retired_quality_envelope() -> None:
     """The dead, partially populated quality envelope must stay retired."""
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-    executable = _job_executable(workflow, "\n  lint:", "\n  security:")
-    assert "scripts/quality_report.py" not in executable
-    assert "--emit-envelope" not in executable
+    lint_runs = _workflow_yaml.runs_text(_job(WORKFLOW_PATH, "lint"))
+    assert "scripts/quality_report.py" not in lint_runs
+    assert "--emit-envelope" not in lint_runs
 
 
 # --- issue #879: least-privilege permissions per job -----------------------
@@ -886,31 +1004,44 @@ def test_ci_workflow_does_not_run_retired_quality_envelope() -> None:
 # block instead of silently inheriting a scope it does not use — the same
 # pattern deploy.yml's `deploy` job already followed for issue #682.
 
-CI_JOBS_REQUIRING_ISSUES_READ = frozenset({"issue-spec"})
+# Issue #926: `pr-size` joined this set once pr-size.yml started reading
+# the PR's live labels via the GitHub API instead of the event payload.
+CI_JOBS_REQUIRING_ISSUES_READ = frozenset({"issue-spec", "pr-size"})
 
 
 @pytest.mark.parametrize("job_name", sorted(_workflow_job_names(WORKFLOW_PATH)))
 def test_ci_workflow_job_declares_least_privilege_permissions(job_name: str) -> None:
     """Issue #879: every ci.yml job must declare its own `permissions:`."""
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-    block = _job_block(workflow, job_name)
+    perms = _workflow_yaml.permissions(_job(WORKFLOW_PATH, job_name))
 
-    assert "permissions:" in block, (
+    assert perms, (
         f"job {job_name!r} in ci.yml must declare its own `permissions:` "
         "block instead of inheriting the workflow-level default (issue #879)"
     )
-    assert "contents: read" in block
+    assert perms.get("contents") == "read"
 
     if job_name in CI_JOBS_REQUIRING_ISSUES_READ:
-        assert "issues: read" in block, (
+        assert perms.get("issues") == "read", (
             f"job {job_name!r} calls the GitHub API for issue data and "
             "needs `issues: read` (issue #879)"
         )
     else:
-        assert "issues: read" not in block, (
+        assert "issues" not in perms, (
             f"job {job_name!r} does not read issues; keep its permissions "
             "block minimal (issue #879)"
         )
+
+
+def test_issue_spec_job_reads_pull_request_links_with_read_only_scopes() -> None:
+    """Issue #956: GraphQL `closingIssuesReferences` needs `pull-requests: read`.
+
+    Only `issue-spec` gets that scope, and it stays read-only.
+    """
+    perms = _workflow_yaml.permissions(_job(WORKFLOW_PATH, "issue-spec"))
+
+    assert perms == {"contents": "read", "issues": "read", "pull-requests": "read"}
+    for job_name in _workflow_job_names(WORKFLOW_PATH) - {"issue-spec"}:
+        assert "pull-requests" not in _workflow_yaml.permissions(_job(WORKFLOW_PATH, job_name))
 
 
 def test_deploy_evidence_job_declares_least_privilege_permissions() -> None:
@@ -920,15 +1051,14 @@ def test_deploy_evidence_job_declares_least_privilege_permissions() -> None:
     ever pushing a package — only the `deploy` job (which pushes to GHCR)
     needs that scope.
     """
-    workflow = DEPLOY_WORKFLOW_PATH.read_text(encoding="utf-8")
-    block = _job_block(workflow, "evidence")
+    perms = _workflow_yaml.permissions(_job(DEPLOY_WORKFLOW_PATH, "evidence"))
 
-    assert "permissions:" in block, (
+    assert perms, (
         "evidence job must declare its own permissions block (issue #879)"
     )
-    assert "contents: read" in block
-    assert "actions: read" in block
-    assert "packages: write" not in block, (
+    assert perms.get("contents") == "read"
+    assert perms.get("actions") == "read"
+    assert "packages" not in perms, (
         "evidence never pushes a package; packages: write belongs only to "
         "the deploy job (issue #879)"
     )
@@ -946,31 +1076,28 @@ def test_ci_workflow_lint_job_runs_import_cycle_detector() -> None:
     shape, the layer check catches the direction. Pinned by tests/
     test_import_cycles.py.
     """
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-    lint_job = _job_executable(workflow, "\n  lint:", "\n  security:")
+    lint_runs = _workflow_yaml.runs_text(_job(WORKFLOW_PATH, "lint"))
 
-    assert "python scripts/check_import_cycles.py" in lint_job
+    assert "python scripts/check_import_cycles.py" in lint_runs
     # The detector must run after the mutation-sites step so the lint
     # job ordering matches the other ratchets (cheap AST checks first,
     # then graph-level checks).
-    assert lint_job.index("python scripts/check_import_cycles.py") > lint_job.index(
-        "python scripts/check_mutation_sites.py"
+    assert _run_index("lint", "python scripts/check_import_cycles.py") > _run_index(
+        "lint", "python scripts/check_mutation_sites.py"
     )
 
 
 def test_ci_workflow_test_job_runs_crap_gate() -> None:
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-    test_job = _job_executable(workflow, "\n  test:", "\n  integration:")
+    test_runs = _workflow_yaml.runs_text(_job(WORKFLOW_PATH, "test"))
+    lint_runs = _workflow_yaml.runs_text(_job(WORKFLOW_PATH, "lint"))
 
-    assert "--ignore=tests/e2e_ci" in test_job, (
+    assert "--ignore=tests/e2e_ci" in test_runs, (
         "the unit/coverage job must not collect the dedicated Playwright smoke suite"
     )
-    lint_job = _job_executable(workflow, "\n  lint:", "\n  security:")
-
-    assert "python scripts/check_crap.py" in test_job
-    assert "python scripts/check_crap.py" not in lint_job
-    assert test_job.index("python scripts/check_crap.py") > test_job.index(
-        "python -m pytest -W error::DeprecationWarning"
+    assert "python scripts/check_crap.py" in test_runs
+    assert "python scripts/check_crap.py" not in lint_runs
+    assert _run_index("test", "python scripts/check_crap.py") > _run_index(
+        "test", "python -m pytest -W error::DeprecationWarning"
     )
 
 
@@ -992,18 +1119,17 @@ def test_default_pytest_collection_matches_ci_boundary() -> None:
 
 
 def test_ci_workflow_integration_job_overrides_ignore_for_tests_integration() -> None:
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-    integration_job = _job_executable(workflow, "\n  integration:", "\n  build:")
+    integration_runs = _workflow_yaml.runs_text(_job(WORKFLOW_PATH, "integration"))
 
     assert (
         '--override-ini="addopts=-ra --strict-markers --strict-config '
-        '--randomly-dont-reorganize"' in integration_job
+        '--randomly-dont-reorganize"' in integration_runs
     )
-    assert "--ignore=tests/integration" not in integration_job
-    assert "tests/integration \\" in integration_job
-    assert "-m integration" in integration_job
-    assert "--no-cov" in integration_job
-    assert "-W error::DeprecationWarning" in integration_job
+    assert "--ignore=tests/integration" not in integration_runs
+    assert "tests/integration \\" in integration_runs
+    assert "-m integration" in integration_runs
+    assert "--no-cov" in integration_runs
+    assert "-W error::DeprecationWarning" in integration_runs
 
 
 def test_ci_workflow_mutation_job_runs_the_ratchet_gate() -> None:
@@ -1016,16 +1142,15 @@ def test_ci_workflow_mutation_job_runs_the_ratchet_gate() -> None:
     ``cr-rate --fail-over 20`` exited 0 on a session whose 27 mutants were
     all ``INCOMPETENT``. Removing this step is a blocked change.
     """
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-    mutation_job = _job_executable(workflow, "\n  mutation:", "\n  typecheck:")
+    mutation_runs = _workflow_yaml.runs_text(_job(WORKFLOW_PATH, "mutation"))
 
-    assert "python scripts/check_mutation.py mutation.sqlite" in mutation_job
-    assert "cr-rate" not in mutation_job, (
+    assert "python scripts/check_mutation.py mutation.sqlite" in mutation_runs
+    assert "cr-rate" not in mutation_runs, (
         "cr-rate cannot fail on a degenerate run; the gate is check_mutation.py"
     )
     # The ratchet must run after the session exists, never before.
-    assert mutation_job.index("python scripts/check_mutation.py") > mutation_job.index(
-        "cosmic-ray exec"
+    assert _run_index("mutation", "python scripts/check_mutation.py") > _run_index(
+        "mutation", "cosmic-ray exec"
     )
 
 
@@ -1037,14 +1162,21 @@ def test_ci_workflow_mutation_job_filters_equivalent_mutants() -> None:
     from evaluating. On the first pilot session those were 66 of 104 reported
     survivors — dropping this step inflates every baseline by ~63%.
     """
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-    mutation_job = _job_executable(workflow, "\n  mutation:", "\n  typecheck:")
+    mutation_job = _job(WORKFLOW_PATH, "mutation")
+    mutation_runs = _workflow_yaml.runs_text(mutation_job)
 
-    assert "cr-filter-operators" in mutation_job
+    assert "cr-filter-operators" in mutation_runs
+    # init, filter and exec are chained inside one step; pin their order
+    # within that step's run body (issue #963: run-field text is allowed).
+    filter_run = next(
+        str(step.get("run", ""))
+        for step in _workflow_yaml.steps(mutation_job)
+        if "cr-filter-operators" in str(step.get("run", ""))
+    )
     assert (
-        mutation_job.index("cosmic-ray init")
-        < mutation_job.index("cr-filter-operators")
-        < mutation_job.index("cosmic-ray exec")
+        filter_run.index("cosmic-ray init")
+        < filter_run.index("cr-filter-operators")
+        < filter_run.index("cosmic-ray exec")
     )
 
 
@@ -1054,11 +1186,8 @@ def test_ci_workflow_mutation_job_is_never_triggered_by_a_pull_request() -> None
     A 233-mutant session per pull request would make the loop unusable, and
     §32.P7 requires the reachable events to be named rather than implied.
     """
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-    start = workflow.index("\n  mutation:")
-    section = workflow[start : workflow.index("\n  typecheck:", start)]
+    if_clause = str(_job(WORKFLOW_PATH, "mutation").get("if", ""))
 
-    if_clause = section[section.index("if:") : section.index("runs-on:")]
     assert "github.event_name == 'schedule'" not in if_clause
     assert "github.event_name == 'workflow_dispatch'" in if_clause
     assert "startsWith(github.ref, 'refs/tags/')" in if_clause
@@ -1072,11 +1201,15 @@ def test_ci_workflow_mutation_job_pins_hash_seed_for_determinism() -> None:
     ``cosmic-ray exec`` 8.4.6 accepts no such option and its ``local``
     distributor is already sequential.
     """
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-    mutation_job = _job_executable(workflow, "\n  mutation:", "\n  typecheck:")
+    mutation_job = _job(WORKFLOW_PATH, "mutation")
+    mutation_text = _workflow_yaml.job_text(mutation_job)
+    seed = _workflow_yaml.find_value(mutation_job, "PYTHONHASHSEED")
 
-    assert 'PYTHONHASHSEED: "0"' in mutation_job
-    assert "--worker-count" not in mutation_job
+    assert isinstance(seed, str) and seed == "0", (
+        "PYTHONHASHSEED must be the STRING \"0\" (env vars are strings; an "
+        "unquoted 0 would still be coerced, but pin the declared form)"
+    )
+    assert "--worker-count" not in mutation_text
 
 
 def test_mutation_baseline_has_derivation_entry_at_or_below_prior_measurement() -> None:
@@ -1162,6 +1295,39 @@ def test_cosmic_ray_toml_includes_adopciones_service_in_module_path() -> None:
     )
 
 
+def test_cosmic_ray_baseline_targets_existing_files_and_collects_tests() -> None:
+    """Issue #902: the unmutated command must have real targets and tests."""
+    import json
+
+    with (REPO_ROOT / "docs/quality/cosmic-ray.toml").open("rb") as fh:
+        config = tomllib.load(fh)["cosmic-ray"]
+    baseline = json.loads(
+        (REPO_ROOT / "docs/quality/mutation-baseline.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    targets = config["module-path"]
+    assert set(targets) == set(baseline["modules"]) | set(
+        baseline["awaiting_acquisition"]
+    )
+    assert all((REPO_ROOT / target).is_file() for target in targets)
+
+    command = shlex.split(config["test-command"])
+    test_nodes = [arg for arg in command if arg.startswith("tests/")]
+    assert test_nodes
+    assert all((REPO_ROOT / node.split("::", 1)[0]).is_file() for node in test_nodes)
+
+    collected = subprocess.run(
+        [sys.executable, *command[1:], "--collect-only"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert collected.returncode == 0, collected.stdout + collected.stderr
+    assert "tests collected" in collected.stdout or "test collected" in collected.stdout
+
+
 def test_mutation_baseline_adopciones_has_been_acquired() -> None:
     """Issue #434: adopciones/service.py must carry a real survivor count, not a marker.
 
@@ -1231,16 +1397,26 @@ def test_ci_workflow_branch_name_step_is_wired() -> None:
     The gate must fire for every PR regardless of base; main is just one
     valid base.
     """
-    pr_name = (REPO_ROOT / ".github" / "workflows" / "pr-name.yml").read_text(encoding="utf-8")
-    assert "scripts/check_branch_name.py" in pr_name
-    assert "github.head_ref" in pr_name
-    assert "github.event.pull_request.user.login" in pr_name
-    assert "github.actor" not in pr_name
+    pr_name_doc = _doc(PR_NAME_WORKFLOW_PATH)
+    pr_name_jobs = "\n".join(
+        _workflow_yaml.job_text(entry)
+        for entry in (pr_name_doc.get("jobs") or {}).values()
+    )
+    assert "scripts/check_branch_name.py" in pr_name_jobs
+    assert "github.head_ref" in pr_name_jobs
+    assert "github.event.pull_request.user.login" in pr_name_jobs
+    assert "github.actor" not in pr_name_jobs
     # The gate fires on every pull_request — never silently restricted by
     # the workflow itself. Issue #525: restricting to a single base turned
     # chained PRs into invisible checks.
-    assert "pull_request:" in pr_name
-    assert "branches: [main]" not in pr_name, (
+    triggers = _workflow_yaml.on_triggers(pr_name_doc)
+    assert "pull_request" in triggers, (
+        "pr-name.yml must listen to pull_request events"
+    )
+    pr_config = (
+        triggers["pull_request"] if isinstance(triggers["pull_request"], dict) else {}
+    )
+    assert pr_config.get("branches") != ["main"], (
         "pr-name.yml restricts pull_request.branches to ``[main]`` "
         "(issue #525): chained/stacked PRs whose base is a feature branch "
         "silently disappear from the rollup. The branch-name gate must "
@@ -1249,45 +1425,44 @@ def test_ci_workflow_branch_name_step_is_wired() -> None:
 
 
 def test_ci_workflow_pr_size_job_is_wired() -> None:
-    """The PR size gate must be wired in pr-size.yml (issue #442).
+    """The PR size gate must be wired in pr-size.yml (issue #442, #1121).
 
     AGENTS.md §15.1 declares ``review_budget_lines: 400`` as a soft budget
     enforced by PR review. Issue #442 promotes it to a CI gate so a 500-line
-    PR cannot land on main without an explicit ``size:exception`` label.
-    The wiring lives in a dedicated ``.github/workflows/pr-size.yml`` (one
-    job, ``pull_request`` only) rather than in ``ci.yml`` because the gate
-    needs the diff against the merge-base plus the labels payload — neither
-    is available to the lint/test/typecheck jobs without bloating them.
-
-    The workflow MUST invoke ``scripts/check_pr_size.py`` and read the
-    ``size:exception`` label; the script is the unit-tested entry point and
-    the label is the only acceptable override (AGENTS.md §15.6). Removing
-    either reference from the workflow is a blocked change (issue #442).
+    PR cannot land on main without an explicit override. Issue #1121
+    moved the override from the ``size:exception`` label to the PR
+    body's ``size-exception-reason: <motivo>`` field; removing the
+    body-field reference would silently bypass the parser.
     """
-    pr_size = (REPO_ROOT / ".github" / "workflows" / "pr-size.yml").read_text(encoding="utf-8")
+    pr_size_doc = _doc(PR_SIZE_WORKFLOW_PATH)
+    pr_size_runs = "\n".join(
+        _workflow_yaml.runs_text(entry)
+        for entry in (pr_size_doc.get("jobs") or {}).values()
+    )
 
-    assert "scripts/check_pr_size.py" in pr_size, (
+    assert "scripts/check_pr_size.py" in pr_size_runs, (
         "pr-size.yml must invoke scripts/check_pr_size.py (issue #442, "
         "AGENTS.md §15.1) — the script is the unit-tested gate; inlining "
         "the budget logic in the workflow would silently bypass tests/test_pr_size.py"
     )
-    assert "size:exception" in pr_size, (
-        "pr-size.yml must read the 'size:exception' label (AGENTS.md §15.6) — "
-        "it is the only acceptable override for the 400-line budget"
+    assert 'check_pr_size.py "$TOTAL" "$PR_BODY"' in pr_size_runs, (
+        "pr-size.yml must hand the live PR body (which carries "
+        "`size-exception-reason`) to the gate (issue #1121); dropping it "
+        "makes the override invisible"
     )
 
 
 def test_pr_size_refreshes_when_exception_label_changes() -> None:
     """Label mutations must create a fresh event payload for the gate."""
-    pr_size = (REPO_ROOT / ".github" / "workflows" / "pr-size.yml").read_text(
-        encoding="utf-8"
-    )
-    triggers = _trigger_lines(pr_size)
+    triggers = _triggers(PR_SIZE_WORKFLOW_PATH)
 
-    assert "pull_request:" in triggers
-    pull_request = triggers["pull_request:"]
-    assert "labeled" in pull_request
-    assert "unlabeled" in pull_request
+    pull_request = triggers.get("pull_request")
+    assert pull_request is not None
+    pr_types = (
+        pull_request.get("types") if isinstance(pull_request, dict) else pull_request
+    )
+    assert "labeled" in (pr_types or [])
+    assert "unlabeled" in (pr_types or [])
 
 
 def test_pr_size_excludes_generated_lockfiles_not_manifests() -> None:
@@ -1302,11 +1477,142 @@ def test_pr_size_excludes_generated_lockfiles_not_manifests() -> None:
     assert "':(exclude)pyproject.toml'" not in pr_size
 
 
+# --- issue #926: pr-size concurrency race + stale event-payload labels -----
+#
+# pr-size.yml runs two ways: directly on `pull_request: types: [labeled,
+# unlabeled]`, and via `workflow_call` from ci.yml's own `pull_request`
+# trigger. Both used to share the concurrency group
+# `pr-size-${{ github.ref }}`, so every `labeled` event (e.g. `gh pr create
+# --label`) cancelled the workflow_call run in progress inside `ci`, leaving
+# `ci / required` red without ever running the dependent jobs (PR #925, run
+# 36041158202). Separately, `HAS_EXCEPTION` was computed from
+# `github.event.pull_request.labels` — the ORIGINAL webhook payload. Labels
+# added by `gh pr create --label` land after the `opened` event fires, and
+# `gh run rerun` replays that same stale payload, so a PR carrying
+# `size:exception` still failed the gate (PR #931, run 36046072242:
+# `HAS_EXCEPTION: false` with the label present).
+
+
+def test_pr_size_concurrency_group_is_trigger_scoped() -> None:
+    """The concurrency group must differ between the labeled/unlabeled
+    direct trigger and the workflow_call path from ci.yml, so a label event
+    never cancels the in-flight ci-triggered run (issue #926).
+    """
+    concurrency = _workflow_yaml.concurrency(_doc(PR_SIZE_WORKFLOW_PATH))
+    assert isinstance(concurrency, dict), (
+        "pr-size.yml must declare a concurrency block (issue #926)"
+    )
+    group_line = str(concurrency.get("group", ""))
+
+    assert group_line != "pr-size-${{ github.ref }}", (
+        "pr-size.yml's concurrency group is a constant shared by both the "
+        "direct labeled/unlabeled trigger and the workflow_call from "
+        "ci.yml (issue #926) — a labeled event cancels the ci-triggered "
+        "run instead of only cancelling other label runs."
+    )
+    assert "github.event.action" in group_line, (
+        "the concurrency group must derive a trigger-dependent suffix from "
+        "github.event.action so the labeled path and the ci-call path "
+        "never share a cancellation group (issue #926)."
+    )
+
+
+_PR_SIZE_BODY_URL_RE = re.compile(
+    r"https://api\.github\.com/repos/\$\{GITHUB_REPOSITORY\}/issues/\$\{PR_NUMBER\}"
+    r"(?!/labels\b)"
+)
+
+
+def _pr_size_fetch_step_run() -> str:
+    """The ``run:`` body of pr-size.yml's live-PR-body fetch step (issue #1121).
+
+    The previous version matched `/labels?per_page=100`; that endpoint is
+    gone now — the override moved from the label to the PR body
+    (``/issues/${PR_NUMBER}``; PRs are issues in GitHub's data model).
+    """
+    pr_size_job = next(iter((_doc(PR_SIZE_WORKFLOW_PATH).get("jobs") or {}).values()))
+    return next(
+        str(step.get("run", ""))
+        for step in _workflow_yaml.steps(pr_size_job)
+        if _PR_SIZE_BODY_URL_RE.search(str(step.get("run", "")))
+    )
+
+
+def test_pr_size_exception_label_read_from_live_api_not_event_payload() -> None:
+    """The override must come from a live PR-body read via the GitHub API,
+    not the static ``github.event.pull_request.body`` payload, so an edit
+    to the body (or a rerun of a stale payload) is picked up (issue #1121).
+    """
+    pr_size_jobs_text = "\n".join(
+        _workflow_yaml.job_text(entry)
+        for entry in (_doc(PR_SIZE_WORKFLOW_PATH).get("jobs") or {}).values()
+    )
+    fetch_run = _pr_size_fetch_step_run()
+
+    assert "github.event.pull_request.body" not in pr_size_jobs_text, (
+        "pr-size.yml must not derive the override from the static "
+        "event payload's body field (issue #1121) — edits to the body "
+        "between events, or a rerun of a stale payload, would go unseen."
+    )
+    # Issue #533: the runner backing this job does not provide the `gh`
+    # CLI, so the live fetch must go through curl + jq (deploy.yml's
+    # existing pattern), not `gh api`.
+    assert _PR_SIZE_BODY_URL_RE.search(fetch_run), (
+        "pr-size.yml must fetch the PR's live body from the GitHub REST "
+        "API (curl + jq, per issue #533 — this runner has no `gh` CLI) "
+        "instead of the event payload (issue #1121)."
+    )
+    assert "gh api" not in pr_size_jobs_text, (
+        "pr-size.yml's runner does not provide the `gh` CLI (issue #533); "
+        "use curl + jq instead, matching deploy.yml's evidence step."
+    )
+
+    workflow_perms = _workflow_yaml.permissions(_doc(PR_SIZE_WORKFLOW_PATH))
+    assert workflow_perms.get("issues") == "read", (
+        "reading the PR body via the issues REST API needs "
+        "`issues: read` at the workflow level (issue #1121), alongside "
+        "the existing `contents: read` (issue #682)."
+    )
+
+
+def test_pr_size_exception_label_fetch_fails_closed() -> None:
+    """A failed body fetch must fail the job, not silently pass the gate
+    as if the override were absent (issue #1121, replaces issue #926).
+    """
+    fetch_run = _pr_size_fetch_step_run()
+    assert "exit 1" in fetch_run, (
+        "the body-fetch step must exit non-zero when the GitHub API call "
+        "fails, so the gate fails closed instead of treating a fetch "
+        "failure as 'no override' (issue #1121)."
+    )
+
+
+def test_pr_size_job_in_ci_yml_declares_issues_read() -> None:
+    """A called reusable workflow cannot exceed the caller's permissions,
+    so ci.yml's `pr-size` job needs `issues: read` too (issue #926).
+    """
+    perms = _workflow_yaml.permissions(_job(WORKFLOW_PATH, "pr-size"))
+
+    assert perms.get("issues") == "read", (
+        "ci.yml's pr-size job must declare `issues: read` — pr-size.yml "
+        "now reads live PR labels via the GitHub API, and a called "
+        "workflow cannot exceed the caller's granted permissions "
+        "(issue #926)."
+    )
+
+
 def test_dependabot_excludes_ratchet_coupled_ruff_updates() -> None:
     """Ruff bumps require an explicit baseline recalibration."""
     config = (REPO_ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
 
     assert 'dependency-name: "ruff"' in config
+
+
+def test_dependabot_excludes_mutation_coupled_cosmic_ray_updates() -> None:
+    """Cosmic-ray bumps require an intentional harness re-validation."""
+    config = (REPO_ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
+
+    assert 'dependency-name: "cosmic-ray"' in config
 
 
 # --- issue #525: PR gates mis-handle chained/stacked PRs ------------------
@@ -1341,19 +1647,17 @@ def test_pr_gate_fires_for_any_pull_request_base(workflow_path: Path, label: str
     Parametrized over both gate workflows because the original fix
     touches them together.
     """
-    text = workflow_path.read_text(encoding="utf-8")
+    triggers = _triggers(workflow_path)
 
-    # Pull the ``pull_request:`` block out of the ``on:`` map so a
-    # ``branches:`` line buried elsewhere in the file cannot accidentally
-    # satisfy the assertion. The string-based parser mirrors every other
-    # gate test in this file: PyYAML is in ``[etl]``, not ``[dev]``.
-    triggers = _trigger_lines(text)
-    assert "pull_request:" in triggers, (
+    assert "pull_request" in triggers, (
         f"{label}: must listen on pull_request events (issue #525)"
     )
 
-    pr_block = triggers["pull_request:"]
-    assert "branches: [main]" not in pr_block and "branches:\n      - main" not in pr_block, (
+    pr_trigger = triggers["pull_request"]
+    pr_block = (
+        pr_trigger.get("branches") if isinstance(pr_trigger, dict) else None
+    )
+    assert pr_block != ["main"], (
         f"{label}: pull_request.branches is restricted to ``[main]`` "
         f"(issue #525). Chained/stacked PRs whose base is a feature branch "
         f"silently drop the check from the rollup. Drop the branches "
@@ -1692,18 +1996,19 @@ def test_ci_workflow_pr_size_job_calls_the_reusable_workflow() -> None:
     Actions' schema forbids mixing them. Asserting their absence here is
     itself a regression pin against a future edit re-embedding the bash.
     """
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-    pr_size_job = _job_executable(workflow, "\n  pr-size:", "\n  issue-spec:")
+    pr_size_job = _job(WORKFLOW_PATH, "pr-size")
 
-    assert "uses: ./.github/workflows/pr-size.yml" in pr_size_job, (
+    assert pr_size_job.get("uses") == "./.github/workflows/pr-size.yml", (
         "ci.yml's pr-size job must call pr-size.yml as a reusable workflow "
         "(issue #890) instead of reimplementing the merge-base diff."
     )
-    assert "runs-on:" not in pr_size_job, (
+    assert "runs-on" not in pr_size_job, (
         "a job with `uses:` cannot also declare `runs-on:` — its presence "
         "means the embedded implementation was not actually removed."
     )
-    assert "Compute diff against merge-base" not in pr_size_job, (
+    assert "Compute diff against merge-base" not in _workflow_yaml.job_text(
+        pr_size_job
+    ), (
         "the embedded diff step must be gone entirely; pr-size.yml is now "
         "the only place that computes it (issue #890)."
     )
@@ -1713,10 +2018,9 @@ def test_pr_size_workflow_declares_workflow_call_trigger() -> None:
     """Issue #890: pr-size.yml must be callable from ci.yml as a reusable
     workflow, in addition to its own direct pull_request trigger.
     """
-    pr_size = PR_SIZE_WORKFLOW_PATH.read_text(encoding="utf-8")
-    triggers = _trigger_lines(pr_size)
+    triggers = _triggers(PR_SIZE_WORKFLOW_PATH)
 
-    assert "workflow_call:" in triggers, (
+    assert "workflow_call" in triggers, (
         "pr-size.yml must declare a workflow_call trigger so ci.yml can "
         "invoke it via `uses:` (issue #890)."
     )
@@ -1728,20 +2032,23 @@ def test_pr_size_direct_trigger_covers_only_label_changes() -> None:
     for the same event and publish the same-named check twice, the exact
     ambiguity this consolidation exists to remove.
     """
-    pr_size = PR_SIZE_WORKFLOW_PATH.read_text(encoding="utf-8")
-    triggers = _trigger_lines(pr_size)
-    pull_request = triggers["pull_request:"]
+    triggers = _triggers(PR_SIZE_WORKFLOW_PATH)
+    pull_request = triggers["pull_request"]
+    pr_types = (
+        pull_request.get("types") if isinstance(pull_request, dict) else pull_request
+    )
+    pr_types = pr_types or []
 
-    assert "labeled" in pull_request
-    assert "unlabeled" in pull_request
-    assert "opened" not in pull_request, (
+    assert "labeled" in pr_types
+    assert "unlabeled" in pr_types
+    assert "opened" not in pr_types, (
         "pr-size.yml's direct pull_request trigger must not also cover "
         "opened/synchronize/reopened (issue #890) — those route through "
         "ci.yml's workflow_call instead, or the same event fires both "
         "workflows and reintroduces the duplicate `pr-size` check."
     )
-    assert "synchronize" not in pull_request
-    assert "reopened" not in pull_request
+    assert "synchronize" not in pr_types
+    assert "reopened" not in pr_types
 
 
 def test_pr_size_diff_step_reports_zero_on_non_pull_request_events(tmp_path: Path) -> None:
@@ -1750,16 +2057,12 @@ def test_pr_size_diff_step_reports_zero_on_non_pull_request_events(tmp_path: Pat
     it must report total=0 instead of failing loudly, exactly like ci.yml's
     own fallback did before this consolidation absorbed that behaviour.
     """
-    pr_size = "\n".join(
-        line
-        for line in PR_SIZE_WORKFLOW_PATH.read_text(encoding="utf-8").splitlines()
-        if not line.lstrip().startswith("#")
+    script = str(
+        _workflow_yaml.find_step(
+            next(iter((_doc(PR_SIZE_WORKFLOW_PATH).get("jobs") or {}).values())),
+            "Compute diff against merge-base",
+        ).get("run", "")
     )
-    start = pr_size.index("- name: Compute diff against merge-base")
-    step = pr_size[start:]
-    run_start = step.index("run: |") + len("run: |")
-    end = step.index("- name:", run_start)
-    script = step[run_start:end]
 
     repo = tmp_path / "fixture"
     repo.mkdir()
@@ -1790,16 +2093,12 @@ def test_pr_size_diff_step_still_fails_loud_on_pull_request_with_empty_base_ref(
     event_name branch — an actual pull_request event with no base ref is
     still the regression #525 exists to catch, not a legitimate skip.
     """
-    pr_size = "\n".join(
-        line
-        for line in PR_SIZE_WORKFLOW_PATH.read_text(encoding="utf-8").splitlines()
-        if not line.lstrip().startswith("#")
+    script = str(
+        _workflow_yaml.find_step(
+            next(iter((_doc(PR_SIZE_WORKFLOW_PATH).get("jobs") or {}).values())),
+            "Compute diff against merge-base",
+        ).get("run", "")
     )
-    start = pr_size.index("- name: Compute diff against merge-base")
-    step = pr_size[start:]
-    run_start = step.index("run: |") + len("run: |")
-    end = step.index("- name:", run_start)
-    script = step[run_start:end]
 
     repo = tmp_path / "fixture"
     repo.mkdir()
@@ -1909,11 +2208,10 @@ def _ci_pull_request_gate_scripts() -> list[str]:
     ``integration`` (Postgres service) and ``e2e`` (Playwright) are out of
     scope for ``make verify`` and documented as such in the Makefile.
     """
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
     executable = "\n".join(
         (
-            _job_executable(workflow, "\n  lint:", "\n  security:"),
-            _job_executable(workflow, "\n  test:", "\n  integration:"),
+            _workflow_yaml.runs_text(_job(WORKFLOW_PATH, "lint")),
+            _workflow_yaml.runs_text(_job(WORKFLOW_PATH, "test")),
         )
     )
     return list(dict.fromkeys(re.findall(r"scripts/check_\w+\.py", executable)))
@@ -2001,24 +2299,942 @@ def test_development_guide_points_at_make_verify() -> None:
 
 # --- issue #640: verify-fallback-ready fold-back -----------------------
 
-def _verify_fallback_ready_job() -> str:
-    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-    job_start = workflow.index("\n  verify-fallback-ready:")
-    return workflow[job_start : workflow.index("\n  build:", job_start)]
+def _verify_fallback_ready_job() -> dict[str, Any]:
+    """The verify-fallback-ready job of ci.yml, as parsed YAML (issue #963)."""
+    return _job(WORKFLOW_PATH, "verify-fallback-ready")
 
 
 def test_ci_workflow_invoke_verify_fallback_ready_via_main_cli() -> None:
-    job = _verify_fallback_ready_job()
-    executable = "\n".join(
-        line for line in job.splitlines() if not line.lstrip().startswith("#")
-    )
+    executable = _workflow_yaml.runs_text(_verify_fallback_ready_job())
 
     assert "python -m migration verify-fallback-ready --ci-only" in executable
     assert "migration.cli_verify_fallback_ready" not in executable
 
 
 def test_ci_workflow_verify_fallback_ready_job_has_no_standalone_path_comment() -> None:
-    job = _verify_fallback_ready_job()
+    job_text = _workflow_yaml.job_text(_verify_fallback_ready_job())
 
-    assert "migration/cli_verify_fallback_ready" not in job
-    assert "temporary workaround" not in job
+    assert "migration/cli_verify_fallback_ready" not in job_text
+    assert "temporary workaround" not in job_text
+
+
+def test_bare_pytest_excludes_every_suite_the_ci_test_job_excludes() -> None:
+    """A plain local ``pytest`` must match the CI ``test`` job's scope (issue #940).
+
+    ``tests/e2e_ci`` needs a deployed app and MinIO. The CI test job ignores it,
+    but ``addopts`` did not, so a bare local ``pytest`` ran it without services
+    and it leaked state into the route tests: 61 failed + 514 errors locally
+    while CI was green. Every ``--ignore`` of the CI test job must also be in
+    ``addopts``.
+    """
+    import tomllib  # lazy-import: stdlib, only this test reads pyproject.toml
+
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    addopts = pyproject["tool"]["pytest"]["ini_options"]["addopts"]
+    local_ignores = {
+        option.removeprefix("--ignore=").rstrip("/")
+        for option in addopts
+        if option.startswith("--ignore=")
+    }
+
+    test_runs = _workflow_yaml.runs_text(_job(WORKFLOW_PATH, "test"))
+    ci_ignores = {
+        match.rstrip("/")
+        for match in re.findall(r"^\s*--ignore=(\S+?)\s*\\?$", test_runs, flags=re.MULTILINE)
+    }
+
+    assert ci_ignores, "could not read the CI test job's --ignore options"
+    assert ci_ignores <= local_ignores, (
+        f"addopts must also ignore {sorted(ci_ignores - local_ignores)} (issue #940)"
+    )
+
+# --- issue #973: repo-owned GHCR MinIO replica ------------------------------
+#
+# MinIO Community Edition went source-only in late 2025 and its binary images
+# were removed from Docker Hub, quay.io, and every public mirror, so
+# `minio/minio:latest` cannot be pulled at all — not even with Docker Hub
+# credentials (minio/minio#21662). The e2e service must instead pull a
+# replica built from pinned MinIO CE source by
+# .github/workflows/minio-replica.yml.
+
+MINIO_REPLICA_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "minio-replica.yml"
+#: The MinIO CE release tag the replica is built from. Verified against
+#: `git ls-remote --tags https://github.com/minio/minio` on 2026-09-26:
+#: the highest existing RELEASE.2025-* tag.
+MINIO_REPLICA_RELEASE_TAG = "RELEASE.2025-10-15T17-29-55Z"
+#: Digest of the GHCR replica image recorded by replica build run
+#: 36249625652; the e2e service in ci.yml pins the image by digest
+#: (issue #973, per the repo's digest-pinning rule, issue #338).
+MINIO_REPLICA_DIGEST = "sha256:6140fe7015bd97e4e6340c9a8ead775c09bc1a226b7c36e41d24852f839dae8f"
+
+
+def _e2e_minio_service() -> dict[str, Any]:
+    """Return the ``minio:`` service mapping of the e2e job (issue #963)."""
+    services = _job(WORKFLOW_PATH, "e2e").get("services") or {}
+    assert "minio" in services, "the e2e job must declare a minio service"
+    return services["minio"]
+
+
+def test_ci_workflow_e2e_minio_service_pulls_repo_owned_ghcr_replica() -> None:
+    """Issue #973: the e2e MinIO service must pull the repo-owned GHCR replica.
+
+    The previous fix (authenticate the Docker Hub pull with
+    DOCKERHUB_USERNAME/DOCKERHUB_TOKEN secrets) is dead by design: the
+    binary images no longer exist upstream, so authentication cannot
+    help. The service must reference the digest-pinned
+    `ghcr.io/ardelperal/minio@sha256:...` — the replica built from
+    pinned MinIO CE source by minio-replica.yml, with the digest
+    recorded by build run 36249625652 —
+    and pull it with the ephemeral GITHUB_TOKEN, since the package is
+    private. Every DOCKERHUB reference must be gone.
+    """
+    service = _e2e_minio_service()
+
+    assert service.get("image") == f"ghcr.io/ardelperal/minio@{MINIO_REPLICA_DIGEST}", (
+        f"the e2e minio service must pull the digest-pinned GHCR replica; "
+        f"got {service.get('image')!r}"
+    )
+    # The GHCR package is private: the service container pull needs the
+    # ephemeral GITHUB_TOKEN (service containers accept expressions in
+    # credentials).
+    credentials = service.get("credentials") or {}
+    assert credentials.get("username") == "${{ github.actor }}"
+    assert credentials.get("password") == "${{ github.token }}"
+    # The Docker Hub approach is removed everywhere, comments included.
+    ci_job_text = "\n".join(
+        _workflow_yaml.job_text(entry)
+        for entry in (_doc(WORKFLOW_PATH).get("jobs") or {}).values()
+    )
+    assert "DOCKERHUB" not in ci_job_text
+    assert "docker-hub-anonymous-pull" not in ci_job_text
+
+
+def test_ci_workflow_e2e_job_grants_packages_read_for_ghcr_replica() -> None:
+    """Issue #973: the e2e job needs `packages: read` to pull the private replica.
+
+    The repo scopes permissions per job (issue #879); the e2e job used to
+    declare only `contents: read`, which is not enough to pull a private
+    GHCR package with the ephemeral GITHUB_TOKEN.
+    """
+    perms = _workflow_yaml.permissions(_job(WORKFLOW_PATH, "e2e"))
+
+    assert perms.get("packages") == "read", (
+        "the e2e job must grant packages: read to pull the private "
+        "ghcr.io/ardelperal/minio replica (issue #973)"
+    )
+
+
+def test_minio_replica_workflow_is_dispatch_only_and_pushes_pinned_replica() -> None:
+    """Issue #973: minio-replica.yml builds and publishes the pinned replica.
+
+    The workflow must be manual-dispatch only (it publishes a package, so
+    it must never run on untrusted PR code), pin a MinIO CE `RELEASE.`
+    tag (the upstream binary images are gone, so the replica is built
+    from source), grant `packages: write`, push both the release tag and
+    the `ci` tag to ghcr.io/ardelperal/minio, and report the resulting
+    image digest both as a step output and in the job summary — the
+    digest is what a later commit pins in ci.yml.
+    """
+    replica_doc = _doc(MINIO_REPLICA_WORKFLOW_PATH)
+    replica_runs = "\n".join(
+        _workflow_yaml.runs_text(entry)
+        for entry in (replica_doc.get("jobs") or {}).values()
+    )
+
+    triggers = _workflow_yaml.on_triggers(replica_doc)
+    assert set(triggers) == {"workflow_dispatch"}, (
+        f"minio-replica.yml must be dispatch-only; got {sorted(triggers)}"
+    )
+
+    # The build is pinned to exactly one MinIO CE release tag.
+    replica_jobs_text = "\n".join(
+        _workflow_yaml.job_text(entry)
+        for entry in (replica_doc.get("jobs") or {}).values()
+    )
+    release_tags = set(
+        re.findall(
+            r"RELEASE\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z", replica_jobs_text
+        )
+    )
+    assert release_tags == {MINIO_REPLICA_RELEASE_TAG}, (
+        f"minio-replica.yml must pin MinIO CE {MINIO_REPLICA_RELEASE_TAG}; got {release_tags}"
+    )
+
+    # Issue #973 follow-up: the build must come from pinned MinIO CE source.
+    # The upstream `Dockerfile` at the pinned tag is a thin wrapper over the
+    # removed `minio/minio:latest` image, and `dl.min.io` community release
+    # archives return HTTP 410, so no binary-download path may appear: the
+    # workflow must carry its own multi-stage source build (Go builder stage).
+    assert "FROM golang:1.24-alpine AS build" in replica_runs, (
+        "minio-replica.yml must build the replica from source with a "
+        "golang:1.24-alpine builder stage (the upstream Dockerfile is a "
+        "wrapper over the removed minio/minio image)"
+    )
+    assert "dl.min.io" not in replica_runs, (
+        "minio-replica.yml must not reference dl.min.io: community release "
+        "archives return HTTP 410, so that path is dead"
+    )
+
+    # It builds and pushes the replica under the repo's GHCR namespace.
+    assert "ghcr.io/ardelperal/minio:" in replica_runs
+    assert "docker build" in replica_runs
+    assert "docker push" in replica_runs
+    assert "ghcr.io/ardelperal/minio:ci" in replica_runs
+
+    # Least privilege, workflow level and job level (issue #879 convention).
+    workflow_perms = _workflow_yaml.permissions(replica_doc)
+    assert workflow_perms.get("contents") == "read"
+    assert workflow_perms.get("packages") == "write"
+    build_job = _workflow_yaml.job(replica_doc, "build-and-push")
+    assert _workflow_yaml.permissions(build_job).get("packages") == "write"
+
+    # The digest is the handoff to ci.yml: recorded as a step output and
+    # published to the job summary.
+    digest_output = re.search(
+        r'echo "digest=\$?\{?[A-Za-z_]*\}?"\s*>>\s*"\$GITHUB_OUTPUT"', replica_runs
+    )
+    assert digest_output, "the workflow must expose a step output named digest"
+    assert "GITHUB_STEP_SUMMARY" in replica_runs, (
+        "the workflow must print the image digest to the job summary"
+    )
+
+
+# --- issue #895: deploy-side ui-e2e gate ------------------------------------
+
+
+def test_deploy_workflow_defines_fail_closed_ui_e2e_gate() -> None:
+    """Issue #895 (design D3): deploy.yml must define a signal-only
+    ``ui-e2e-gate`` job (signal-only pattern introduced with the #908 gate, since
+    replaced by the post-deploy release-e2e-record of #1082) that recomputes ui_changed for the merged revision and
+    fails closed when a UI-changing revision lacks green e2e evidence.
+    """
+    gate_job = _job(DEPLOY_WORKFLOW_PATH, "ui-e2e-gate")
+    gate = _workflow_yaml.job_text(gate_job)
+
+    # The UI path list comes from the checker (single source of truth).
+    assert "scripts/check_required_jobs.py --print-ui-paths" in gate
+    # Recomputes ui_changed from the event.before diff (HEAD^ fallback).
+    assert "HEAD^" in gate
+    # Same-SHA verification through the check-runs API (read-only, GITHUB_TOKEN).
+    assert "/commits/" in gate and "check-runs" in gate
+    # Fix round 1 (F4): every e2e selection is scoped to the github-actions
+    # app so a third-party check named 'e2e' cannot satisfy the gate.
+    assert 'select(.name == "e2e" and .app.slug == "github-actions")' in gate
+    assert "!= \"success\"" in gate
+    # The failure message points at the CI workflow.
+    assert ".github/workflows/ci.yml" in gate
+    # Explicit exemption line for non-UI revisions.
+    assert "ui-e2e-gate exemption" in gate
+
+
+def test_deploy_workflow_ui_e2e_gate_resolves_the_reviewed_head_sha() -> None:
+    """pull_request check-runs are reported on the PR head SHA, not on the
+    merge commit, so the gate must resolve the reviewed head (HEAD^2 for a
+    merge commit, evidence-job precedent) and bind the tree before querying.
+    """
+    gate = _workflow_yaml.runs_text(_job(DEPLOY_WORKFLOW_PATH, "ui-e2e-gate"))
+
+    assert "HEAD^2" in gate
+    assert "HEAD^{tree}" in gate
+
+
+def test_deploy_workflow_ui_e2e_gate_has_no_secrets_and_least_privilege() -> None:
+    """The gate holds no secret and reads only: contents (checkout) and
+    checks (check-runs API). It never touches packages or id-token.
+    """
+    gate_job = _job(DEPLOY_WORKFLOW_PATH, "ui-e2e-gate")
+    gate = _workflow_yaml.job_text(gate_job)
+    perms = _workflow_yaml.permissions(gate_job)
+
+    assert "secrets." not in gate
+    assert perms.get("contents") == "read"
+    assert perms.get("checks") == "read"
+    assert "packages" not in perms
+    assert "issues" not in perms
+
+
+# --- issue #986: post-hoc main-history audit ----------------------------
+#
+# The merge-restriction ruleset was deactivated in #892 to avoid the
+# `--admin` tax on a single-maintainer repo. With N agent sessions sharing
+# ONE admin credential, the ruleset cannot distinguish between sessions, so
+# the maintainer chose post-hoc detection (alert, no block) — not a blocking
+# ruleset. This section pins the workflow, the script, and the docs so the
+# policy and the enforcement stay aligned.
+
+
+def _main_audit_doc() -> dict[str, Any]:
+    """Structured main-audit.yml (issue #963)."""
+    return _doc(MAIN_AUDIT_WORKFLOW_PATH)
+
+
+def test_main_audit_workflow_shape_and_pinning() -> None:
+    """Workflow exists, has one job, pins every action by SHA, schedules daily.
+
+    Combines existence, single-job, action-pinning (issue #526),
+    concurrency-group (issue #530), scheduled-trigger, permissions
+    (issues #682 and #879), and hosted-runner (issues #520 and #782)
+    assertions because they all probe one YAML file with the same
+    comment-stripping helper; a regression on any one is a regression
+    on the audit's audit-ability (issue #986).
+    """
+    assert MAIN_AUDIT_WORKFLOW_PATH.is_file(), (
+        ".github/workflows/main-audit.yml must exist (issue #986)."
+    )
+    doc = _main_audit_doc()
+    main_history = _workflow_yaml.job(doc, "main-history")
+
+    assert doc.get("name") == "main-audit"
+    assert _workflow_job_names(MAIN_AUDIT_WORKFLOW_PATH) == {"main-history"}
+
+    for uses in (
+        str(step.get("uses", ""))
+        for entry in (doc.get("jobs") or {}).values()
+        for step in _workflow_yaml.steps(entry)
+    ):
+        if not uses or uses.startswith("./"):
+            continue
+        match = re.search(r"^(.+)@([0-9a-f]+)$", uses)
+        assert match is not None and len(match.group(2)) == 40, (
+            f"main-audit.yml: {uses!r} is not pinned by 40-hex SHA."
+        )
+
+    concurrency = _workflow_yaml.concurrency(doc) or {}
+    assert concurrency.get("cancel-in-progress") is True
+    triggers = _workflow_yaml.on_triggers(doc)
+    assert "schedule" in triggers
+    crons = [str(entry.get("cron")) for entry in triggers["schedule"]]
+    assert any(
+        re.fullmatch(r"\d+\s+5\s+\*\s+\*\s+\*", cron) for cron in crons
+    ), "main-audit.yml: cron must run between 05:00 and 05:59 UTC."
+    assert "workflow_dispatch" in triggers
+    workflow_perms = _workflow_yaml.permissions(doc)
+    assert workflow_perms.get("contents") == "read"
+    assert workflow_perms.get("issues") == "write"
+    job_perms = _workflow_yaml.permissions(main_history)
+    assert job_perms.get("contents") == "read"
+    assert job_perms.get("issues") == "write"
+    assert main_history.get("runs-on") == "ubuntu-24.04"
+
+
+def test_main_audit_script_implements_detection_rule() -> None:
+    """Script uses urllib + Bearer (no `gh` CLI) and applies the documented rule.
+
+    Runner image lacks ``gh`` (issue #533); the script authenticates via
+    ``urllib`` + Bearer. Classification checks ``merge_commit_sha`` AND
+    consults git ancestry of merge-commit second parents to avoid flagging
+    intermediate PR-branch commits as direct pushes (issue #986).
+    """
+    script = MAIN_AUDIT_SCRIPT_PATH.read_text(encoding="utf-8")
+    assert "urllib.request" in script
+    assert re.search(r"(?:^|\s)gh\s+(?:api|pr|issue)\b", script, re.MULTILINE) is None
+    assert "subprocess" in script and "git" in script
+    assert "merge_commit_sha" in script
+    assert "second_parents" in script or "rev-list" in script
+    assert "Authorization" in script and "Bearer" in script
+
+
+def test_branch_protection_documents_the_post_hoc_audit() -> None:
+    """branch-protection.md must cite the audit and pin the verified state.
+
+    Combines the references to the audit, the verified live state
+    snapshot, the disabled ruleset reminder, and the multi-session
+    framing — the file is the contract readers reach first when they
+    ask "can a direct push land on main?" (issue #986).
+    """
+    note = BRANCH_PROTECTION_PATH.read_text(encoding="utf-8")
+    assert "main-audit" in note or "main_history_audit" in note
+    assert "issue #986" in note or "#986" in note
+    assert "2026-09-27" in note
+    assert "enforce_admins" in note
+    assert "disabled" in note
+
+
+def test_merge_workflow_documents_the_multi_session_norm() -> None:
+    """merge-workflow.md must add the multi-session norm (§16) and keep §15.
+
+    The norm spells out that N agent sessions share one admin credential,
+    so a direct push from one session destroys the PR+CI trail the other
+    sessions rely on. The §15 narrative stays intact (issue #986).
+    """
+    guide = MERGE_WORKFLOW_PATH.read_text(encoding="utf-8")
+    assert "issue #986" in guide or "#986" in guide
+    assert "main-audit" in guide
+    section = guide.split("### §15.5", 1)[1].split("###", 1)[0]
+    assert "main-audit" in section or "main_history_audit" in section
+    for marker in ("§15.1", "§15.2", "§15.4", "§15.5", "§15.7"):
+        assert marker in guide
+
+
+def test_process_doc_records_no_direct_push_invariant() -> None:
+    """docs/proceso.md must carry the P5 invariant (no direct push).
+
+    The invariant sits alongside P1–P4 so a session that loads
+    proceso.md sees the push-direct prohibition at the top (issue #986).
+    """
+    process = PROCESS_PATH.read_text(encoding="utf-8")
+    assert "P5-no-direct-push-multi-session" in process
+    assert "main-audit" in process
+    assert "push directo" in process
+
+
+# --- issue #1035: trivy cannot parse FROM lines that interpolate ARGs ------
+
+def _trivy_scan_run_block() -> str:
+    """Return the shell of the security-deep trivy scan step (issue #963)."""
+    return str(
+        _workflow_yaml.find_step(
+            _job(WORKFLOW_PATH, "security-deep"), "Scan pinned base images"
+        ).get("run", "")
+    )
+
+
+def _trivy_resolution_snippet() -> str:
+    """Return the self-contained ARG-resolution shell of the trivy step.
+
+    Slices from the image extraction down to the emit of the resolved list,
+    so the tests execute the exact shell the workflow runs.
+    """
+    block = _trivy_scan_run_block()
+    start = block.index('images=$(grep')
+    end = block.index('echo "$resolved_images"')
+    return block[start : block.index("\n", end)]
+
+
+def _dockerfile_arg_default(name: str, dockerfile: str) -> str:
+    match = re.search(rf"^ARG {name}=([^ \n]+)", dockerfile, flags=re.MULTILINE)
+    assert match, f"Dockerfile does not declare ARG {name}=..."
+    return match.group(1)
+
+
+def test_ci_workflow_trivy_step_resolves_dockerfile_arg_defaults(tmp_path: Path) -> None:
+    """Issue #1035 (happy path): the resolution pipeline in the trivy step
+    turns ``node:${NODE_VERSION}-bookworm-slim@sha256:...`` into
+    ``node:20-bookworm-slim@sha256:...`` (and the same for PYTHON_VERSION)
+    using the ARG defaults from the Dockerfile itself.
+    """
+    snippet = _trivy_resolution_snippet()
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    (tmp_path / "Dockerfile").write_text(dockerfile, encoding="utf-8")
+
+    result = subprocess.run(
+        ["bash", "-c", snippet],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, (
+        f"resolution snippet must exit 0 on the real Dockerfile: "
+        f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    node_version = _dockerfile_arg_default("NODE_VERSION", dockerfile)
+    python_version = _dockerfile_arg_default("PYTHON_VERSION", dockerfile)
+    assert f"node:{node_version}-bookworm-slim@" in result.stdout
+    assert f"python:{python_version}-slim-bookworm@" in result.stdout
+    assert "${" not in result.stdout
+
+
+def test_ci_workflow_trivy_step_preserves_digest_pins(tmp_path: Path) -> None:
+    """Issue #1035 (digest preservation): resolution substitutes only the
+    ``${NAME}`` spans; every ``@sha256:...`` pin from the Dockerfile must
+    reach the scan list byte-for-byte.
+    """
+    snippet = _trivy_resolution_snippet()
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    (tmp_path / "Dockerfile").write_text(dockerfile, encoding="utf-8")
+
+    result = subprocess.run(
+        ["bash", "-c", snippet],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    digests = set(re.findall(r"@sha256:[a-f0-9]+", dockerfile))
+    assert digests, "the Dockerfile is expected to pin base images by digest"
+    for digest in digests:
+        assert digest in result.stdout, (
+            f"digest pin {digest} must survive ARG resolution untouched"
+        )
+
+
+def test_ci_workflow_trivy_step_resolves_multiple_args_in_one_reference(
+    tmp_path: Path,
+) -> None:
+    """Issue #1035 (edge): a single FROM interpolating several ARGs resolves
+    every one of them in the same pass.
+    """
+    snippet = _trivy_resolution_snippet()
+    digest = "a" * 64
+    (tmp_path / "Dockerfile").write_text(
+        "ARG REGISTRY_PREFIX=mirror.local\n"
+        "ARG BASE_TAG=3.19\n"
+        f"FROM ${{REGISTRY_PREFIX}}/alpine:${{BASE_TAG}}@sha256:{digest}\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ["bash", "-c", snippet],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert f"mirror.local/alpine:3.19@sha256:{digest}" in result.stdout
+    assert "${" not in result.stdout
+
+
+def test_ci_workflow_trivy_step_fails_closed_on_unresolved_arg(
+    tmp_path: Path,
+) -> None:
+    """Issue #1035 (sad path): a FROM using an ARG without a default must
+    fail the step loudly via a ``::error::`` annotation naming the
+    unresolved ARG — never a silent partial scan list.
+    """
+    snippet = _trivy_resolution_snippet()
+    digest = "b" * 64
+    (tmp_path / "Dockerfile").write_text(
+        "ARG KNOWN=1.2.3\n"
+        f"FROM alpine:${{KNOWN}}@sha256:{digest}\n"
+        f"FROM busybox:${{MISSING}}@sha256:{digest}\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ["bash", "-c", snippet],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0, (
+        "an unresolved ARG must fail the step, not scan a partial list"
+    )
+    assert "::error::unresolved ARG" in result.stdout
+    assert "MISSING" in result.stdout
+
+
+def test_ci_workflow_trivy_step_extracts_arg_defaults_from_the_dockerfile() -> None:
+    """Issue #1035 (pipeline pin): the trivy step must derive the ARG
+    mapping from the Dockerfile's own ``ARG NAME=default`` lines, so
+    re-pinning or adding an ARG flows into the scan automatically.
+    """
+    block = _trivy_scan_run_block()
+
+    assert "grep -oE '^ARG [A-Za-z_]+=[^ ]+' Dockerfile" in block
+
+
+def test_ci_workflow_trivy_step_declares_the_fail_closed_error_marker() -> None:
+    """Issue #1035 (fail-closed pin): the step must carry an explicit
+    ``::error::unresolved ARG`` annotation branch ahead of ``exit 1``.
+    """
+    block = _trivy_scan_run_block()
+
+    assert "::error::unresolved ARG" in block
+    assert "exit 1" in block
+
+
+# --- issue #1046: security-deep moves to a weekly schedule -------------------
+
+
+def test_ci_workflow_declares_weekly_schedule_trigger() -> None:
+    """Issue #1046: ci.yml declares a weekly schedule trigger.
+
+    The scan result is a function of the pinned base-image digests, not of
+    time, so MVP release cadence made per-release runs redundant; the
+    weekly schedule bounds the CVE-decay window instead. The block applies
+    to every job in the file, so the companion test below pins that a
+    scheduled run executes security-deep and nothing else.
+    """
+    triggers = _triggers(WORKFLOW_PATH)
+
+    assert "schedule" in triggers, (
+        "issue #1046 adds the weekly schedule trigger that only "
+        "security-deep consumes"
+    )
+    assert triggers["schedule"] == [{"cron": "0 6 * * 1"}], (
+        "the schedule must be weekly on Monday 06:00 UTC (`0 6 * * 1`); "
+        f"got {triggers['schedule']!r}"
+    )
+
+
+def test_ci_workflow_security_deep_runs_on_schedule_and_dispatch_not_tags() -> None:
+    """Issue #1046: the heavy scan is weekly + manual dispatch; tags are out.
+
+    Under the issue #780 cadence this replaces, any tag push triggered the
+    scan. The pr-size skip override is pinned too: on schedule runs the
+    guarded pr-size job is skipped, and a job whose needed job is skipped
+    is itself skipped unless its ``if`` carries a status function that
+    overrides the implicit success().
+    """
+    if_clause = str(_job(WORKFLOW_PATH, "security-deep").get("if", ""))
+
+    assert "github.event_name == 'workflow_dispatch'" in if_clause
+    assert "github.event_name == 'schedule'" in if_clause
+    assert "startsWith(github.ref, 'refs/tags/')" not in if_clause, (
+        "release tags must no longer trigger security-deep (issue #1046)"
+    )
+    assert "pull_request" not in if_clause
+    assert "!cancelled()" in if_clause, (
+        "the if must override the implicit success() so a skipped pr-size "
+        "on schedule runs does not cascade-skip the scan"
+    )
+    assert "needs.pr-size.result == 'skipped'" in if_clause
+
+
+def test_ci_workflow_schedule_runs_security_deep_only() -> None:
+    """Issue #1046: on a scheduled run, security-deep executes alone.
+
+    The workflow-level ``schedule:`` trigger reaches every job in ci.yml,
+    so each other job must be structurally unable to run on that event:
+
+    - ``pr-size`` and ``ui-detection`` carry an explicit ``!= 'schedule'``
+      guard (pr-size has nothing to diff against; ui-detection has no
+      needs, so the cascade cannot skip it).
+    - ``issue-spec`` (pull_request only) and ``mutation`` (dispatch/tags,
+      issue #780 cadence, unchanged) already gate on events that exclude
+      schedule.
+    - the remaining chain is skipped by the pr-size cascade: a job whose
+      needed job is skipped is skipped unless its own ``if`` contains a
+      status function — so these jobs must NOT grow one.
+    - ``required`` is guarded because the checker behind it fails closed
+      on ``schedule`` (test_check_required_jobs.py pins that contract)
+      and a weekly scan run needs no PR rollup verdict.
+    - ``e2e`` is guarded explicitly: release and UI-change events only,
+      never a scheduled run.
+    """
+    doc = _doc(WORKFLOW_PATH)
+    jobs = _workflow_job_names(WORKFLOW_PATH)
+
+    guarded = {"pr-size", "ui-detection", "e2e", "required"}
+    own_event_gate = {"issue-spec", "mutation"}
+    # Issue #1196: the heavy jobs carry the docs-only skip condition, which
+    # contains NO status check function — so the pr-size cascade still skips
+    # them on schedule runs, and the schedule matrix stays security-deep only.
+    heavy_docs_only = {
+        "typecheck",
+        "test",
+        "integration",
+        "verify-fallback-ready",
+        "build",
+    }
+    cascaded = {
+        "lint",
+        "security",
+    }
+    assert guarded | own_event_gate | heavy_docs_only | cascaded | {
+        "security-deep"
+    } == jobs
+
+    for name in sorted(guarded):
+        if_clause = str(_workflow_yaml.job(doc, name).get("if") or "")
+        assert "github.event_name != 'schedule'" in if_clause, (
+            f"{name} must explicitly exclude schedule events (issue #1046)"
+        )
+    for name in sorted(own_event_gate):
+        if_clause = str(_workflow_yaml.job(doc, name).get("if") or "")
+        assert "github.event_name == 'schedule'" not in if_clause, (
+            f"{name} must keep its own event gate, which excludes schedule"
+        )
+    for name in sorted(heavy_docs_only):
+        if_clause = str(_workflow_yaml.job(doc, name).get("if") or "")
+        assert "github.event_name != 'pull_request'" in if_clause, (
+            f"{name} must gate the docs-only skip on pull_request events "
+            "(issue #1196)"
+        )
+        for status_fn in ("always()", "failure()", "cancelled()"):
+            assert status_fn not in if_clause, (
+                f"{name} must not carry a status check function: without one, "
+                "the skipped pr-size cascade still skips it on schedule runs "
+                "(issue #1046 invariant)"
+            )
+    for name in sorted(cascaded):
+        assert _workflow_yaml.job(doc, name).get("if") is None, (
+            f"{name} must stay skipped via the pr-size cascade on schedule "
+            "runs; adding its own event condition would desync the "
+            "schedule matrix (issue #1046)"
+        )
+
+
+def test_ci_workflow_schedule_never_reaches_deploy() -> None:
+    """Issue #1046: deploy must not run on schedule events.
+
+    deploy.yml is a separate workflow listening to push to main only, so
+    the schedule trigger in ci.yml cannot reach it structurally; pin the
+    trigger set so a future ``schedule:`` there fails this test.
+    """
+    triggers = _triggers(DEPLOY_WORKFLOW_PATH)
+
+    assert "schedule" not in triggers, (
+        "deploy.yml must not listen to schedule; the weekly cadence is a "
+        "ci.yml concern only (issue #1046)"
+    )
+    assert "push" in triggers
+
+
+# --- issue #963: structured workflow access ---------------------------------
+
+
+def test_workflow_structure_is_independent_of_comments_and_indentation(
+    tmp_path: Path,
+) -> None:
+    """Regression pin for issue #963: workflow assertions read structure.
+
+    A workflow doctored with an innocuous comment must parse to exactly
+    the same structure as the original. Text-offset assertions (substring
+    matching over the raw file, ``workflow.index(...)`` cuts) used to be
+    able to turn red — or green — on such a cosmetic edit; structural
+    access cannot. Only a real change to the YAML structure (the part
+    GitHub Actions executes) can move these assertions now.
+    """
+    doc = _doc(WORKFLOW_PATH)
+    e2e = _workflow_yaml.job(doc, "e2e")
+    original = {
+        "triggers": _workflow_yaml.on_triggers(doc),
+        "jobs": sorted((doc.get("jobs") or {}).keys()),
+        "e2e_needs": _workflow_yaml.needs(e2e),
+        "e2e_steps": [
+            str(step.get("name", "<unnamed>"))
+            for step in _workflow_yaml.steps(e2e)
+        ],
+    }
+
+    original_text = WORKFLOW_PATH.read_text(encoding="utf-8")
+    doctored_text = original_text.replace(
+        "name: ci\n",
+        "name: ci\n# a purely cosmetic comment that must not affect tests\n",
+        1,
+    )
+    assert doctored_text != original_text
+
+    doctored_path = tmp_path / "ci.yml"
+    doctored_path.write_text(doctored_text, encoding="utf-8")
+    doctored_doc = _doc(doctored_path)
+    doctored_e2e = _workflow_yaml.job(doctored_doc, "e2e")
+
+    assert _workflow_yaml.on_triggers(doctored_doc) == original["triggers"]
+    assert sorted((doctored_doc.get("jobs") or {}).keys()) == original["jobs"]
+    assert _workflow_yaml.needs(doctored_e2e) == original["e2e_needs"]
+    assert [
+        str(step.get("name", "<unnamed>"))
+        for step in _workflow_yaml.steps(doctored_e2e)
+    ] == original["e2e_steps"]
+
+
+# --- issue #1121: the PR body is untrusted input ---------------------------
+
+
+def _pr_size_enforce_step() -> dict[str, object]:
+    """The single step of pr-size.yml that invokes the budget script."""
+    job = next(iter((_doc(PR_SIZE_WORKFLOW_PATH).get("jobs") or {}).values()))
+    steps = [
+        step
+        for step in _workflow_yaml.steps(job)
+        if "scripts/check_pr_size.py" in str(step.get("run", ""))
+    ]
+    assert len(steps) == 1, "exactly one step must invoke scripts/check_pr_size.py"
+    return steps[0]
+
+
+def test_pr_size_body_never_travels_through_github_output() -> None:
+    """The author-controlled PR body must not be written to ``$GITHUB_OUTPUT``
+    (a body line equal to the delimiter injects step outputs) nor read back
+    through a ``steps.*.outputs.body`` expression (issue #1121)."""
+    text = "\n".join(
+        _workflow_yaml.job_text(entry)
+        for entry in (_doc(PR_SIZE_WORKFLOW_PATH).get("jobs") or {}).values()
+    )
+
+    assert "steps.body.outputs" not in text
+    assert "body<<" not in text
+    assert "BODY" not in "".join(
+        line for line in text.splitlines() if "GITHUB_OUTPUT" in line
+    ), "no GITHUB_OUTPUT write may carry the PR body (issue #1121)"
+
+
+def test_pr_size_fetches_and_enforces_in_one_step() -> None:
+    """The body is fetched and enforced inside the same step, handed to the
+    script through the process environment (issue #1121)."""
+    step = _pr_size_enforce_step()
+    run = str(step.get("run", ""))
+
+    assert _PR_SIZE_BODY_URL_RE.search(run), "the enforcing step must fetch the body"
+    assert 'check_pr_size.py "$TOTAL" "$PR_BODY"' in run
+    assert "exit 1" in run, "a non-200 answer must fail closed in the same step"
+    assert '"$code" != "200"' in run
+
+
+def test_pr_size_ci_does_not_retrigger_on_edited() -> None:
+    """Editing a PR body does not refresh the check: ci.yml keeps the default
+    pull_request types on purpose (re-running would repeat the whole CI); the
+    docs tell authors to re-run the failed job, which re-reads the live body."""
+    triggers = _triggers(WORKFLOW_PATH)
+    pull_request = triggers.get("pull_request")
+    types = pull_request.get("types") if isinstance(pull_request, dict) else None
+
+    assert not types or "edited" not in types
+
+
+# ---------------------------------------------------------------------------
+# Issue #1196: docs-only fast lane — the heavy jobs skip on pure-documentation
+# PRs while the fast gates always run.
+# ---------------------------------------------------------------------------
+
+#: Issue #1196: heavy jobs the docs-only lane may skip. e2e is gated
+#: separately (it already carries the ui_changed condition from issue #895).
+_HEAVY_DOCS_ONLY_JOBS = (
+    "typecheck",
+    "test",
+    "integration",
+    "verify-fallback-ready",
+    "build",
+)
+
+
+def test_ci_workflow_ui_detection_publishes_docs_changed_marker() -> None:
+    """Issue #1196: the ui-detection job must publish the ``docs_changed``
+    marker that the heavy jobs' skip conditions and the ``required``
+    aggregator rely on, classified by the single source of truth."""
+    block = _workflow_yaml.job_text(_job(WORKFLOW_PATH, "ui-detection"))
+
+    assert "docs_changed:" in block, (
+        "ui-detection must declare a docs_changed output"
+    )
+    assert 'echo "docs_changed=' in block, (
+        "ui-detection must publish docs_changed into $GITHUB_OUTPUT"
+    )
+    assert "--docs-changed" in block, (
+        "docs_changed must come from scripts/check_required_jobs.py "
+        "(single source of truth)"
+    )
+
+
+def test_ci_workflow_docs_detection_defaults_fail_closed() -> None:
+    """Issue #1196: the detection starts from docs_changed=false; only a
+    provably pure-documentation diff flips it — any doubt runs the heavy jobs."""
+    block = _workflow_yaml.job_text(_job(WORKFLOW_PATH, "ui-detection"))
+
+    assert "docs_changed=false" in block, (
+        "ui-detection must default to docs_changed=false (fail-closed)"
+    )
+
+
+@pytest.mark.parametrize("job_id", _HEAVY_DOCS_ONLY_JOBS)
+def test_ci_workflow_heavy_job_skips_on_docs_only_pull_requests(job_id: str) -> None:
+    """Issue #1196: every heavy job declares the explicit docs-only skip —
+    the job needs ui-detection (to read the marker) and its ``if`` runs it
+    on every event except a pull_request whose ui-detection published
+    docs_changed='true'."""
+    job = _job(WORKFLOW_PATH, job_id)
+
+    needs = _workflow_yaml.needs(job)
+    assert "ui-detection" in needs, (
+        f"job {job_id!r} reads needs.ui-detection.outputs.docs_changed, so "
+        "ui-detection must be a direct need"
+    )
+    if_clause = str(job.get("if", ""))
+    assert "github.event_name != 'pull_request'" in if_clause, (
+        f"job {job_id!r} must run on push and release events"
+    )
+    assert "needs.ui-detection.outputs.docs_changed != 'true'" in if_clause, (
+        f"job {job_id!r} must skip only on a docs-only pull_request"
+    )
+
+
+@pytest.mark.parametrize(
+    "job_id", ("pr-size", "issue-spec", "lint", "security", "required")
+)
+def test_ci_workflow_fast_gates_never_ride_the_docs_lane(job_id: str) -> None:
+    """Issue #1196: the fast gates always run — issue-spec, branch-name
+    (pr-name), pr-size, lint, security and the required rollup must not
+    reference the docs marker anywhere in their job text."""
+    job = _job(WORKFLOW_PATH, job_id)
+
+    assert "docs_changed" not in _workflow_yaml.job_text(job), (
+        f"fast gate {job_id!r} must never skip on docs-only PRs"
+    )
+
+
+def test_ci_workflow_e2e_does_not_run_on_docs_only_pull_requests() -> None:
+    """Issue #1196: the e2e ``if`` gates on docs_changed too — a pure docs
+    diff can never be a UI change, so e2e skips even when an odd root-level
+    markdown file outside the NON-UI allowlist forced ui_changed=true."""
+    e2e_job = _job(WORKFLOW_PATH, "e2e")
+    if_clause = str(e2e_job.get("if", ""))
+
+    assert "needs.ui-detection.outputs.docs_changed != 'true'" in if_clause, (
+        "e2e must not run on a docs-only pull_request"
+    )
+
+
+# --- issue #1087: a single Python version and a single setup-python SHA ------
+
+_SETUP_PYTHON_SHA_PATTERN = re.compile(r"actions/setup-python@([0-9a-f]{40})")
+_INLINE_PYTHON_VERSION_PATTERN = re.compile(r'^\s*python-version:\s*["\']', re.MULTILINE)
+_GITHUB_WORKFLOW_FILES = sorted(
+    path
+    for directory in (".github/workflows", ".github/actions")
+    for path in (REPO_ROOT / directory).rglob("*.yml")
+)
+
+
+def test_python_version_file_is_the_only_version_source() -> None:
+    """Issue #1087: no workflow or composite action may declare an inline
+    ``python-version:`` — every interpreter comes from ``.python-version``
+    via ``python-version-file:``, so CI cannot drift from the deployed
+    image.
+    """
+    offenders = [
+        f"{path.relative_to(REPO_ROOT)}: {line}"
+        for path in _GITHUB_WORKFLOW_FILES
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if _INLINE_PYTHON_VERSION_PATTERN.match(line)
+    ]
+
+    assert not offenders, (
+        "inline python-version found; use python-version-file: .python-version\n"
+        + "\n".join(offenders)
+    )
+
+
+def test_setup_python_uses_a_single_sha_everywhere() -> None:
+    """Issue #1087: ``actions/setup-python`` is pinned to one SHA across
+    workflows and the composite action — Dependabot bumps must not leave
+    the composite action behind.
+    """
+    hits = [
+        (path.relative_to(REPO_ROOT), sha)
+        for path in _GITHUB_WORKFLOW_FILES
+        for sha in _SETUP_PYTHON_SHA_PATTERN.findall(
+            path.read_text(encoding="utf-8")
+        )
+    ]
+
+    assert hits, "actions/setup-python must be referenced somewhere"
+    shas = {sha for _, sha in hits}
+    assert len(shas) == 1, (
+        "multiple actions/setup-python SHAs found:\n"
+        + "\n".join(f"{path}: {sha}" for path, sha in hits)
+    )
+
+
+def test_dockerfile_python_version_matches_python_version_file() -> None:
+    """Issue #1087: the interpreter CI tests on (``.python-version``) and the
+    one the production image builds with (``ARG PYTHON_VERSION``) must be
+    the same string, so what is tested is what is deployed.
+    """
+    pinned = (REPO_ROOT / ".python-version").read_text(encoding="utf-8").strip()
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    match = re.search(r"^ARG PYTHON_VERSION=(\S+)", dockerfile, re.MULTILINE)
+
+    assert match is not None, "Dockerfile must declare ARG PYTHON_VERSION"
+    assert match.group(1) == pinned, (
+        f"Dockerfile ARG PYTHON_VERSION={match.group(1)!r} diverges from "
+        f".python-version {pinned!r}"
+    )

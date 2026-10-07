@@ -21,11 +21,17 @@ Solo dependencias de la biblioteca estándar. Uso::
 
 ``<ruta>`` puede ser un archivo ``.md`` o un directorio (recursivo).
 
+Con ``--informational`` el detector es informativo (issue #1149, decisión
+del operador 2026-09-30): imprime las violaciones igualmente pero sale
+con exit 0, de modo que el paso de CI muestra la señal sin fallar el
+job. Sin el flag el comportamiento es el histórico (exit 1 con
+violaciones), que sigue siendo el contrato por defecto de la CLI.
+
 Exit codes:
 
-    0 — sin violaciones
-    1 — violaciones encontradas
-    2 — error de uso (sin argumentos)
+    0 — sin violaciones (o violaciones con ``--informational``)
+    1 — violaciones encontradas (sin ``--informational``)
+    2 — error de uso (sin argumentos); no lo suaviza ``--informational``
 
 Ignorar violaciones: añadir al final de la línea el marcador
 ``<!-- alantyle-ignore -->`` para suprimir todos los detectores sobre esa
@@ -34,7 +40,7 @@ El propio marcador no se evalúa.
 
 Tests: ``tests/test_check_alantyle.py``. Integración CI:
 ``.github/workflows/ci.yml::lint.job.steps[alantyle-lint]`` (issues
-#559, #571, #572; ADR d-42).
+#559, #571, #572; informativo desde #1149; ADR d-42).
 """
 from __future__ import annotations
 
@@ -110,7 +116,7 @@ _HTTP_SECURITY_WHITELIST = frozenset(
 _CLOUD_INFRASTRUCTURE_WHITELIST = frozenset(
     {
         "AMQP", "AWS", "AZURE", "CDN", "CIDR", "DNS", "FTP", "GCP",
-        "GRPC", "IaaS", "IMAP", "INFORGE", "INSFORGE", "IP", "K8S",
+        "GHCR", "GRPC", "IaaS", "IMAP", "IP", "K8S",
         "MQTT", "PaaS", "SAAS", "SMTP", "SMS", "SSH", "TCP", "UDP",
         "VPN", "VPS", "WS", "WSS", "WWW",
     }
@@ -847,7 +853,11 @@ def main(argv: list[str] | None = None) -> int:
     _pin_output_encoding()
     if argv is None:
         argv = sys.argv[1:]
-    args = argv
+    # Modo informativo (issue #1149): imprime las violaciones pero no
+    # falla. Los errores de uso siguen saliendo con exit 2 en ambos
+    # modos, de modo que una invocación rota nunca pasa como verde.
+    informational = "--informational" in argv
+    args = [a for a in argv if a != "--informational"]
     if not args:
         print(
             "uso: check_alantyle.py <ruta> [<ruta>...] "
@@ -869,6 +879,14 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
     if violations:
+        if informational:
+            print(
+                f"check_alantyle: INFORMATIONAL ({len(violations)} violaciones "
+                f"en {len(files)} archivos) — no bloqueante desde issue #1149; "
+                "ver docs/quality/ci-gate-inventory.md",
+                file=sys.stderr,
+            )
+            return EXIT_OK
         print(
             f"check_alantyle: FAIL ({len(violations)} violaciones en {len(files)} archivos)",
             file=sys.stderr,

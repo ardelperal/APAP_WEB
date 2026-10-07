@@ -1,6 +1,6 @@
 # Plan de cobertura E2E
 
-> **Estado**: propuesta. No se han creado tests todavía.
+> **Estado**: foto histórica del plan en el momento de su redacción — recuentos e inventario de «Estado actual» no reflejan el árbol actual. El plan se ha ejecutado en su mayor parte: hoy `tests/e2e/` cuenta con 51 ficheros de test (252 tests), incluidos los CRUD de los módulos propuestos aquí. La referencia viva de la suite es el propio directorio `tests/e2e/` y [`docs/quality/ci-gate-inventory.md`](docs/quality/ci-gate-inventory.md).
 > **Alcance**: inventario exhaustivo de la superficie HTTP del proyecto y plan priorizado para ampliar `tests/e2e/` con cobertura end-to-end ejecutada por Playwright.
 
 ## Resumen ejecutivo

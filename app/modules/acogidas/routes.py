@@ -10,7 +10,9 @@ Endpoints (mounted at ``/acogidas`` by ``app/main.py``):
 - ``GET  /acogidas``                       list of stays (active + closed)
                                                 with optional ``?activas_solo=1``
                                                 filter.
-- ``GET  /acogidas/new``                   empty form.
+- ``GET  /acogidas/new``                   create form; optionally prefilled
+                                                from the /asignar redirect query
+                                                (issue #1008).
 - ``POST /acogidas``                       create; redirect to detail on
                                                 success.
 - ``GET  /acogidas/{id}``                  detail view with duration +
@@ -31,6 +33,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+import app.modules.acogidas.service as acogidas_service
 from app.core._module_helpers._crud_flow import render_edit_form
 from app.core._module_helpers._form_render import make_render_form
 from app.core.auth_dependencies import (
@@ -39,13 +42,34 @@ from app.core.auth_dependencies import (
     return_early_if_response,
 )
 from app.core.csrf import csrf_token_context_processor
-from app.core.data_access import BackendError, SqlExecutor
+from app.core.data_access import (
+    BackendError,
+    SqlExecutor,
+    TransactionalSqlExecutor,
+)
+
+#: Canonical blank-to-None normalizer (§25: no helper duplication —
+#: entradas/salud/materiales/adopciones import the same shared helper;
+#: acogidas' local ``_opt`` copy was retired with issue #1008 to fit the
+#: routes.py mutation-site ratchet).
+from app.core.forms import optional_value as _opt
 from app.core.middleware import base_template_context_processor, current_path_context_processor
 from app.core.rbac import Permission, require_permission
-from app.modules.acogidas import service as acogidas_service
+from app.modules.acogidas._actor_flow import close_acogida_or_403, create_acogida_with_actor
+from app.modules.acogidas._prefill_flow import prefill_form_data_from_query
 from app.modules.acogidas.forms import AcogidaForm
 from app.modules.animals import AnimalsPort, get_animals_port
 from app.modules.foster import assignment_service
+
+#: Shared between ``create_acogida_view`` and ``update_acogida_view``:
+#: the operator-facing label for the entity in the 422 error message
+#: (issue #945, A-13: consolidated so threading the actor through the
+#: create/close flow doesn't grow this file past its mutation-site
+#: ratchet baseline, scripts/check_mutation_sites.py).
+_ACOGIDA_ENTITY_LABEL = "estancia de acogida"
+
+#: Shared between the two ``_format_persisted_error`` branches below.
+_ACOGIDA_SAVE_ERROR_PREFIX = "No se pudo guardar la "
 
 _ACOGIDAS_PATH = "/acogidas"
 router = APIRouter(prefix=_ACOGIDAS_PATH, tags=["foster"])
@@ -72,13 +96,6 @@ _FORM_FIELDS = (
     "telefono",
     "observaciones",
 )
-
-
-def _opt(value: str | None) -> str | None:
-    if value is None:
-        return None
-    stripped = str(value).strip()
-    return stripped or None
 
 
 def _enforce_species_gate(
@@ -198,11 +215,31 @@ def list_acogidas_view(
 def new_acogida_form(
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_ACOGIDAS))],
+    port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
-    """Render an empty create form."""
+    """Render the create form, honoring the /asignar redirect contract.
+
+    Issue #1008: ``POST /casas-acogida/{id}/asignar`` 303-redirects here
+    with ``animal_id``/``casa_acogida_id``/``override_id`` query params
+    (issues #142 + #919). The params are read from the request and
+    validated into form prefill by
+    :func:`app.modules.acogidas._prefill_flow.prefill_form_data_from_query`
+    (extracted out of this handler: routes.py is a mutation-site ratchet
+    baseline with no headroom). Only empty fields get prefilled — POST
+    resubmits never read query params, so explicit form values always
+    win. Malformed/unknown animal ids 404; a malformed
+    ``casa_acogida_id`` 404s; a malformed ``override_id`` is dropped,
+    never echoed unvalidated.
+    """
     if (early := return_early_if_response(user)) is not None:
         return early
-    return _render_form(request, user, {}, None, _ACOGIDAS_PATH)
+    return _render_form(
+        request,
+        user,
+        prefill_form_data_from_query(port, request),
+        None,
+        _ACOGIDAS_PATH,
+    )
 
 
 # --- create (submit) ------------------------------------------------------
@@ -213,7 +250,7 @@ def create_acogida_view(  # noqa: PLR0913  # form model + fixed dependencies
     request: Request,
     form: Annotated[AcogidaForm, Form()],
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))],
-    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
+    client: Annotated[TransactionalSqlExecutor, Depends(get_local_postgres_executor_dep)],
     port: Annotated[AnimalsPort, Depends(get_animals_port)],
 ):
     """Create a new estancia; redirect to detail on success, re-render form on validation error.
@@ -268,7 +305,7 @@ def create_acogida_view(  # noqa: PLR0913  # form model + fixed dependencies
             status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
     try:
-        acogida = acogidas_service.create_acogida(client, form_data)
+        acogida = create_acogida_with_actor(client, form_data, user)
     except BackendError as exc:
         # Issue #139 P1 #4 (TOCTOU mitigation): _validate_references runs
         # SELECTs before the INSERT; a concurrent deactivate between the
@@ -282,7 +319,7 @@ def create_acogida_view(  # noqa: PLR0913  # form model + fixed dependencies
             request,
             user,
             form_data,
-            _format_persisted_error(exc, "estancia de acogida"),
+            _format_persisted_error(exc, _ACOGIDA_ENTITY_LABEL),
             _ACOGIDAS_PATH,
             status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
@@ -403,7 +440,7 @@ def update_acogida_view(  # noqa: PLR0913  # form model + fixed dependencies
             request,
             user,
             form_data,
-            _format_persisted_error(exc, "estancia de acogida"),
+            _format_persisted_error(exc, _ACOGIDA_ENTITY_LABEL),
             f"/acogidas/{acogida_id}/update",
             status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
@@ -431,7 +468,7 @@ def close_acogida_view(
     acogida_id: str,
     _request: Request,
     user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.WRITE_ACOGIDAS))],
-    client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
+    client: Annotated[TransactionalSqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Close the stay: ``fecha_final = current_date``, ``activo`` stays true.
 
@@ -441,7 +478,7 @@ def close_acogida_view(
     """
     if (early := return_early_if_response(user)) is not None:
         return early
-    if acogidas_service.close_acogida(client, acogida_id) is None:
+    if close_acogida_or_403(client, acogida_id, user) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return RedirectResponse(
         url=f"/acogidas/{acogida_id}", status_code=status.HTTP_303_SEE_OTHER
@@ -489,9 +526,9 @@ def _format_persisted_error(exc: BackendError, entity_label: str) -> str:
     body_text = str(exc.body).lower() if exc.body is not None else ""
     if "foreign key" in body_text or "violates" in body_text:
         return (
-            f"No se pudo guardar la {entity_label}: una referencia "
+            f"{_ACOGIDA_SAVE_ERROR_PREFIX}{entity_label}: una referencia "
             f"extranjera (animal, casa, voluntario o entrada) dejó de "
             f"ser válida entre la validación y el guardado. Revisa los "
             f"identificadores e inténtalo de nuevo."
         )
-    return f"No se pudo guardar la {entity_label}: {exc}"
+    return f"{_ACOGIDA_SAVE_ERROR_PREFIX}{entity_label}: {exc}"

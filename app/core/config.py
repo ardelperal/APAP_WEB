@@ -26,9 +26,10 @@ does this for safety).
 from __future__ import annotations
 
 import functools
+import ipaddress
 from typing import Literal
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.logging import log_safe
@@ -52,6 +53,12 @@ class StartupConfigError(RuntimeError):
         )
 
 
+# Minimum accepted length for a bearer secret that gates sessions
+# (issue #1073 — shared floor by APAP_SESSION_SECRET and, when the mock
+# is enabled, APAP_E2E_AUTH_SECRET).
+_MIN_SESSION_SECRET_LENGTH = 32
+
+
 def _validate_secrets(settings: Settings) -> None:
     """Refuse to boot with placeholder / short critical secrets.
 
@@ -68,6 +75,22 @@ def _validate_secrets(settings: Settings) -> None:
     if len(settings.session_secret) < 32:
         log_safe("startup.config_invalid", env_var="APAP_SESSION_SECRET", reason="too_short")
         raise StartupConfigError("APAP_SESSION_SECRET", "too_short")
+    # Issue #1073: ``e2e_auth_secret`` is the bearer credential for a route
+    # that mints full sessions, so it gets the same 32-char floor as the
+    # session secret whenever the mock is enabled. The empty secret also
+    # fails here (0 < 32) — the runtime 503 in ``e2e_auth`` stays as
+    # defense-in-depth behind this startup gate. Mirrors the session check:
+    # reason="too_short", env_var="APAP_E2E_AUTH_SECRET"; ``debug=True``
+    # bypasses (early return above).
+    if settings.e2e_auth_enabled and len(settings.e2e_auth_secret) < _MIN_SESSION_SECRET_LENGTH:
+        log_safe("startup.config_invalid", env_var="APAP_E2E_AUTH_SECRET", reason="too_short")
+        raise StartupConfigError("APAP_E2E_AUTH_SECRET", "too_short")
+
+
+# One-shot guard for the XFF no-op advisory (JD-B-004): emitted at most
+# once per process, on the first Settings construction that combines
+# trust_xff=True with an empty trusted_proxies list.
+_xff_noop_advisory_emitted = False
 
 
 class Settings(BaseSettings):
@@ -121,9 +144,11 @@ class Settings(BaseSettings):
     e2e_auth_enabled: bool = False
     e2e_auth_secret: str = ""
     # Email used by the Playwright conftest when authenticating
-    # against the mock route. Must exist as an ``usuarios_autorizados``
-    # row in production, but the mock pre-populates the in-process
-    # auth cache so the DB row is bypassed during E2E runs.
+    # against the mock route. It MUST exist as an active
+    # ``usuarios_autorizados`` row — the DB is the single allowlist
+    # (issue #1073); the in-process auth cache is written only by
+    # ``require_authorized_user`` (DB revalidation), never seeded by
+    # the mock.
     e2e_auth_default_email: str = "e2e@apap.local"
 
     # --- LocalBackend rawsql shared-secret auth (issue #680) ----------
@@ -195,7 +220,55 @@ class Settings(BaseSettings):
     rate_limit_write_per_min_user: int = 60
     rate_limit_write_per_min_ip: int = 30
     # Whether to trust X-Forwarded-For header (needed when behind a proxy).
+    # The header is only honoured when ``trusted_proxies`` is non-empty:
+    # trust_xff=True with an EMPTY list means NO client IP override — the
+    # direct peer connection is used as the client IP (issue #920; see
+    # docs/runbooks/trusted-proxies.md for when enabling is safe).
     trust_xff: bool = False
+    # CIDR networks of the reverse-proxy hops that may set X-Forwarded-For,
+    # parsed as a JSON list (e.g. APAP_TRUSTED_PROXIES='["10.0.0.0/8"]').
+    # Empty (default) disables XFF trust even when ``trust_xff`` is True.
+    # Non-CIDR entries fail settings validation at startup (fail-fast).
+    trusted_proxies: list[str] = Field(default_factory=list)
+
+    @field_validator("trusted_proxies")
+    @classmethod
+    def _validate_trusted_proxies_cidrs(cls, value: list[str]) -> list[str]:
+        """Reject non-CIDR entries at construction time (issue #920).
+
+        Fail-fast beats a misconfigured proxy list silently widening the
+        rate-limit bucket at runtime.
+        """
+        for cidr in value:
+            try:
+                ipaddress.ip_network(cidr, strict=False)
+            except ValueError:
+                raise ValueError(
+                    f"trusted_proxies entry is not a valid CIDR: {cidr!r}"
+                ) from None
+        return value
+
+    def model_post_init(self, __context: object) -> None:  # noqa — pydantic lifecycle hook, invoked by the framework
+        """Emit the one-shot XFF no-op advisory after construction (JD-B-004).
+
+        ``trust_xff=True`` with an empty ``trusted_proxies`` list is a
+        silent no-op for client-IP resolution (issue #920); without this
+        advisory the operator gets no signal that the flag is inert. The
+        module-level guard keeps it to ONE emission per process even when
+        settings are rebuilt (tests, cache clears).
+        """
+        global _xff_noop_advisory_emitted
+        if self.trust_xff and not self.trusted_proxies and not _xff_noop_advisory_emitted:
+            _xff_noop_advisory_emitted = True
+            log_safe(
+                "startup.xff_trust_noop",
+                trust_xff=self.trust_xff,
+                reason=(
+                    "APAP_TRUST_XFF is enabled but APAP_TRUSTED_PROXIES is "
+                    "empty; X-Forwarded-For is never consulted and the direct "
+                    "peer is used as the client IP"
+                ),
+            )
     # Runtime mode: "web" or "test". When "test", the middleware short-circuits
     # without consuming any rate budget.
     mode: str = "web"
@@ -221,6 +294,24 @@ class Settings(BaseSettings):
     # it once their domain is verified (see
     # ``scripts/setup_resend_smtp.sh``).
     smtp_from: str = ""
+
+    # --- Magic-link login flag (M3.4 wiring, issue #1005) ---------------
+    # Default-deny (AGENTS §6): ``False`` keeps the magic-link login
+    # surface unregistered — neither ``app/main.py`` nor the standalone
+    # LocalBackend factory (``app/core/local_backend/app.py``) includes
+    # the ``/auth/magic/*`` router, the auth middleware answers probes
+    # with a fail-closed 404 (and logs ``auth.magic_link_disabled``),
+    # and the login page renders without the magic-link form. Set
+    # ``APAP_AUTH_ENABLE_MAGIC_LINK=true`` to restore the pre-#1005
+    # behaviour (router registered, the two paths public for the token
+    # flow).
+    # DEPLOY-ORDER WARNING: production currently serves magic-link
+    # login with the router registered unconditionally. This env var
+    # MUST be set to ``true`` in the Coolify environment BEFORE
+    # deploying a build that carries this flag, otherwise magic-link
+    # login breaks on the next deploy. See
+    # ``docs/runbooks/operator-deploy-2026.md``.
+    auth_enable_magic_link: bool = False
 
     # --- Developer-only devtools preview pages (issue #821) ---------
     # When True, ``app.main`` registers the ``app.core.devtools``

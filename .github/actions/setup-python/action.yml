@@ -5,10 +5,11 @@ runs:
   using: composite
   steps:
     - name: Set up Python
-      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+      # Issue #1087: v7.0.0 SHA shared with every inline workflow step so a
+      # Dependabot bump cannot leave this composite action behind.
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
       with:
         python-version-file: .python-version
-        cache: pip
 
     - name: Install pinned uv
       shell: bash

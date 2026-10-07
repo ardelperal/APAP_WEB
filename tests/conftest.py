@@ -43,8 +43,26 @@ import pytest_asyncio
 # GitHub-hosted runner pool was blocked and tests never ran, masking this
 # configuration gap.
 os.environ.setdefault("APAP_MODE", "test")
+# Issue #1005: ``Settings.auth_enable_magic_link`` defaults to False
+# (default-deny), but the module-level ``app`` and several suites
+# (test_csrf.py's magic-link CSRF-exemption atoms,
+# tests/integration/test_magic_link_real_app.py's round-trip) exercise
+# the magic-link routes and must keep their pre-flag behaviour. The
+# flag-off behaviour is covered explicitly in
+# tests/test_magic_link_flag.py, which forces the env var per test.
+os.environ.setdefault("APAP_AUTH_ENABLE_MAGIC_LINK", "true")
 
-from app.core.config import get_settings  # noqa: E402  (must follow the env set)
+# Issue #1218: ``Settings`` reads ``env_file=".env"`` (resolved against the
+# CWD), so a developer-local ``.env`` at the repo root poisoned every
+# ``Settings()``/``get_settings()`` the suite constructs: reds appeared
+# locally that stayed green in CI, where no ``.env`` exists. The suite
+# default is therefore NO dotenv file at all; tests that intentionally
+# exercise dotenv-driven configuration construct ``Settings(_env_file=...)``
+# explicitly. Environment variables keep their normal precedence.
+
+from app.core.config import Settings, get_settings  # noqa: E402  (must follow the env set)
+
+Settings.model_config["env_file"] = None  # issue #1218: suite-level dotenv isolation
 from app.core.di.local_postgres_di import get_local_postgres_executor_dep  # noqa: E402
 from app.core.local_backend.db import LocalPostgresExecutor  # noqa: E402
 from app.core.session import read_session, session_cookie_name  # noqa: E402
@@ -82,9 +100,16 @@ def auth_reval_rows(
     # includes 'rol' as a selected column (appears in SELECT ... rol, ...).
     # The duplicate-check uses _CHECK_DUPLICATE_EMAIL_SQL with a minimal
     # 'SELECT id' (no rol column) — this pattern must NOT be intercepted.
+    #
+    # Issue #1003 changed ``GET_USER_BY_EMAIL_SQL`` to a case-insensitive
+    # WHERE (``lower(email) = lower($1)``); the spy matches either the new
+    # case-insensitive shape or the legacy case-sensitive shape so a
+    # downstream adapter that still ships the old SQL is still routed
+    # correctly during the transition. The narrower duplicate-check query
+    # is still excluded by the ``rol`` SELECT-column regex.
     if (
         "usuarios_autorizados" in query
-        and "email = $1" in query
+        and ("lower(email) = lower($1)" in query or "email = $1" in query)
         and re.search(r"(?<=[, ])rol(?=[,])", query) is not None
     ):
         email = (
@@ -98,21 +123,32 @@ def auth_reval_rows(
 
 @pytest.fixture(autouse=True)
 def _clear_settings_cache() -> None:
-    """Reset ``get_settings()`` lru_cache before every test.
+    """Reset module-level test seams before every test.
 
-    Added for code-quality-fixes T1 (see ``app/core/config.py`` docstring
-    and ``openspec/changes/code-quality-fixes/proposal.md``). Tests that
-    mutate ``APAP_*`` env vars without explicitly clearing the cache
-    would otherwise observe a stale singleton from a previous test.
+    Each item below is a worker-local cache or singleton whose state from
+    one test would leak into the next if not reset:
+
+    - ``get_settings()`` lru_cache (added for code-quality-fixes T1; tests
+      that mutate ``APAP_*`` env vars need a fresh read).
+    - The rate-limit backend (issue #286; bucket state from a previous
+      test would 429 a later request and masquerade as an auth failure).
+    - The in-process auth cache (issues #143/#145/#262/#287; ``require_
+      authorized_user`` memoizes the verdict per email for the worker
+      lifetime, so a rocio@example.com rol baked in by an earlier test
+      would otherwise flip a later reader-403 test to 200/303/422/404
+      instead of the contract-pinned 403 — flake blocker for issue #1041
+      and PR #1033). ``invalidate_all`` is idempotent for an empty cache
+      and bumps every per-email generation so prior verdicts are
+      unreachable to the next test.
     """
     get_settings.cache_clear()
-    # Reset the rate-limit backend between every test so bucket state from
-    # one test does not affect another (issue #286).
     try:
         from app.core.rate_limit_middleware import _reset_rate_limit_backend
         _reset_rate_limit_backend()
     except ImportError:
         pass  # Before rate-limit middleware is added; no-op
+    from app.core import auth_cache as _auth_cache
+    _auth_cache.invalidate_all()
 
 
 @pytest.fixture(autouse=True)
@@ -152,6 +188,17 @@ def _install_default_local_backend_client() -> None:
         def execute_sql(
             self, sql: str, params: list[object] | None = None
         ) -> list[dict[str, object]]:
+            # Magic-link verify (issue #917) resolves the ACTIVE user via
+            # GET_USER_BY_EMAIL_SQL through LocalBackendAuthUsersAdapter
+            # over this same spy. Without an active-user row the verify
+            # happy path fails closed (no apap_session cookie minted) and
+            # the CSRF exemption atom loses its cookie-minting coverage
+            # (judgment-day JD-B-002). auth_reval_rows' pattern requires
+            # the ``rol`` projected column, so the narrower
+            # _CHECK_DUPLICATE_EMAIL_SQL pre-check is NOT intercepted.
+            reval = auth_reval_rows(sql, params)
+            if reval is not None:
+                return reval
             self.execute_sql_calls.append((sql, list(params or [])))
             s = sql.strip().lower()
             # Routes that select a single animal by primary key expect

@@ -10,11 +10,15 @@ Same patterns as ``app/modules/foster/routes.py`` (FOSTER-01) and
 ``app/modules/acogidas/routes.py`` (FOSTER-02):
 
 - Routes own NO SQL — every data access goes through ``assignment_service``.
-- Auth via ``require_authorized_user`` + session payload for ``user_id``.
+- Auth via ``require_permission(READ_CASAS_ACOGIDA)`` (issue #1019:
+  fail-closed via the RBAC matrix) + session payload for ``user_id``.
 - CSRF token is auto-injected via ``csrf_token_context_processor``.
 - All handlers call ``return_early_if_response(user)`` first (defense
   in depth — the auth middleware already bounces anonymous visitors
   to ``/login``).
+
+- All redirect URLs built from form/route identifiers urlencode the
+  query (issue #919) or percent-encode the path segment.
 
 The sub-router shares the ``/casas-acogida`` prefix with the FOSTER-01
 ``foster_router`` so the path namespace is contiguous. FastAPI's
@@ -30,6 +34,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Annotated, Any
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -39,7 +44,6 @@ from starlette.responses import Response
 from app.core.auth_dependencies import (
     AuthenticatedUser,
     get_local_postgres_executor_dep,
-    require_authorized_user,
     require_developer_user,
     require_writer_user,
     return_early_if_response,
@@ -48,6 +52,7 @@ from app.core.config import get_settings
 from app.core.csrf import csrf_token_context_processor
 from app.core.data_access import SqlExecutor
 from app.core.middleware import base_template_context_processor, current_path_context_processor
+from app.core.rbac import Permission, require_permission
 from app.core.session import read_session_payload
 from app.modules.animals import AnimalsPort, get_animals_port
 from app.modules.foster import assignment as assignment_service
@@ -112,7 +117,7 @@ def _render_asignar_form(  # noqa: PLR0913  # non-route helper; 7 args needed fo
 def asignar_form(
     casa_id: str,
     request: Request,
-    user: Annotated[AuthenticatedUser, Depends(require_authorized_user)],
+    user: Annotated[AuthenticatedUser, Depends(require_permission(Permission.READ_CASAS_ACOGIDA))],
     client: Annotated[SqlExecutor, Depends(get_local_postgres_executor_dep)],
 ):
     """Render the foster assignment evaluation form.
@@ -205,8 +210,9 @@ def asignar_submit(  # noqa: PLR0913  # 2 Form fields + 4 fixed deps; form model
         )
 
     if decision.decision == "admit":
+        query = urlencode({"animal_id": animal_id, "casa_acogida_id": casa_id})
         return RedirectResponse(
-            url=f"/acogidas/new?animal_id={animal_id}&casa_acogida_id={casa_id}",
+            url=f"/acogidas/new?{query}",
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
@@ -242,12 +248,11 @@ def asignar_submit(  # noqa: PLR0913  # 2 Form fields + 4 fixed deps; form model
         operador_user_id=operador,
         motivo=motivo_clean,
     )
+    query = urlencode(
+        {"animal_id": animal_id, "casa_acogida_id": casa_id, "override_id": override_id}
+    )
     return RedirectResponse(
-        url=(
-            f"/acogidas/new?animal_id={animal_id}"
-            f"&casa_acogida_id={casa_id}"
-            f"&override_id={override_id}"
-        ),
+        url=f"/acogidas/new?{query}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
 

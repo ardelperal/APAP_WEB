@@ -287,9 +287,20 @@ def register_auth_flow_routes(app: FastAPI, templates) -> None:
         response.delete_cookie("apap_pkce")
         return response
 
-    @app.get("/logout")
+    @app.post("/logout")
     def logout() -> Response:
-        """Clear the session cookie and redirect home."""
+        """Clear the session cookie and redirect home.
+
+        Issue #1076: logout is a state-changing action, so it is
+        POST-only and CSRF-protected. ``GET /logout`` is intentionally
+        not served (405): a cross-site top-level navigation from another
+        site must not be able to clear the session cookie.
+
+        Note: this clears the cookie in the browser only. The signed
+        session stays valid until its TTL expires — the real revocation
+        path is removing the user from ``usuarios_autorizados`` (see
+        ``docs/codebase/security.md``).
+        """
         params = logout_use_case()
         response = _redirect("/")
         response.set_cookie(**params.kwargs)
