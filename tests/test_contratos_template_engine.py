@@ -38,38 +38,30 @@ from app.modules.contratos.domain.tipos_contrato import TipoContrato
 
 # --- 1. TipoContrato enum coverage ------------------------------------
 
-def test_tipo_contrato_enum_covers_eight_legacy_types() -> None:
-    """TipoContrato must expose exactly the eight legacy contract types.
+# The exhaustive-coverage pin that previously lived here was removed in
+# #1270: the closed list of eight values it pinned was a hand-written
+# copy that did not match the legacy (it cited
+# ``docs/legacy-signed-contract-flow.md`` §4, but that section is the
+# "Conservar ParaFirma" question, not an enum).  The catalog
+# ``catalogos_tipos_contrato.codigo`` is the only source with P1
+# evidence; the catalog-driven coverage is asserted in
+# ``tests/test_contratos_tipos_catalog_driven.py``.
 
-    Mirrors the eight ``TbContratosAnexos`` enum values documented in
-    ``docs/legacy-signed-contract-flow.md`` §4. Removing any value is
-    a breaking change to the storage adapter (orphaned object paths);
-    adding one is a breaking change to the DB enum. The exhaustive
-    list is the single source of truth.
+
+def test_tipo_contrato_str_mixin_supports_catalog_string_equality() -> None:
+    """``TipoContrato`` values compare equal to the catalog ``codigo`` strings.
+
+    The catalog seeds ``catalogos_tipos_contrato`` from
+    ``TbPlantillas`` (P1-fidelity) with Spanish spellings *with* tildes
+    (e.g. ``"Adopción"``, ``"Cesión"``). The ``str`` mix-in on the
+    enum lets the storage adapter and the route layer pass a catalog
+    ``codigo`` into ``SolicitudContrato`` without an explicit enum
+    conversion. Pins the JSON serialisation contract post-#1270.
     """
-    assert {t.value for t in TipoContrato} == {
-        "Entrada",
-        "Acogida",
-        "Acogida Judicial",
-        "Adopcion",
-        "PreAdopcion",
-        "Cesion",
-        "Reserva",
-        "Entrega",
-    }
-
-
-def test_tipo_contrato_str_mixin_supports_legacy_string_equality() -> None:
-    """TipoContrato values compare equal to plain legacy strings.
-
-    The legacy ``RellenarContrato*`` family keys off plain strings
-    (``"Adopcion"``, ``"Acogida Judicial"``, etc.). The ``str`` mix-in
-    on the enum is what lets the storage adapter and the route layer
-    pass a legacy string into ``SolicitudContrato`` without an
-    explicit enum conversion. Pins the JSON serialisation contract.
-    """
-    assert TipoContrato.ADOPCION == "Adopcion"
-    assert TipoContrato.ACOGIDA_JUDICIAL == "Acogida Judicial"
+    assert TipoContrato.ADOPCION == "Adopción"
+    assert TipoContrato.CESION == "Cesión"
+    assert TipoContrato.ENTRADA == "Entrada"
+    assert TipoContrato.ACOGIDA == "Acogida"
 
 
 # --- 2. Grammar validation ------------------------------------------
