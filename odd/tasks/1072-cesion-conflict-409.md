@@ -55,10 +55,51 @@ distance the old mock skipped.
 | # | Task | Evidence |
 |---|---|---|
 | 1 | Worktree `1072-cesion-conflict-409`, branch `fix/1072-cesion-conflict-409` off `origin/main` | `git worktree list` |
-| 2 | RED test `test_create_duplicate_through_real_adapter_translates_to_409` in `tests/test_cesiones_routes.py` | observed `422 != 409` on `main` |
+| 2 | RED test `test_create_duplicate_through_real_adapter_translates_to_409` in `tests/test_cesiones_routes.py` | observed `assert 422 == 409` on `origin/main` |
 | 3 | `service.py` re-exports the domain `CesionConflictError` | `issubclass(service.CesionConflictError, domain.CesionConflictError) is True` |
-| 4 | Gates: `pytest -k cesion`, `mypy`, `ruff check .`, `check_rules.py`, `check_module_size.py`, `check_route_size.py` | command + exit code |
-| 5 | Commit, push, PR referencing #1072 | PR URL |
+| 4 | Gates: `pytest -k cesion`, `mypy`, `ruff check .`, `check_rules.py`, `check_module_size.py`, `check_route_size.py` | all green (see below) |
+| 5 | Commit, push, PR referencing #1072 | commit `783cf91`, PR #1287 |
+
+## Evidence
+
+```
+$ uv run --frozen python -m pytest tests/test_cesiones_routes.py -k duplicate_through_real_adapter -q
+origin/main : assert 422 == 409
+branch      : 2 passed
+
+$ uv run --frozen python -m pytest tests -k cesion -q
+96 passed, 5353 deselected
+
+$ uv run --frozen python -m pytest -q
+1 failed, 5427 passed, 21 skipped
+  the only failure (tests/test_repository_secrets_ignore.py) is workstation-local:
+  an untracked `.atl/.gitignore` containing `*` re-ignores the directory
+  (`git check-ignore -v --no-index .atl/skill-registry.md` -> `.atl/.gitignore:1:*`).
+  This diff touches neither `.gitignore` nor `.atl/`.
+
+$ uv run --frozen python -m mypy
+Success: no issues found in 383 source files
+
+$ uv run --frozen ruff check .
+All checks passed!
+
+$ uv run --frozen python scripts/check_rule[REDACTED] 14 baselined notes, none new)
+$ uv run --frozen python scripts/check_[REDACTED] baselined, none new)
+$ uv run --frozen python scripts/check_module_size.py          -> OK
+$ uv run --frozen python scripts/check_route_size.py           -> OK
+$ uv run --frozen python scripts/check_import_cycles.py        -> 0 (5 baselined, none new)
+$ uv run --frozen python scripts/check_slice_completeness.py   -> OK
+$ uv run --frozen python scripts/check_ruff_ratchet.py         -> 0 (438 findings, within baseline)
+$ uv run --frozen python scripts/check_docstring_coverage.py   -> 87.53% (floor 73.0%)
+```
+
+Independent verification (`gentle-ai-verify`, read-only over the 12-command battery) found
+and the branch fixed two self-inflicted reds: the ruff `I001` import block, and the
+shrink-only mutation-site ratchet (`362 -> 361`).
+
+ASSESS over the committed range (`origin/main..HEAD`, 4 paths / 160 lines): risk `medium`,
+`reviewDue: false`; RDD is off for this clone, so the writer self-verification stands.
+An independent verifier ran anyway.
 
 ## Acceptance criteria (from the issue)
 
