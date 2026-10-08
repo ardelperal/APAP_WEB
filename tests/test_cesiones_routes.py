@@ -18,13 +18,23 @@ import pytest
 
 from app.core.auth_dependencies import get_local_backend_client_dep
 from app.core.config import get_settings
+from app.core.data_access import BackendError
 from app.core.local_backend.db import LocalPostgresExecutor
 from app.core.session import session_cookie_name, write_session
 from app.main import app, get_local_backend_client
 from app.modules.cesiones import service as cesiones_service
+from app.modules.cesiones.adapters.local_backend.cesiones_local_backend_adapter import (
+    CesionesLocalBackendAdapter,
+)
 from app.modules.cesiones.di import get_cesiones_port
 from app.modules.cesiones.domain.cesion import Cesion, CesionConflictError, Contrato
 from tests.conftest import auth_reval_rows, make_csrf_request
+
+# Issue #1100 wants ONE shared executor double instead of 23 private copies, so
+# this file reuses the canonical ``_FakeSqlExecutor`` from ``tests.test_cesiones``
+# rather than adding a 24th. Only the SqlExecutor is faked; see
+# ``_unique_conflict_executor`` below.
+from tests.test_cesiones import _FakeSqlExecutor
 
 
 class _NoSqlRouteClient(LocalPostgresExecutor):
@@ -149,6 +159,36 @@ def _form_data(**overrides: str) -> dict[str, str]:
     }
     data.update(overrides)
     return data
+
+
+def _unique_conflict_executor() -> _FakeSqlExecutor:
+    """Fake ``SqlExecutor`` whose cesion INSERT violates the UNIQUE FK.
+
+    Models the production UNIQUE violation on
+    ``cesiones_propietario.entrada_id`` (LocalBackend answers 409). The real
+    ``BackendError`` propagates out of the fake executor exactly as the real
+    one would, so ``service._is_unique_conflict`` is exercised for real.
+    """
+    executor = _FakeSqlExecutor()
+
+    def handler(query: str, _params: list[object]) -> Any:
+        normalized = " ".join(query.split())
+        if normalized.startswith("SELECT id FROM entradas WHERE id = $1"):
+            return [{"id": "ent-abc"}]
+        if normalized.startswith("SELECT id FROM catalogos_tipos_contrato"):
+            return [{"id": "tip-ces"}]
+        if normalized.startswith("INSERT INTO cesiones_propietario"):
+            raise BackendError(
+                409,
+                {
+                    "error": "duplicate key value violates unique constraint "
+                    '"cesiones_propietario_entrada_id_key"'
+                },
+            )
+        return []
+
+    executor.set_handler(handler)
+    return executor
 
 
 def _login_as_key_user(client: httpx.AsyncClient) -> None:
@@ -310,6 +350,39 @@ async def test_create_duplicate_translates_to_409_html(
         ),
     )
     app.dependency_overrides[get_cesiones_port] = lambda: mock_port
+
+    response = await make_csrf_request(
+        client,
+        "POST",
+        "/cesiones",
+        form_data=_form_data(),
+    )
+
+    app.dependency_overrides.pop(get_cesiones_port, None)
+
+    assert response.status_code == 409
+    assert "Ya existe una cesion" in response.text
+
+
+async def test_create_duplicate_through_real_adapter_translates_to_409(
+    client: httpx.AsyncClient,
+    route_client: _NoSqlRouteClient,
+) -> None:
+    """Regression pin for #1072: the UNIQUE conflict must reach the route as
+    ``domain.cesion.CesionConflictError`` and render 409.
+
+    Unlike ``test_create_duplicate_translates_to_409_html`` above, which mocks
+    the port with the exception the route already knows, this test wires the
+    REAL ``CesionesLocalBackendAdapter`` (hence the real
+    ``service.create_cesion``) and fakes only the ``SqlExecutor``. That is
+    precisely the distance the mocked test skipped: ``service.py`` used to
+    raise its OWN ``CesionConflictError``, which the route's ``except`` never
+    matched, so the conflict fell through to ``except ValueError`` → 422.
+    """
+    _login_as_key_user(client)
+
+    executor = _unique_conflict_executor()
+    app.dependency_overrides[get_cesiones_port] = lambda: CesionesLocalBackendAdapter(executor)
 
     response = await make_csrf_request(
         client,
