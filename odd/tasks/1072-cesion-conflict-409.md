@@ -83,8 +83,8 @@ Success: no issues found in 383 source files
 $ uv run --frozen ruff check .
 All checks passed!
 
-$ uv run --frozen python scripts/check_rule[REDACTED] 14 baselined notes, none new)
-$ uv run --frozen python scripts/check_[REDACTED] baselined, none new)
+$ uv run --frozen python scripts/check_rules.py .              -> 0 (14 baselined notes, none new)
+$ uv run --frozen python scripts/check_layers.py               -> 0 (56 baselined, none new)
 $ uv run --frozen python scripts/check_module_size.py          -> OK
 $ uv run --frozen python scripts/check_route_size.py           -> OK
 $ uv run --frozen python scripts/check_import_cycles.py        -> 0 (5 baselined, none new)
