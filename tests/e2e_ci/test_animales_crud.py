@@ -39,7 +39,6 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-import pytest
 from playwright.sync_api import Page
 
 from tests.e2e_ci._crud_helpers import (
@@ -167,26 +166,20 @@ def test_create_animal_redirects_to_detail(
 # --- 3. duplicate chip -----------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "issue #1293: the psycopg executor turns SQLSTATE 23505 into QueryError "
-        "(app/core/local_backend/db.py:91), so the route never reaches its "
-        "UniqueViolationError branch and the response is 502, not 409"
-    ),
-)
+# End-to-end RED that drove issue #1293: before the fix, the psycopg
+# executor collapsed SQLSTATE 23505 into ``QueryError`` (a
+# ``RuntimeError`` outside the ``DataAccessError`` family the routes
+# catch), so the duplicate-chip path skipped the route's
+# ``except UniqueViolationError`` branch and the global handler
+# returned 502. The slice-1 fix reparents the local errors onto
+# ``DataAccessError`` and discriminates on ``exc.sqlstate`` so 23505
+# reaches the route's 409 mapping. The xfail marker is gone — the
+# contract below must now pass end-to-end.
 def test_duplicate_chip_returns_spanish_error(
     authenticated_session: tuple[Page, str],
     base_url: str,
 ) -> None:
     """POST /animales twice with the same chip → 4xx with Spanish error.
-
-    Pinned as ``xfail(strict=True)`` against issue #1293, not as a skip:
-    the contract below is the one the route documents, the application
-    serves a 502 today, and a strict xfail turns red the moment the bug is
-    fixed so the marker cannot outlive it. The assertion stays on the
-    documented contract on purpose; adjusting it to the 502 would bless the
-    bug.
 
     The actual implementation raises ``UniqueViolationError`` from the
     port, which the route maps to ``409 Conflict`` with the message

@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.core.data_access import NestedTransactionError
-from app.core.local_backend.db import LocalPostgresExecutor, QueryError
+from app.core.data_access import NestedTransactionError, UniqueViolationError
+from app.core.local_backend.db import LocalPostgresExecutor
 
 pytestmark = pytest.mark.integration
 
@@ -81,10 +81,17 @@ def test_transaction_is_invisible_to_other_connections_until_commit(
 
 
 def test_transaction_translates_psycopg_error_and_rolls_back(ephemeral_postgres):
-    """A UNIQUE violation inside the transaction raises QueryError and rolls back."""
+    """A UNIQUE violation inside the transaction raises UniqueViolationError
+    and rolls back.
+
+    Issue #1293: the executor maps SQLSTATE 23505 to the domain class, so the
+    caller no longer has to know the transport shape. Before the fix this
+    assertion pinned ``QueryError`` — the collapse the route-level handlers
+    could not catch.
+    """
     executor = _make_executor(ephemeral_postgres)
 
-    with pytest.raises(QueryError):
+    with pytest.raises(UniqueViolationError):
         with executor.transaction() as txn:
             txn.execute_sql(_INSERT_ANIMAL_SQL, ["CHIP-TXN-006", "Uno"])
             txn.execute_sql(_INSERT_ANIMAL_SQL, ["CHIP-TXN-006", "Duplicado"])
@@ -113,10 +120,12 @@ def test_plain_execute_sql_still_commits_per_call(ephemeral_postgres):
 
 
 def test_transaction_translates_error_raised_by_commit(ephemeral_postgres) -> None:
-    """A failure surfaced only at COMMIT (deferred constraint) is a ``QueryError``."""
+    """A failure surfaced only at COMMIT (deferred constraint) raises
+    ``UniqueViolationError`` too: the mapping does not depend on which
+    statement triggered it."""
     executor = _make_executor(ephemeral_postgres)
 
-    with pytest.raises(QueryError):
+    with pytest.raises(UniqueViolationError):
         with executor.transaction() as tx:
             tx.execute_sql(
                 "CREATE TEMP TABLE deferred_probe (id int, "
