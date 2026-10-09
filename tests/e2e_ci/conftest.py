@@ -13,6 +13,7 @@ from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
 from tests.e2e_ci._crud_helpers import (
     animal_form_data,
     csrf_token_from_form,
+    entrada_form_data,
 )
 
 BASE_URL = os.environ.get("APAP_E2E_BASE_URL", "http://127.0.0.1:8000")
@@ -167,11 +168,14 @@ def e2e_logged_in_browser_context(
 
 
 # ---------------------------------------------------------------------------
-# Issue #1095 (slice 1): shared fixtures for the failing-closed CRUD
-# batteries that now live in ``tests/e2e_ci/``. Derived faithfully from
-# the inlined per-test fixtures in
+# Issue #1095 (slice 1 + slice 2): shared fixtures for the failing-closed
+# CRUD batteries that now live in ``tests/e2e_ci/``. Derived faithfully
+# from the inlined per-test fixtures in
 # ``tests/e2e/test_animales_crud.py`` (and the parallel definitions in
-# test_entradas_crud.py / test_cesiones_crud.py for ``animal_id_factory``).
+# test_entradas_crud.py / test_cesiones_crud.py for
+# ``animal_id_factory``). Slice 2 adds ``entrada_id_factory`` (chained
+# from ``animal_id_factory``) to back the ``test_entradas_crud.py`` and
+# ``test_cesiones_crud.py`` ports.
 #
 # Fail-closed by contract: this gate suite does not ``pytest.skip`` on
 # missing ``APAP_E2E_AUTH_SECRET`` or on a failed login (see the module
@@ -263,9 +267,16 @@ def animal_id_factory(
         form_page = page.goto(f"{base_url}/animales/new", wait_until="domcontentloaded")
         assert form_page is not None and form_page.status == 200
         csrf_token_from_form(page)  # regression sentinel
+        # ``max_redirects=0`` keeps the raw 303 — Playwright's request
+        # client follows redirects by default and would otherwise hide
+        # the 303 under the final 200 detail page, which makes the
+        # ``response.status == 303`` assertion below useless. Slice 2
+        # flagged this as the same regression-risk the slice-1
+        # animales battery documents in its module docstring.
         response = page.request.post(
             f"{base_url}/animales",
             form={"csrf_token": csrf_token, **form_data},
+            max_redirects=0,
         )
         assert response.status == 303, (
             f"animal setup failed: POST /animales did not return 303, "
@@ -278,6 +289,68 @@ def animal_id_factory(
             f"{response.headers.get('location')!r}."
         )
         return animal_id
+
+    return _factory
+
+
+@pytest.fixture
+def entrada_id_factory(
+    authenticated_session: tuple[Page, str],
+    animal_id_factory: Callable[[], str],
+    base_url: str,
+) -> Callable[[], str]:
+    """Return a factory that creates a fresh entrada and yields its UUID.
+
+    Slice 2 (issue #1095). Mirrors the
+    ``tests/e2e/test_cesiones_crud.py:135`` and
+    ``tests/e2e/test_cesiones_conflicts.py:109`` factory, swapping
+    the original pytest.skip on a non-303 POST for a hard assertion
+    (the gate's contract forbids skips).
+
+    Chains into ``animal_id_factory`` because ``EntradaForm.animal_id``
+    is a FK against ``animales`` — without an existing animal, the
+    service's ``_validate_references`` raises ``ValueError`` and the
+    route answers 422. Each call mints a fresh animal and a fresh
+    intake-entry (the latter's UNIQUE natural key on
+    ``(animal_id, fecha_entrada)`` guarantees no collision across
+    factory invocations within the same test run).
+
+    The factory visits ``/entradas/new`` (regression sentinel — the
+    page must render with a csrf token) before POSTing directly to
+    ``/entradas`` via the request client, mirroring the slice-1
+    animales factory pattern.
+    """
+    page, csrf_token = authenticated_session
+
+    def _factory() -> str:
+        animal_id = animal_id_factory()
+        # ``max_redirects=0`` keeps the raw 303 (Playwright's request
+        # client follows redirects by default; without the override
+        # the assertion below would always see the final 200 detail
+        # page and lose the 303 the route emits).
+        form_response = page.request.post(
+            f"{base_url}/entradas",
+            form={"csrf_token": csrf_token, **entrada_form_data(
+                animal_id=animal_id,
+                fecha_entrada="2024-06-01",
+            )},
+            max_redirects=0,
+        )
+        assert form_response.status == 303, (
+            f"entrada setup failed: POST /entradas did not return 303, "
+            f"got {form_response.status}: {form_response.text()[:300]!r}. "
+            f"The CI database must be writable from the e2e gate."
+        )
+        entrada_id = form_response.headers.get("location", "").rsplit("/", 1)[-1]
+        assert (
+            entrada_id
+            and not entrada_id.endswith("/new")
+            and not entrada_id.endswith("/edit")
+        ), (
+            f"entrada setup failed; /entradas redirect was "
+            f"{form_response.headers.get('location')!r}."
+        )
+        return entrada_id
 
     return _factory
 
