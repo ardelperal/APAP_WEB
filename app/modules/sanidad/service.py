@@ -338,10 +338,7 @@ def _build_write_params(params: dict[str, Any]) -> list[Any]:
 
 def _raise_animal_lifecycle_gate(row: dict[str, object]) -> None:
     """Legacy §9.2 gates (Fallecido / Incoherente). Extracted to keep CC < 11."""
-    # Fallecido: animales.fdefuncion IS NOT NULL.
-    # The column name matches ``app/core/domain_animales.py::ANIMALS_CREATE_TABLE_SQL``
-    # (``fdefuncion DATE,``). Any divergence here surfaces as a Postgres 42703
-    # ``UndefinedColumn`` that the route does NOT translate to 422 — see issue #1298.
+    # Fallecido: the column is ``fdefuncion`` (issue #1298 — any rename here is a 42703).
     fdefuncion = row.get("fdefuncion")
     if fdefuncion:
         raise ValueError(
