@@ -338,12 +338,12 @@ def _build_write_params(params: dict[str, Any]) -> list[Any]:
 
 def _raise_animal_lifecycle_gate(row: dict[str, object]) -> None:
     """Legacy §9.2 gates (Fallecido / Incoherente). Extracted to keep CC < 11."""
-    # Fallecido: animales.fecha_defuncion IS NOT NULL.
-    f_defuncion = row.get("f_defuncion")
-    if f_defuncion:
+    # Fallecido: the column is ``fdefuncion`` (issue #1298 — any rename here is a 42703).
+    fdefuncion = row.get("fdefuncion")
+    if fdefuncion:
         raise ValueError(
             "animal_id no admite nuevas actuaciones sanitarias "
-            f"(fallecido desde {f_defuncion})"
+            f"(fallecido desde {fdefuncion})"
         )
     # Incoherente: animal_current_state.current_state =
     # ``STATE_INCOHERENTE``. A NULL current_state falls back to the
@@ -395,7 +395,7 @@ def _raise_validation_error(
     # default pendiente_entrada).
     animal_id = _required_text(params, "animal_id")
     animal_rows = client.execute_sql(
-        "SELECT a.id, a.activo, a.fecha_alta, a.f_defuncion, "
+        "SELECT a.id, a.activo, a.fecha_alta, a.fdefuncion, "
         "       acs.current_state "
         "FROM animales a "
         "LEFT JOIN animal_current_state acs ON acs.animal_id = a.id "

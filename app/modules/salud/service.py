@@ -117,11 +117,14 @@ def _raise_animal_lifecycle_gate(row: dict[str, object]) -> None:
     the SELECT result produced by the consolidated animal +
     animal_current_state disambiguation JOIN below.
     """
-    # Fallecido (animals.f_defuncion IS NOT NULL).
-    f_defuncion = row.get("f_defuncion")
-    if f_defuncion:
+    # Fallecido (animals.fdefuncion IS NOT NULL).
+    # The column name matches ``app/core/domain_animales.py::ANIMALS_CREATE_TABLE_SQL``
+    # (``fdefuncion DATE,``). Any divergence here surfaces as a Postgres 42703
+    # ``UndefinedColumn`` that the route does NOT translate to 422 — see issue #1298.
+    fdefuncion = row.get("fdefuncion")
+    if fdefuncion:
         raise ValueError(
-            f"animal_id no admite nuevas terapias (fallecido desde {f_defuncion})"
+            f"animal_id no admite nuevas terapias (fallecido desde {fdefuncion})"
         )
     # Incoherente (animal_current_state.current_state). A NULL state
     # (no row in animal_current_state) is the default ``pendiente_entrada``
@@ -151,7 +154,7 @@ def _raise_terapia_fk_error(
     vol_id = required_text(params, "voluntario_id")
 
     animal_rows = client.execute_sql(
-        "SELECT a.id, a.activo, a.f_defuncion, "
+        "SELECT a.id, a.activo, a.fdefuncion, "
         "       acs.current_state "
         "FROM animales a "
         "LEFT JOIN animal_current_state acs ON acs.animal_id = a.id "
