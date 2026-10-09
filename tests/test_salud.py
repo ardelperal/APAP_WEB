@@ -256,7 +256,7 @@ def test_create_terapia_blocks_fallecido_animal() -> None:
     client, _ = _client_cascading(
         [],  # CTE returns nothing
         # animal disambiguation: activo but FDefuncion set
-        [{"id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "activo": True, "f_defuncion": "2024-08-15"}],
+        [{"id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "activo": True, "fdefuncion": "2024-08-15"}],
         # voluntario disambiguation: not reached (animal check fails first)
         [],
     )
@@ -280,7 +280,7 @@ def test_create_terapia_blocks_incoherente_animal() -> None:
     client, _ = _client_cascading(
         [],  # CTE returns nothing
         # animal disambiguation JOIN: activo, no FDefuncion, current_state=Incoherente
-        [{"id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "activo": True, "f_defuncion": None, "current_state": "Incoherente"}],
+        [{"id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "activo": True, "fdefuncion": None, "current_state": "Incoherente"}],
         # voluntario disambiguation: not reached (animal lifecycle check fires first)
         [],
     )
