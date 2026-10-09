@@ -5,9 +5,14 @@ These tests run against the full application stack in CI:
 - MinIO (seeded with the ``apap-photos`` bucket)
 - The FastAPI app itself
 
-A ``pytest.skip`` is raised when MinIO is not configured (local dev without
-``APAP_S3_ACCESS_KEY``), so the tests remain safe to run against the local
-development environment.
+Fail-closed contract (issue #1095 slice 4, tramo C): the shared
+``minio_client`` fixture raises ``pytest.fail`` when
+``APAP_S3_ACCESS_KEY`` / ``APAP_S3_SECRET_KEY`` are absent instead of
+silently skipping. The e2e job provisions MinIO and the app-start step
+exports the credentials to ``$GITHUB_ENV`` for pytest to inherit
+(``make e2e-local`` does the same on a workstation). A missing
+credential therefore reports a broken gate, not a green run with empty
+coverage.
 """
 
 from __future__ import annotations

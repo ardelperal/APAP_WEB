@@ -139,6 +139,98 @@ def test_ci_workflow_runs_release_e2e_job_with_playwright() -> None:
     assert "pytest tests/e2e_ci/" in e2e_runs
 
 
+# --- issue #1095 slice 4 (tramo C): e2e job hands env to pytest ----------
+
+
+def test_ci_workflow_e2e_job_exposes_s3_and_reader_env_to_pytest() -> None:
+    """Issue #1095 slice 4, tramo C: the e2e job must hand the S3
+    credentials and the reader email to the pytest step.
+
+    Before #1095 the ``Run fail-closed Playwright smoke suite`` step
+    ran with no env block, so the inner ``minio_client`` fixture saw
+    empty variables and silently skipped three tests that therefore
+    never ran anywhere — not even in CI with MinIO up. Same shape for
+    the contratos-auth reader atom: the OAuth mock resolves the rol
+    from ``usuarios_autorizados`` (issue #1073), so without
+    ``APAP_E2E_READER_EMAIL`` + a seeded reader row the
+    ``reader_session`` fixture fell into ``pytest.skip`` and the
+    reader-403 branch never ran.
+
+    The fix writes the variables to ``$GITHUB_ENV`` from the
+    app-start step (single source of truth: the env block + the
+    secrets it reads). Pin the structure here so the "test that never
+    runs" class cannot return.
+    """
+    e2e_job = _job(WORKFLOW_PATH, "e2e")
+
+    # Pin the application-start step: the env block must declare every
+    # variable that will be echoed to $GITHUB_ENV below. Reading the
+    # block structurally prevents a future drift between the env block
+    # and the $GITHUB_ENV echo.
+    app_start = _workflow_yaml.find_step(e2e_job, "Start the production application")
+    app_env = app_start.get("env") or {}
+    assert app_env.get("APAP_S3_ACCESS_KEY") == "${{ secrets.MINIO_E2E_ACCESS_KEY }}", (
+        "the e2e app-start step must declare APAP_S3_ACCESS_KEY from the "
+        "MINIO_E2E_ACCESS_KEY secret in its env block (issue #1095 slice 4, "
+        "tramo C)"
+    )
+    assert app_env.get("APAP_S3_SECRET_KEY") == "${{ secrets.MINIO_E2E_SECRET_KEY }}", (
+        "the e2e app-start step must declare APAP_S3_SECRET_KEY from the "
+        "MINIO_E2E_SECRET_KEY secret in its env block (issue #1095 slice 4, "
+        "tramo C)"
+    )
+    assert app_env.get("APAP_E2E_READER_EMAIL") == "e2e-reader@apap.local", (
+        "the e2e app-start step must declare APAP_E2E_READER_EMAIL so "
+        "conftest.py::_seed_e2e_default_user can read it and the contratos-auth "
+        "reader atom's fixture can resolve it (issue #1095 slice 4, tramo C)"
+    )
+
+    # The grouped $GITHUB_ENV append must include every value the pytest
+    # step will read. Scanning the raw run body keeps the assertion
+    # structural (a future edit that drops one echo fails the gate).
+    app_run = str(app_start.get("run", ""))
+    for env_var in (
+        "APAP_S3_ACCESS_KEY",
+        "APAP_S3_SECRET_KEY",
+        "APAP_S3_BUCKET",
+        "APAP_S3_SECURE",
+        "APAP_E2E_READER_EMAIL",
+    ):
+        assert env_var in app_run, (
+            f"the e2e app-start step must echo {env_var} into $GITHUB_ENV so "
+            "the downstream pytest step inherits it (issue #1095 slice 4, "
+            "tramo C)"
+        )
+
+    # Sanity: the downstream pytest step must still be the same
+    # `python -m pytest tests/e2e_ci/` invocation that pin the suite
+    # above (kept green by this assertion, no shape drift).
+    pytest_step = _workflow_yaml.find_step(
+        e2e_job, "Run fail-closed Playwright smoke suite"
+    )
+    pytest_run = str(pytest_step.get("run", ""))
+    assert "pytest tests/e2e_ci/" in pytest_run, (
+        "the e2e pytest step must still run `python -m pytest tests/e2e_ci/` "
+        "(defended by test_ci_workflow_runs_release_e2e_job_with_playwright)"
+    )
+    # The pytest step itself must NOT declare an explicit `env:` block
+    # with hardcoded MinIO credentials — the single source of truth is
+    # the app-start step's $GITHUB_ENV write. Allowing a duplicate env
+    # block here would let the two copies drift apart (the exact failure
+    # mode the fix removes).
+    pytest_env = pytest_step.get("env") or {}
+    assert "APAP_S3_ACCESS_KEY" not in pytest_env, (
+        "the pytest step must read APAP_S3_ACCESS_KEY from $GITHUB_ENV, "
+        "not from an inline env block: a duplicate source of truth would "
+        "drift (issue #1095 slice 4, tramo C)"
+    )
+    assert "APAP_E2E_READER_EMAIL" not in pytest_env, (
+        "the pytest step must read APAP_E2E_READER_EMAIL from $GITHUB_ENV, "
+        "not from an inline env block: a duplicate source of truth would "
+        "drift (issue #1095 slice 4, tramo C)"
+    )
+
+
 # --- issue #895: UI e2e gate ------------------------------------------------
 
 
