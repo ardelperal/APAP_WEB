@@ -32,7 +32,17 @@ from typing import Any
 import psycopg
 import pytest
 
-from app.core.data_access import NestedTransactionError
+from app.core.data_access import (
+    BackendError,
+    CheckViolationError,
+    ConstraintViolationError,
+    DataAccessError,
+    DuplicateKeyError,
+    ForeignKeyViolationError,
+    NestedTransactionError,
+    NotNullViolationError,
+    UniqueViolationError,
+)
 from app.core.local_backend.db import (
     DatabaseError,
     LocalPostgresExecutor,
@@ -172,14 +182,116 @@ def test_to_client_placeholders_rejects_placeholder_without_param() -> None:
 # ── _translate_psycopg_error ─────────────────────────────────────────────
 
 
-def test_translate_psycopg_error_with_sqlstate_returns_query_error() -> None:
-    exc = psycopg.errors.UniqueViolation("duplicate key")
-    assert isinstance(exc.sqlstate, str)  # characterize: UniqueViolation carries one
+def test_translate_psycopg_error_with_23505_returns_unique_violation_error() -> None:
+    """SQLSTATE 23505 → UniqueViolationError (a ConstraintViolationError).
+
+    Issue #1293: the old contract collapsed every SQLSTATE into QueryError,
+    which masked unique-violation cases from the route's
+    ``except UniqueViolationError`` branch. The new contract discriminates
+    on ``exc.sqlstate``; ``23505`` (Postgres unique_violation) lands on
+    the dedicated class so a duplicate NCHIP propagates as
+    ``UniqueViolationError`` (and remains a ``ConstraintViolationError``
+    for the family-level catch).
+    """
+    exc = psycopg.errors.UniqueViolation("duplicate key value violates unique constraint")
+    assert exc.sqlstate == "23505"  # characterize: psycopg sets this string
+
+    translated = _translate_psycopg_error(exc)
+
+    assert isinstance(translated, UniqueViolationError)
+    assert isinstance(translated, ConstraintViolationError)
+    # Backward compatibility: the Phase 1 world catches DuplicateKeyError
+    # / BackendError for the 409 mapping; that path must keep matching.
+    assert isinstance(translated, DuplicateKeyError)
+    assert isinstance(translated, BackendError)
+    assert isinstance(translated, DataAccessError)
+    # The new contract explicitly does NOT collapse 23505 into QueryError.
+    assert not isinstance(translated, QueryError)
+    assert not isinstance(translated, DatabaseError)
+
+
+def test_translate_psycopg_error_with_23503_returns_foreign_key_violation_error() -> None:
+    """SQLSTATE 23503 → ForeignKeyViolationError (a ConstraintViolationError)."""
+    exc = psycopg.errors.ForeignKeyViolation(
+        "insert or update on table violates foreign key constraint"
+    )
+    assert exc.sqlstate == "23503"
+
+    translated = _translate_psycopg_error(exc)
+
+    assert isinstance(translated, ForeignKeyViolationError)
+    assert isinstance(translated, ConstraintViolationError)
+    assert isinstance(translated, DataAccessError)
+    assert not isinstance(translated, QueryError)
+    assert not isinstance(translated, DatabaseError)
+
+
+def test_translate_psycopg_error_with_23514_returns_check_violation_error() -> None:
+    """SQLSTATE 23514 → CheckViolationError (a ConstraintViolationError)."""
+    exc = psycopg.errors.CheckViolation("new row for relation violates check constraint")
+    assert exc.sqlstate == "23514"
+
+    translated = _translate_psycopg_error(exc)
+
+    assert isinstance(translated, CheckViolationError)
+    assert isinstance(translated, ConstraintViolationError)
+    assert isinstance(translated, DataAccessError)
+    assert not isinstance(translated, QueryError)
+    assert not isinstance(translated, DatabaseError)
+
+
+def test_translate_psycopg_error_with_23502_returns_not_null_violation_error() -> None:
+    """SQLSTATE 23502 → NotNullViolationError (a ConstraintViolationError)."""
+    exc = psycopg.errors.NotNullViolation("null value in column violates not-null constraint")
+    assert exc.sqlstate == "23502"
+
+    translated = _translate_psycopg_error(exc)
+
+    assert isinstance(translated, NotNullViolationError)
+    assert isinstance(translated, ConstraintViolationError)
+    assert isinstance(translated, DataAccessError)
+    assert not isinstance(translated, QueryError)
+    assert not isinstance(translated, DatabaseError)
+
+
+def test_translate_psycopg_error_with_unmapped_23_prefix_returns_constraint_violation_error() -> None:
+    """An unmapped SQLSTATE class 23 code lands in the family as ConstraintViolationError.
+
+    The mapping table only covers 23505/23503/23514/23502. Other 23-class
+    codes (e.g. ``23P01`` exclusion, ``23001`` restrict, ``23000`` generic
+    integrity) must still land in the family so a single
+    ``except ConstraintViolationError`` catches them. The unmapped
+    branch is the prefix-based fallback, not the table lookup.
+    """
+    exc = psycopg.errors.ExclusionViolation(
+        "conflicting key value violates exclusion constraint"
+    )
+    assert exc.sqlstate == "23P01"  # characterize: 23-class, not in the map
+
+    translated = _translate_psycopg_error(exc)
+
+    assert isinstance(translated, ConstraintViolationError)
+    # The bare ConstraintViolationError, not any of the four named subclasses.
+    assert type(translated) is ConstraintViolationError
+    assert isinstance(translated, DataAccessError)
+    assert not isinstance(translated, QueryError)
+    assert not isinstance(translated, DatabaseError)
+
+
+def test_translate_psycopg_error_with_non_23_sqlstate_returns_query_error() -> None:
+    """SQLSTATE outside class 23 → QueryError (legacy 4xx bucket for rawsql)."""
+    exc = psycopg.errors.UndefinedTable("relation does not exist")
+    assert exc.sqlstate == "42P01"  # characterize: 42-class (syntax/access), not 23
 
     translated = _translate_psycopg_error(exc)
 
     assert isinstance(translated, QueryError)
+    # QueryError is NOT a constraint — the family-level catch must not match.
+    assert not isinstance(translated, ConstraintViolationError)
     assert not isinstance(translated, DatabaseError)
+    # Both QueryError and DatabaseError are now DataAccessError, so a
+    # future ``except DataAccessError`` catch will see them both.
+    assert isinstance(translated, DataAccessError)
 
 
 def test_translate_psycopg_error_without_sqlstate_returns_database_error() -> None:
@@ -190,6 +302,24 @@ def test_translate_psycopg_error_without_sqlstate_returns_database_error() -> No
 
     assert isinstance(translated, DatabaseError)
     assert not isinstance(translated, QueryError)
+    assert isinstance(translated, DataAccessError)
+
+
+def test_translate_psycopg_error_preserves_str_exc_message_for_constraint_case() -> None:
+    """The translated exception's message is ``str(exc)`` (so the route
+    can render it), and ``__cause__`` keeps the psycopg error so an
+    operator postmortem can still see the SQLSTATE in the traceback.
+    """
+    exc = psycopg.errors.UniqueViolation("duplicate key value violates unique constraint 'X'")
+
+    translated = _translate_psycopg_error(exc)
+
+    assert str(translated) == str(exc)
+    # The translator itself does NOT set __cause__; the call site
+    # (``raise _translate_psycopg_error(exc) from exc``) does. We pin
+    # the message here and the __cause__ chain in the
+    # ``_run_on_cursor`` tests below.
+    assert translated.__cause__ is None
 
 
 # ── _fetch_rows ───────────────────────────────────────────────────────────
@@ -260,7 +390,19 @@ def test_run_on_cursor_returns_empty_list_for_insert_style_statement() -> None:
 
 
 def test_run_on_cursor_raises_query_error_for_sqlstate_execute_failure() -> None:
-    cur = FakeCursor(execute_error=psycopg.errors.UniqueViolation("duplicate key"))
+    """A non-constraint SQLSTATE execute failure surfaces as ``QueryError``.
+
+    Issue #1293: this test was previously using ``UniqueViolation``
+    (SQLSTATE 23505) and asserting ``QueryError``, which encoded the
+    old "collapse every SQLSTATE into QueryError" contract. With the
+    new contract 23505 → :class:`UniqueViolationError`; the
+    ``QueryError`` path is now exercised by a non-23 SQLSTATE like
+    ``42P01`` (undefined_table). The rollback/close behaviour pin is
+    preserved.
+    """
+    cur = FakeCursor(
+        execute_error=psycopg.errors.UndefinedTable("relation does not exist")
+    )
 
     with pytest.raises(QueryError):
         _run_on_cursor(cur, "INSERT INTO animales (nchip) VALUES ($1)", ["CHIP-1"])
@@ -296,7 +438,14 @@ def test_execute_sql_commits_and_closes_cursor_and_connection_on_success(
 def test_execute_sql_rolls_back_and_reraises_query_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    cur = FakeCursor(execute_error=psycopg.errors.UniqueViolation("duplicate key"))
+    """A non-constraint SQLSTATE execute failure on a real execute path
+    rolls back, closes the cursor/connection, and re-raises as
+    ``QueryError``. The ``UniqueViolation`` case is covered separately
+    by :class:`UniqueViolationError` in the new contract (issue #1293).
+    """
+    cur = FakeCursor(
+        execute_error=psycopg.errors.UndefinedTable("relation does not exist")
+    )
     conn = FakeConnection(cur)
     executor = LocalPostgresExecutor("postgresql://unused")
     monkeypatch.setattr(executor, "_connect", lambda: conn)
@@ -310,11 +459,41 @@ def test_execute_sql_rolls_back_and_reraises_query_error(
     assert conn.closed is True
 
 
+def test_execute_sql_rolls_back_and_reraises_unique_violation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SQLSTATE 23505 (unique) propagates as ``UniqueViolationError`` AND
+    triggers the same rollback/close discipline as any other translated
+    error (issue #1293). The old contract had 23505 → ``QueryError``;
+    the new contract preserves the cleanup semantics while exposing
+    the dedicated type so the route can map it to 409.
+    """
+    cur = FakeCursor(execute_error=psycopg.errors.UniqueViolation("duplicate key"))
+    conn = FakeConnection(cur)
+    executor = LocalPostgresExecutor("postgresql://unused")
+    monkeypatch.setattr(executor, "_connect", lambda: conn)
+
+    with pytest.raises(UniqueViolationError):
+        executor.execute_sql("INSERT INTO animales (nchip) VALUES ($1)", ["CHIP-1"])
+
+    assert conn.committed is False
+    assert conn.rolled_back is True
+    assert cur.closed is True
+    assert conn.closed is True
+
+
 def test_execute_sql_translates_and_rolls_back_on_commit_failure_with_sqlstate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A non-constraint SQLSTATE commit failure (e.g. ``42P01`` undefined
+    table if it surfaces at commit time) is translated and the
+    connection rolled back. The unique/FK flavour of deferred-constraint
+    commit failure is covered by the dedicated constraint tests.
+    """
     cur = FakeCursor(rows=[])
-    conn = FakeConnection(cur, commit_error=psycopg.errors.UniqueViolation("deferred fk"))
+    conn = FakeConnection(
+        cur, commit_error=psycopg.errors.UndefinedTable("relation does not exist")
+    )
     executor = LocalPostgresExecutor("postgresql://unused")
     monkeypatch.setattr(executor, "_connect", lambda: conn)
 
@@ -380,11 +559,47 @@ def test_transaction_rolls_back_and_recloses_on_exception(
 def test_transaction_translates_commit_failure_and_still_closes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    conn = FakeConnection(FakeCursor(), commit_error=psycopg.errors.UniqueViolation("deferred fk"))
+    """A non-constraint SQLSTATE commit failure inside ``transaction()``
+    translates to ``QueryError`` and the connection is still closed.
+
+    The old contract used ``UniqueViolation`` here; under issue #1293
+    that is a :class:`UniqueViolationError` and lives in a dedicated
+    companion test below. This one keeps the ``QueryError`` path
+    exercised with a non-23 SQLSTATE (``42P01``) so the rawsql 4xx
+    bucket remains pinned end-to-end.
+    """
+    conn = FakeConnection(
+        FakeCursor(),
+        commit_error=psycopg.errors.UndefinedTable("relation does not exist"),
+    )
     executor = LocalPostgresExecutor("postgresql://unused")
     monkeypatch.setattr(executor, "_connect", lambda: conn)
 
     with pytest.raises(QueryError):
+        with executor.transaction() as txn:
+            txn.execute_sql("INSERT INTO animales (nchip) VALUES ($1)", ["CHIP-1"])
+
+    assert conn.committed is False
+    assert conn.closed is True
+
+
+def test_transaction_translates_unique_violation_on_commit_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SQLSTATE 23505 at commit time surfaces as ``UniqueViolationError``.
+
+    Issue #1293: a deferred unique constraint (or any unique violation
+    that only fires on COMMIT) must be exposed to domain code as
+    ``UniqueViolationError`` so the route's 409 mapping fires. The
+    connection is still closed regardless of the failure path.
+    """
+    conn = FakeConnection(
+        FakeCursor(), commit_error=psycopg.errors.UniqueViolation("deferred fk")
+    )
+    executor = LocalPostgresExecutor("postgresql://unused")
+    monkeypatch.setattr(executor, "_connect", lambda: conn)
+
+    with pytest.raises(UniqueViolationError):
         with executor.transaction() as txn:
             txn.execute_sql("INSERT INTO animales (nchip) VALUES ($1)", ["CHIP-1"])
 
@@ -421,11 +636,36 @@ def test_bound_transaction_executor_runs_on_shared_connection_without_committing
 
 
 def test_bound_transaction_executor_closes_cursor_even_on_query_error() -> None:
-    cur = FakeCursor(execute_error=psycopg.errors.UniqueViolation("duplicate key"))
+    """A non-constraint SQLSTATE on the bound executor surfaces as
+    ``QueryError`` and the cursor is still closed. Issue #1293: the
+    old contract used ``UniqueViolation`` here; that case is covered
+    by a dedicated companion test that asserts
+    :class:`UniqueViolationError` instead.
+    """
+    cur = FakeCursor(
+        execute_error=psycopg.errors.UndefinedTable("relation does not exist")
+    )
     conn = FakeConnection(cur)
     bound = _BoundTransactionExecutor(conn)
 
     with pytest.raises(QueryError):
+        bound.execute_sql("INSERT INTO animales (nchip) VALUES ($1)", ["CHIP-1"])
+
+    assert cur.closed is True
+    assert conn.committed is False
+
+
+def test_bound_transaction_executor_closes_cursor_even_on_unique_violation() -> None:
+    """SQLSTATE 23505 on the bound executor surfaces as
+    ``UniqueViolationError`` AND the cursor is still closed (issue
+    #1293). The route's 409 mapping depends on this type being
+    propagated, not collapsed to ``QueryError``.
+    """
+    cur = FakeCursor(execute_error=psycopg.errors.UniqueViolation("duplicate key"))
+    conn = FakeConnection(cur)
+    bound = _BoundTransactionExecutor(conn)
+
+    with pytest.raises(UniqueViolationError):
         bound.execute_sql("INSERT INTO animales (nchip) VALUES ($1)", ["CHIP-1"])
 
     assert cur.closed is True
