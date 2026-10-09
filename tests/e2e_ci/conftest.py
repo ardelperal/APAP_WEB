@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import os
+import uuid
+from collections.abc import Callable
 
 import pytest
 from minio import Minio
 from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
+
+from tests.e2e_ci._crud_helpers import (
+    animal_form_data,
+    csrf_token_from_form,
+)
 
 BASE_URL = os.environ.get("APAP_E2E_BASE_URL", "http://127.0.0.1:8000")
 
@@ -157,5 +164,121 @@ def e2e_logged_in_browser_context(
 
     yield context
     context.close()
+
+
+# ---------------------------------------------------------------------------
+# Issue #1095 (slice 1): shared fixtures for the failing-closed CRUD
+# batteries that now live in ``tests/e2e_ci/``. Derived faithfully from
+# the inlined per-test fixtures in
+# ``tests/e2e/test_animales_crud.py`` (and the parallel definitions in
+# test_entradas_crud.py / test_cesiones_crud.py for ``animal_id_factory``).
+#
+# Fail-closed by contract: this gate suite does not ``pytest.skip`` on
+# missing ``APAP_E2E_AUTH_SECRET`` or on a failed login (see the module
+# docstring and ``_seed_e2e_default_user`` above). The fixtures here
+# honour the same rule — a missing env var raises ``KeyError`` and a
+# non-200 /e2e/login becomes a hard failure, never a skip.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def authenticated_session(
+    e2e_logged_in_browser_context: BrowserContext,
+    base_url: str,
+) -> tuple[Page, str]:
+    """Developer-session fixture returning ``(page, csrf_token)``.
+
+    Reuses the existing ``e2e_logged_in_browser_context`` so the
+    authentication surface stays in one place, then reissues
+    ``/e2e/login`` to capture the ``csrf_token`` from the response
+    body (the existing fixture discards the body).
+
+    The csrf_token returned here is the same value the form will
+    render as ``<input type="hidden" name="csrf_token" value=...>``
+    — both come from the same session payload. Playwright submits
+    the hidden field automatically, so form-encoded POSTs through
+    the browser do not need the header. PATCH requests
+    (``/animales/{id}/chip``) and any JSON POST do need
+    ``X-CSRFToken``, and that is the case where this fixture's
+    second value matters.
+
+    Raises ``KeyError`` when ``APAP_E2E_AUTH_SECRET`` is unset and
+    hard-asserts the /e2e/login response — never ``pytest.skip``.
+    """
+    context = e2e_logged_in_browser_context
+    secret = os.environ["APAP_E2E_AUTH_SECRET"]  # KeyError -> fail closed
+    default_email = os.environ.get("APAP_E2E_AUTH_DEFAULT_EMAIL", "e2e@apap.local")
+
+    # Replay /e2e/login through the authenticated context so the
+    # csrf_token is captured. The session cookie is already set by
+    # ``e2e_logged_in_browser_context``, so this call is idempotent
+    # on the session side.
+    login_resp = context.request.get(
+        f"{base_url}/e2e/login",
+        headers={
+            "X-E2E-Secret": secret,
+            "X-E2E-Email": default_email,
+        },
+    )
+    assert login_resp.ok, (
+        f"/e2e/login must return 200 in the e2e_ci suite, got "
+        f"{login_resp.status}; the OAuth mock is unreachable."
+    )
+    payload = login_resp.json()
+    csrf_token = payload.get("csrf_token")
+    assert isinstance(csrf_token, str) and csrf_token, (
+        f"/e2e/login must return a non-empty csrf_token, got {payload!r}."
+    )
+
+    page = context.new_page()
+    try:
+        yield page, csrf_token
+    finally:
+        page.close()
+
+
+@pytest.fixture
+def animal_id_factory(
+    authenticated_session: tuple[Page, str], base_url: str
+) -> Callable[[], str]:
+    """Return a factory that creates a fresh animal and yields its UUID.
+
+    Derived from the parallel ``animal_id_factory`` fixtures in
+    ``tests/e2e/test_entradas_crud.py:111`` and
+    ``tests/e2e/test_cesiones_crud.py:130``. Each call visits
+    ``/animales/new`` (regression sentinel — the page must render
+    with a csrf token), POSTs the shared ``animal_form_data`` payload
+    directly to ``/animales`` (the animales form uses ``action=""``,
+    so the actual route is reached through the request client), and
+    extracts the new animal's UUID from the 303 redirect target.
+
+    Under this gate the helper is FAIL-CLOSED: a non-303 from
+    ``POST /animales`` is a hard assertion (the original skipped
+    on that branch — the gate's contract forbids skips).
+    """
+    page, csrf_token = authenticated_session
+
+    def _factory() -> str:
+        form_data = animal_form_data(f"ci-host-{uuid.uuid4().hex[:8]}")
+        form_page = page.goto(f"{base_url}/animales/new", wait_until="domcontentloaded")
+        assert form_page is not None and form_page.status == 200
+        csrf_token_from_form(page)  # regression sentinel
+        response = page.request.post(
+            f"{base_url}/animales",
+            form={"csrf_token": csrf_token, **form_data},
+        )
+        assert response.status == 303, (
+            f"animal setup failed: POST /animales did not return 303, "
+            f"got {response.status}: {response.text()[:300]!r}. "
+            f"The CI database must be writable from the e2e gate."
+        )
+        animal_id = response.headers.get("location", "").rsplit("/", 1)[-1]
+        assert animal_id and not animal_id.endswith("/new") and not animal_id.endswith("/edit"), (
+            f"animal setup failed; /animales redirect was "
+            f"{response.headers.get('location')!r}."
+        )
+        return animal_id
+
+    return _factory
 
 

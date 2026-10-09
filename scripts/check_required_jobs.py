@@ -86,6 +86,21 @@ GATE_SOURCE_FILES: tuple[str, ...] = (
     ".github/workflows/deploy.yml",
 )
 
+#: Issue #1095 (slice 1): the fail-closed CI browser gate's own suite
+#: (``tests/e2e_ci/``) cannot be edited without paying the e2e toll.
+#: Today ``tests/`` is allowlisted as a non-UI surface
+#: (see :data:`NON_UI_PATH_PREFIXES`), so a pull request that touches
+#: only files under ``tests/e2e_ci/`` is classified ``ui_changed=false``
+#: and the e2e suite is skipped — leaving the gate free to rot. Each
+#: entry is a trailing-slash directory prefix (mirroring the
+#: :data:`NON_UI_PATH_PREFIXES` directory convention) so adding files
+#: under the directory automatically picks them up. Mirrors the JD-A-001
+#: anti-self-exemption spirit for a directory surface (the file toll
+#: above cannot cover a whole suite).
+GATE_SOURCE_DIRS: tuple[str, ...] = (
+    "tests/e2e_ci/",
+)
+
 ALL_JOBS = frozenset(
     {
         "pr-size",
@@ -175,12 +190,18 @@ def ui_changed_for_paths(
     """Fail-closed classifier for the issue #895 UI e2e gate.
 
     Returns True (e2e must run) when ANY changed file is outside the NON-UI
-    allowlist, or when any gate source file is present (anti-self-exemption
-    toll). Only a changed set entirely inside the allowlist returns False.
-    An empty changed set is a known no-op, not an unknown: it returns False.
+    allowlist, when any gate source file is present (JD-A-001
+    anti-self-exemption toll), or when any file lives under one of the
+    gate source directories (issue #1095 anti-self-exemption toll for the
+    browser gate suite itself). Only a changed set entirely inside the
+    allowlist \u2014 and not touching any toll-listed file or directory \u2014
+    returns False. An empty changed set is a known no-op, not an unknown:
+    it returns False.
     """
     for path in paths:
         if path in GATE_SOURCE_FILES:
+            return True
+        if any(path.startswith(prefix) for prefix in GATE_SOURCE_DIRS):
             return True
         if not is_non_ui_path(path, allowlist):
             return True
