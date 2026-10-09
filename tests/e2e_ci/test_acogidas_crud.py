@@ -2,9 +2,9 @@
 
 Pins the estancias de acogida CRUD contract end-to-end via Playwright +
 the OAuth mock landed in ``tests/e2e/test_admin_authenticated.py``. The
-``authenticated_session`` fixture mints a developer session via
-``GET /e2e/login`` with the ``X-E2E-Secret`` header and returns a
-``(Page, csrf_token)`` tuple.
+``authenticated_session`` fixture (defined in
+``tests/e2e_ci/conftest.py``) mints a developer session via
+``GET /e2e/login`` and returns a ``(Page, csrf_token)`` tuple.
 
 The ``/acogidas`` slice requires pre-existing ``animal_id`` and
 ``casa_acogida_id`` rows because the service's ``_validate_references``
@@ -46,126 +46,54 @@ Eight cases pin the acogidas CRUD contract end-to-end:
    route should map this to 422 per the helper docstring's stated
    intent, but the surrounding ``try/except`` in
    ``create_acogida_view`` does NOT cover the gate call (it covers
-   only the ``create_acogida`` service call below it). If the
-   implementation is fixed in the future to wrap the gate call, the
-   test asserts on the Spanish message; today the test SKIPS with a
-   descriptive reason if the route returns 5xx instead of 422.
+   only the ``create_acogida`` service call below it). The test is
+   ``@pytest.mark.xfail(strict=True, ...)`` so it stays red-until-fixed
+   and cannot outlive the implementation gap.
 8. Soft-delete (POST /acogidas/{id}/delete → 303 to /acogidas). The
    list query does NOT filter by ``activo`` (soft-deleted rows remain
    visible in the default listing per the ``_ACOGIDA_LIST_ALL_SQL``
    query); the test verifies the 303 redirect target and the detail
    page's ``"Inactiva (dada de baja)"`` badge.
 
-The tests skip cleanly when ``APAP_E2E_AUTH_SECRET`` is unset (the OAuth
-mock cannot authenticate). Each animal uses a uuid-suffixed chip +
-nombre; each casa uses a uuid-suffixed name suffix to avoid collisions
-with other rows that may exist in the test database.
+The shared helpers (``animal_form_data``, ``csrf_token_from_form``,
+``unique_chip``) live in ``tests/e2e_ci/_crud_helpers.py``; the
+session fixture (``authenticated_session``) lives in
+``tests/e2e_ci/conftest.py``. The casa form data, casa factory, the
+acogida/estancia form builder and factory, and the FK Spanish error
+fragment are module-specific (only this battery uses them) and stay
+local to avoid speculative sharing across the e2e_ci gate.
+
+Fail-closed contract (issue #1095, slice 4): under this gate a missing
+``APAP_E2E_AUTH_SECRET``, a failed /e2e/login, or a non-303 on a happy
+path is a HARD failure, never a skip. The casa factory and the animal
+factory both hard-assert 303 so the gate stays loud when the DB is not
+writable.
 """
 
 from __future__ import annotations
 
-import os
 import uuid
 from typing import Any
 
 import pytest
-from playwright.sync_api import BrowserContext, Page
+from playwright.sync_api import Page
 
-# --- shared constants -----------------------------------------------------
-
-E2E_SECRET_HEADER = "X-E2E-Secret"
-
-# Species enum values (per app/modules/animals/domain/animal.py::Especie).
-# Used by the animal factory when creating host animals.
-SPECIES_CANINA = "CANINA"
-SPECIES_FELINA = "FELINA"
-SEX_MACHO = "M"
-SEX_HEMBRA = "H"
+from tests.e2e_ci._crud_helpers import (
+    animal_form_data,
+    csrf_token_from_form,
+)
 
 # Spanish error copy that the gate's ``evaluate_assignment`` raises when
 # the ``casa_acogida_id`` does not reference an existing casa row (per
 # ``app/modules/foster/assignment.py::evaluate_assignment``). The
 # message is preserved through the route's 422 form re-render when the
-# surrounding ``try/except`` covers the gate call.
+# surrounding ``try/except`` covers the gate call. Module-specific
+# (only the acogidas battery needs it) — kept local to avoid
+# speculative sharing across the e2e_ci gate.
 NONEXISTENT_CASA_SPANISH = "la casa no existe"
 
 
-# --- fixtures -------------------------------------------------------------
-
-
-def _e2e_secret() -> str | None:
-    """Return the test-suite shared secret, or ``None`` if unset."""
-    return os.environ.get("APAP_E2E_AUTH_SECRET")
-
-
-@pytest.fixture
-def authenticated_session(
-    browser_context: BrowserContext, base_url: str
-) -> tuple[Page, str]:
-    """Mint a developer session and return ``(page, csrf_token)``.
-
-    Same flow as ``test_voluntarios_crud.py::authenticated_session``.
-    """
-    secret = _e2e_secret()
-    if secret is None:
-        pytest.skip(
-            "APAP_E2E_AUTH_SECRET not set — the OAuth mock cannot "
-            "authenticate this test. CI sets the variable; local dev "
-            "needs to export it to run authenticated E2E flows."
-        )
-
-    response = browser_context.request.get(
-        f"{base_url}/e2e/login",
-        headers={E2E_SECRET_HEADER: secret},
-    )
-    assert response.status == 200, (
-        f"/e2e/login must return 200 in the e2e suite, got {response.status}."
-    )
-    payload = response.json()
-    csrf_token = payload.get("csrf_token")
-    assert isinstance(csrf_token, str) and csrf_token, (
-        f"/e2e/login must return a non-empty csrf_token, got {payload!r}."
-    )
-
-    page = browser_context.new_page()
-    return page, csrf_token
-
-
-# --- helpers --------------------------------------------------------------
-
-
-def _csrf_token_from_form(page: Page) -> str:
-    """Read the csrf_token hidden input rendered on the current page.
-
-    Regression sentinel: every form page must render a non-empty
-    csrf_token. Returns the token so callers can use it directly
-    (request-client POSTs).
-    """
-    token = page.locator('input[name="csrf_token"]').first.get_attribute("value")
-    assert token, "every form page must render a non-empty csrf_token hidden input"
-    return token
-
-
-def _animal_form_data(suffix: str) -> dict[str, str]:
-    """Build a valid AnimalForm payload (9 required + optionals).
-
-    Mirrors the factory in ``tests/e2e/test_animales_crud.py``. Each
-    call uses a unique chip so multiple create calls within a session
-    do not collide on the ``NCHIP`` UNIQUE constraint.
-    """
-    return {
-        "NCHIP": uuid.uuid4().hex[:15],
-        "NombreAnimal": f"Animal-{suffix}",
-        "Especie": SPECIES_CANINA,
-        "Sexo": SEX_MACHO,
-        "FNacimiento": "2024-01-15",
-        "TraeNChip": "Si",
-        "FIMPLANTACIONCHIP": "2024-01-16",
-        "NombreFoto": "",
-        "Terapia": "No",
-        "Raza": "Mestizo",
-        "Color": "Negro",
-    }
+# --- module-specific helpers (kept local) ---------------------------------
 
 
 def _casa_form_data(suffix: str) -> dict[str, str]:
@@ -202,17 +130,25 @@ def _casa_form_data(suffix: str) -> dict[str, str]:
 def _create_animal(page: Page, csrf_token: str, base_url: str) -> str:
     """POST /animales and return the new animal's UUID. Hard-asserts 303.
 
+    Reuses the shared ``animal_form_data`` and ``csrf_token_from_form``
+    helpers from ``tests/e2e_ci/_crud_helpers.py`` (slice 4 cleaned up
+    the inlined copies). Kept as a local factory because its call
+    signature — ``(page, csrf_token, base_url)`` — matches the five
+    call sites in this battery that already hold a
+    ``(page, csrf_token)`` tuple from ``authenticated_session`` and
+    need the animal to share that page's session.
+
     Fail-closed under the CI browser gate (issue #1095): a non-303 on
     the create POST is a hard assertion (the CI database must be
     writable from the e2e suite). Mirrors the slice-3 factory in
     ``tests/e2e_ci/conftest.py::animal_id_factory``.
     """
     suffix = f"{uuid.uuid4().hex[:8]}"
-    form_data = _animal_form_data(suffix)
+    form_data = animal_form_data(suffix)
 
     form_page = page.goto(f"{base_url}/animales/new", wait_until="domcontentloaded")
     assert form_page is not None and form_page.status == 200
-    _csrf_token_from_form(page)  # regression sentinel
+    csrf_token_from_form(page)  # regression sentinel
 
     response = page.request.post(
         f"{base_url}/animales",
@@ -495,7 +431,7 @@ def test_create_acogida_redirects_to_detail(
     # Visit the form first (regression sentinel).
     form_page = page.goto(f"{base_url}/acogidas/new", wait_until="domcontentloaded")
     assert form_page is not None and form_page.status == 200
-    _csrf_token_from_form(page)
+    csrf_token_from_form(page)
 
     # POST directly to /acogidas with the form payload.
     form_data = _acogida_form_data(
@@ -644,7 +580,7 @@ def test_close_acogida_populates_fecha_final_and_keeps_activo(
         f"{base_url}/acogidas/{acogida_id}", wait_until="domcontentloaded"
     )
     assert detail is not None and detail.status == 200
-    close_csrf = _csrf_token_from_form(page)
+    close_csrf = csrf_token_from_form(page)
 
     # POST close. The detail page's close form has the correct
     # ``action="/acogidas/{{id}}/close"``; the JS confirm is bypassed
@@ -740,7 +676,7 @@ def test_edit_acogida_updates_observaciones_and_redirects_to_detail(
     assert edit_page.status == 200, (
         f"/acogidas/{{id}}/edit must return 200, got {edit_page.status}"
     )
-    edit_csrf = _csrf_token_from_form(page)
+    edit_csrf = csrf_token_from_form(page)
 
     # POST the update with new observaciones; other fields unchanged.
     update_data = _acogida_form_data(
@@ -895,7 +831,7 @@ def test_soft_delete_acogida_redirects_to_list(
         f"{base_url}/acogidas/{acogida_id}", wait_until="domcontentloaded"
     )
     assert detail is not None and detail.status == 200
-    delete_csrf = _csrf_token_from_form(page)
+    delete_csrf = csrf_token_from_form(page)
 
     # POST delete via the request client (bypasses the JS confirm).
     delete_response = page.request.post(
