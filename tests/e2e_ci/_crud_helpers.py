@@ -50,6 +50,12 @@ SEX_HEMBRA = "H"
 # "active" qualifier — both are pinned in their respective 422 atoms.
 NONEXISTENT_ANIMAL_SPANISH = "animal_id does not reference"
 
+#: Sanidad answers with the lifecycle gate's Spanish message, not the FK
+#: pre-check copy the other modules produce (issue #1298): the guard lives in
+#: ``_raise_validation_error`` and names the animal, so the operator sees a
+#: different sentence than ``NONEXISTENT_ANIMAL_SPANISH``.
+SANIDAD_NONEXISTENT_ANIMAL_SPANISH = "debe apuntar a un animal activo"
+
 # Slice 2 — ``/entradas`` 422 path. The form template renders the
 # error panel header as ``"No se pudo guardar la entrada"``; both the
 # create and update routes go through the same panel.
@@ -70,6 +76,33 @@ CESION_SAVE_FAILED_SPANISH = "No se pudo guardar la cesion"
 # ``"cesión"`` so an accidental page swap ("Nueva adopción", "Editar
 # contrato", ...) is loud.
 CESION_FORM_H1_LOWER_FRAGMENT = "cesión"
+
+# Slice 3 — ``/adopciones`` list-page h1. The list template at
+# ``app/templates/adopciones/list.html`` renders an
+# ``<h1 id="main-title">Adopciones</h1>`` at the top of the page; the
+# slice-3 battery pins this exact string as a regression sentinel so
+# the route is rendered (not an error page).
+ADOPCIONES_LIST_TITLE = "Adopciones"
+
+# Slice 3 — Spanish error header for the ``/adopciones`` 422/409
+# branch. The route's create/update handlers wrap the underlying
+# ``ValueError`` / ``AdopcionConflictError`` under
+# ``"No se pudo guardar la adopción: ..."``; the form template ALSO
+# renders the bare ``"No se pudo guardar la adopción"`` inside the
+# error panel header (``app/templates/adopciones/form.html:15``),
+# so the body carries the substring either way. The FK validation
+# surfaces ``"animal_id does not reference ..."`` (the existing
+# ``NONEXISTENT_ANIMAL_SPANISH`` constant).
+ADOPCION_SAVE_FAILED_SPANISH = "No se pudo guardar la adopción"
+
+# Slice 3 — Spanish error header for the ``/sanidad`` 422/503
+# branch. Same shape as the entradas / adopciones / cesiones panels:
+# the form template (``app/templates/sanidad/form.html:16``) renders
+# the bare ``"No se pudo guardar la actuación"`` inside the error
+# panel header and the route prepends
+# ``"No se pudo guardar la actuación: ..."`` to the underlying
+# ``ValueError`` / ``BackendError`` text.
+SANIDAD_SAVE_FAILED_SPANISH = "No se pudo guardar la actuación"
 
 # Slice 2 — ``/entradas`` list-page h1.
 ENTRADAS_LIST_TITLE = "Entradas"
@@ -255,3 +288,86 @@ def cesion_form_data(
     }
     data.update(overrides)
     return data
+
+
+def adopcion_form_data(
+    *,
+    animal_id: str,
+    fecha_adopcion: str,
+    nombre_adoptante: str,
+    tipo_adopcion: str = "regular",
+    telefono_adoptante: str = "",
+    email_adoptante: str = "",
+    dni_adoptante: str = "",
+    observaciones: str = "",
+    voluntario_seguimiento_id: str = "",
+    fecha_devolucion: str = "",
+    donativo_preadopcion: str = "",
+    donativo_adopcion: str = "",
+    entrada_origen_id: str = "",
+) -> dict[str, str]:
+    """Build a valid ``AdopcionForm`` payload (4 required + 9 optionals).
+
+    Mirrors ``tests/e2e/test_adopciones_crud.py::_adopcion_form_data``
+    (slice 3 promotes it into the shared module so the adopcion
+    battery can import it). The 4 required fields are
+    ``animal_id``, ``fecha_adopcion``, ``nombre_adoptante``, and
+    ``tipo_adopcion`` (the latter defaults to ``"regular"``). The 9
+    optional fields default to empty strings so the form posts the
+    minimum valid adoption payload.
+
+    Field names follow the Pydantic model in
+    ``app/modules/adopciones/forms.py::AdopcionForm``.
+    """
+    return {
+        "animal_id": animal_id,
+        "voluntario_seguimiento_id": voluntario_seguimiento_id,
+        "fecha_adopcion": fecha_adopcion,
+        "fecha_devolucion": fecha_devolucion,
+        "donativo_preadopcion": donativo_preadopcion,
+        "donativo_adopcion": donativo_adopcion,
+        "nombre_adoptante": nombre_adoptante,
+        "dni_adoptante": dni_adoptante,
+        "telefono_adoptante": telefono_adoptante,
+        "email_adoptante": email_adoptante,
+        "entrada_origen_id": entrada_origen_id,
+        "observaciones": observaciones,
+        "tipo_adopcion": tipo_adopcion,
+    }
+
+
+def actuacion_form_data(
+    *,
+    animal_id: str,
+    fecha: str,
+    tipo_actuacion_id: str = "",
+    voluntario_id: str = "",
+    veterinario: str = "",
+    observaciones: str = "",
+    material_utilizado: str = "",
+) -> dict[str, str]:
+    """Build a valid ``ActuacionForm`` payload (2 required + 5 optionals).
+
+    Mirrors ``tests/e2e/test_sanidad_crud.py::_actuacion_form_data``
+    (slice 3 promotes it into the shared module so the sanidad
+    battery can import it). The 2 required fields are ``animal_id``
+    and ``fecha``; the 5 optional fields default to empty strings
+    so the form posts the minimum valid actuacion payload, and the
+    ``tipo_actuacion_id`` deliberately defaults to ``""`` so the
+    operator / test can leave the dropdown on "Sin clasificar" and
+    the service writes NULL to the DB (mirroring the original
+    ``tests/e2e/test_sanidad_crud.py`` convention, which avoids
+    assuming the ``catalogos_pruebas`` seed is populated).
+
+    Field names follow the Pydantic model in
+    ``app/modules/sanidad/forms.py::ActuacionForm``.
+    """
+    return {
+        "animal_id": animal_id,
+        "voluntario_id": voluntario_id,
+        "fecha": fecha,
+        "tipo_actuacion_id": tipo_actuacion_id,
+        "veterinario": veterinario,
+        "observaciones": observaciones,
+        "material_utilizado": material_utilizado,
+    }

@@ -3,7 +3,7 @@
 The legacy ``FichaSanitaria.cls`` enforced two rules that the modern
 sanidad service must preserve:
 
-- **Fallecido** (``animales.f_defuncion`` IS NOT NULL) blocks new
+- **Fallecido** (``animales.fdefuncion`` IS NOT NULL) blocks new
   actuations (legacy §9.2).
 - **Incoherente** (``animal_current_state.current_state = 'Incoherente'``)
   blocks new actuations (legacy §9.2). The state is derived by the
