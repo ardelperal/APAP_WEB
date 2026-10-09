@@ -200,11 +200,12 @@ def _casa_form_data(suffix: str) -> dict[str, str]:
 
 
 def _create_animal(page: Page, csrf_token: str, base_url: str) -> str:
-    """POST /animales and return the new animal's UUID. Skips on failure.
+    """POST /animales and return the new animal's UUID. Hard-asserts 303.
 
-    Skips when the create POST does not return 303 (e.g. the test
-    database is not writable from E2E). Same skip pattern as
-    ``tests/e2e/test_entradas_crud.py::animal_id_factory``.
+    Fail-closed under the CI browser gate (issue #1095): a non-303 on
+    the create POST is a hard assertion (the CI database must be
+    writable from the e2e suite). Mirrors the slice-3 factory in
+    ``tests/e2e_ci/conftest.py::animal_id_factory``.
     """
     suffix = f"{uuid.uuid4().hex[:8]}"
     form_data = _animal_form_data(suffix)
@@ -216,43 +217,57 @@ def _create_animal(page: Page, csrf_token: str, base_url: str) -> str:
     response = page.request.post(
         f"{base_url}/animales",
         form={"csrf_token": csrf_token, **form_data},
+        # ``max_redirects=0`` keeps the raw 303; without it Playwright
+        # follows the redirect and the assertion below sees the final
+        # 200 detail page. Same latent bug the shared
+        # ``animal_id_factory`` carried until slice 3 (issue #1095).
+        max_redirects=0,
     )
-    if response.status != 303:
-        pytest.skip(
-            f"Could not create host animal (POST /animales did not return "
-            f"303; got {response.status}: {response.text()[:200]!r}). The test "
-            f"database may not be writable from E2E."
-        )
+    assert response.status == 303, (
+        f"animal setup failed: POST /animales did not return 303, "
+        f"got {response.status}: {response.text()[:200]!r}. The CI "
+        f"database must be writable from the e2e gate."
+    )
     animal_id = response.headers.get("location", "").rsplit("/", 1)[-1]
-    if not animal_id or animal_id.endswith("new") or animal_id.endswith("edit"):
-        pytest.skip(
-            f"animal setup failed; /animales redirect was "
-            f"{response.headers.get('location')!r}."
-        )
+    assert (
+        animal_id
+        and not animal_id.endswith("new")
+        and not animal_id.endswith("edit")
+    ), (
+        f"animal setup failed; /animales redirect was "
+        f"{response.headers.get('location')!r}."
+    )
     return animal_id
 
 
 def _create_casa(page: Page, csrf_token: str, base_url: str) -> str:
-    """POST /casas-acogida and return the new casa's UUID. Skips on failure."""
+    """POST /casas-acogida and return the new casa's UUID. Hard-asserts 303."""
     suffix = f"{uuid.uuid4().hex[:8]}"
     form_data = _casa_form_data(suffix)
 
     response = page.request.post(
         f"{base_url}/casas-acogida",
         form={"csrf_token": csrf_token, **form_data},
+        # ``max_redirects=0`` keeps the raw 303; without it Playwright
+        # follows the redirect and the assertion below sees the final
+        # 200 detail page (same latent bug the shared
+        # ``animal_id_factory`` carried until slice 3).
+        max_redirects=0,
     )
-    if response.status != 303:
-        pytest.skip(
-            f"Could not create host casa (POST /casas-acogida did not return "
-            f"303; got {response.status}: {response.text()[:200]!r}). The test "
-            f"database may not be writable from E2E."
-        )
+    assert response.status == 303, (
+        f"casa setup failed: POST /casas-acogida did not return 303, "
+        f"got {response.status}: {response.text()[:200]!r}. The CI "
+        f"database must be writable from the e2e gate."
+    )
     casa_id = response.headers.get("location", "").rsplit("/", 1)[-1]
-    if not casa_id or casa_id.endswith("new") or casa_id.endswith("edit"):
-        pytest.skip(
-            f"casa setup failed; /casas-acogida redirect was "
-            f"{response.headers.get('location')!r}."
-        )
+    assert (
+        casa_id
+        and not casa_id.endswith("new")
+        and not casa_id.endswith("edit")
+    ), (
+        f"casa setup failed; /casas-acogida redirect was "
+        f"{response.headers.get('location')!r}."
+    )
     return casa_id
 
 
@@ -297,7 +312,7 @@ def _create_acogida(
     fecha_inicio: str = "2024-06-01",
     observaciones: str = "",
 ) -> str:
-    """POST /acogidas and return the new estancia's UUID. Skips on failure.
+    """POST /acogidas and return the new estancia's UUID. Hard-asserts 303.
 
     Defaults: ``fecha_inicio="2024-06-01"`` (a fixed historical date so
     duration assertions are reproducible regardless of when the test
@@ -312,19 +327,28 @@ def _create_acogida(
     response = page.request.post(
         f"{base_url}/acogidas",
         form={"csrf_token": csrf_token, **form_data},
+        # ``max_redirects=0`` keeps the raw 303; without it Playwright
+        # follows the redirect and the assertion below sees the final
+        # 200 detail page, making the battery skip itself out of the gate.
+        max_redirects=0,
     )
-    if response.status != 303:
-        pytest.skip(
-            f"Could not create estancia (POST /acogidas did not return 303; "
-            f"got {response.status}: {response.text()[:200]!r}). The test "
-            f"database may not be writable from E2E."
-        )
-    acogida_id = response.headers.get("location", "").rsplit("/", 1)[-1]
-    if not acogida_id or acogida_id.endswith("new") or acogida_id.endswith("edit"):
-        pytest.skip(
-            f"acogida setup failed; /acogidas redirect was "
-            f"{response.headers.get('location')!r}."
-        )
+    assert response.status == 303, (
+        f"acogida setup failed: POST /acogidas did not return 303, "
+        f"got {response.status}: {response.text()[:200]!r}. The CI "
+        f"database must be writable from the e2e gate."
+    )
+    location = response.headers.get("location", "")
+    assert location.startswith("/acogidas/"), (
+        f"create POST must redirect to /acogidas/{{id}}, got {location!r}"
+    )
+    acogida_id = location.rsplit("/", 1)[-1]
+    assert (
+        acogida_id
+        and not acogida_id.endswith("new")
+        and not acogida_id.endswith("edit")
+    ), (
+        f"acogida setup failed; /acogidas redirect was {location!r}."
+    )
     return acogida_id
 
 
@@ -412,19 +436,21 @@ def test_list_acogidas_activas_solo_excludes_closed(
                 fecha_final="2024-05-15",  # populated → filtered out by activas_solo
             ),
         },
+        max_redirects=0,
     )
-    if update_response.status != 303:
-        pytest.skip(
-            f"Could not close estancia via update (POST /acogidas/{{id}}/update "
-            f"did not return 303; got {update_response.status}: "
-            f"{update_response.text()[:200]!r}). The test database may not "
-            f"be writable from E2E."
-        )
+    assert update_response.status == 303, (
+        f"close-via-update failed: POST /acogidas/{{id}}/update did "
+        f"not return 303, got {update_response.status}: "
+        f"{update_response.text()[:200]!r}. The CI database must be "
+        f"writable from the e2e gate."
+    )
 
     # GET /acogidas?activas_solo=1 → only the open estancia appears.
+    # The sync API's ``Page.goto`` takes no ``params`` argument: the query
+    # string belongs in the URL. The old keyword made the test error out, which
+    # the previous dry-run skips hid (issue #1095, slice 4).
     response = page.goto(
-        f"{base_url}/acogidas",
-        params={"activas_solo": "1"},
+        f"{base_url}/acogidas?activas_solo=1",
         wait_until="domcontentloaded",
     )
     assert response is not None
@@ -480,6 +506,10 @@ def test_create_acogida_redirects_to_detail(
     response = page.request.post(
         f"{base_url}/acogidas",
         form={"csrf_token": csrf_token, **form_data},
+        # ``max_redirects=0`` keeps the raw 303; without it Playwright
+        # follows the redirect and the assertion below sees the final
+        # 200 detail page, skipping the battery out of the gate.
+        max_redirects=0,
     )
     assert response.status == 303, (
         f"create POST must return 303, got {response.status}: "
@@ -622,6 +652,10 @@ def test_close_acogida_populates_fecha_final_and_keeps_activo(
     close_response = page.request.post(
         f"{base_url}/acogidas/{acogida_id}/close",
         form={"csrf_token": close_csrf},
+        # ``max_redirects=0`` keeps the raw 303; without it Playwright
+        # follows the redirect and the assertion below sees the final
+        # 200 detail page, skipping the battery out of the gate.
+        max_redirects=0,
     )
     assert close_response.status == 303, (
         f"close POST must return 303, got {close_response.status}: "
@@ -640,7 +674,7 @@ def test_close_acogida_populates_fecha_final_and_keeps_activo(
         f"{base_url}/acogidas/{acogida_id}", wait_until="domcontentloaded"
     )
     assert after is not None and after.status == 200
-    body = after.content()
+    body = page.content()
     assert "Cerrada" in body, (
         f"closed-stay detail page must render the 'Cerrada' Estado badge; "
         f"body excerpt: {body[:500]!r}"
@@ -718,6 +752,10 @@ def test_edit_acogida_updates_observaciones_and_redirects_to_detail(
     update_response = page.request.post(
         f"{base_url}/acogidas/{acogida_id}/update",
         form={"csrf_token": edit_csrf, **update_data},
+        # ``max_redirects=0`` keeps the raw 303; without it Playwright
+        # follows the redirect and the assertion below sees the final
+        # 200 detail page, skipping the battery out of the gate.
+        max_redirects=0,
     )
     assert update_response.status == 303, (
         f"update POST must return 303, got {update_response.status}: "
@@ -748,6 +786,13 @@ def test_edit_acogida_updates_observaciones_and_redirects_to_detail(
 # --- 7. create with non-existent casa_acogida_id → 422 ---------------------
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "issue #1293 (tramo 2, consumidores FK): POST /acogidas with a bogus "
+        "casa_acogida_id answers 502 instead of the 422 the route documents"
+    ),
+)
 def test_create_acogida_with_nonexistent_casa_returns_422(
     authenticated_session: tuple[Page, str], base_url: str
 ) -> None:
@@ -760,16 +805,15 @@ def test_create_acogida_with_nonexistent_casa_returns_422(
     does NOT wrap the gate call in a ``try/except`` — only the
     subsequent ``create_acogida`` service call is wrapped — so the
     gate's ``ValueError`` propagates as an unhandled exception and
-    FastAPI returns 500 today.
+    FastAPI returns 500 (here surfaced as a 502 due to the
+    ``ForeignKeyViolationError`` being outside the route's
+    ``BackendError`` catch — see issue #1293 tramo 2).
 
-    The test handles both outcomes:
-
-    - ``422`` → asserts on the Spanish error copy (the intended
-      contract).
-    - ``500`` → skips with a descriptive reason (the implementation
-      gap is documented but the test does not falsely fail).
-    - Any other status → fails with a clear message so future
-      regressions are caught.
+    The test asserts the documented contract (422 + Spanish form
+    error + the gate's ``"la casa no existe"`` message). It is marked
+    ``@pytest.mark.xfail(strict=True, ...)`` because today the route
+    answers 502; the marker stays red-until-fixed so it cannot outlive
+    the implementation gap.
 
     The bogus casa_id is a well-formed UUID that cannot reference any
     row in the ``casas_acogida`` table, so the gate's ``evaluate_assignment``
@@ -790,32 +834,8 @@ def test_create_acogida_with_nonexistent_casa_returns_422(
         form={"csrf_token": csrf_token, **form_data},
     )
 
-    if response.status == 500:
-        # Implementation gap: the FOSTER-03 species gate raises
-        # ``ValueError("la casa no existe")`` but the
-        # ``_enforce_species_gate`` call in ``create_acogida_view`` is
-        # not wrapped in a try/except (the try/except in the route
-        # covers only the subsequent ``create_acogida`` service call).
-        # Per the helper's docstring, the gate's ValueError SHOULD be
-        # translated to 422; today it propagates as an unhandled
-        # exception and FastAPI returns 500. Skip with a descriptive
-        # reason so the suite does not falsely fail while documenting
-        # the missing-translation gap.
-        pytest.skip(
-            "POST /acogidas with non-existent casa_acogida_id returned 500 "
-            "(expected 422). The FOSTER-03 species gate's "
-            "``ValueError('la casa no existe')`` propagates as an "
-            "unhandled exception in create_acogida_view because the "
-            "_enforce_species_gate call is not wrapped in a try/except. "
-            "See app/modules/acogidas/routes.py::create_acogida_view — "
-            "wrap the gate_error call in the same try/except that wraps "
-            "create_acogida, returning _render_form(..., 422) on "
-            "ValueError to close the gap."
-        )
-
     assert response.status == 422, (
-        f"POST /acogidas with bogus casa_acogida_id must return 422 "
-        f"(or 500 if the gate's ValueError propagates — see skip reason), "
+        f"POST /acogidas with bogus casa_acogida_id must return 422, "
         f"got {response.status}: {response.text()[:300]!r}"
     )
     body = response.text()
@@ -881,6 +901,10 @@ def test_soft_delete_acogida_redirects_to_list(
     delete_response = page.request.post(
         f"{base_url}/acogidas/{acogida_id}/delete",
         form={"csrf_token": delete_csrf},
+        # ``max_redirects=0`` keeps the raw 303; without it Playwright
+        # follows the redirect and the assertion below sees the final
+        # 200 list page, skipping the battery out of the gate.
+        max_redirects=0,
     )
     assert delete_response.status == 303, (
         f"delete POST must return 303, got {delete_response.status}: "
@@ -898,7 +922,7 @@ def test_soft_delete_acogida_redirects_to_list(
         f"{base_url}/acogidas/{acogida_id}", wait_until="domcontentloaded"
     )
     assert after is not None and after.status == 200
-    body = after.content()
+    body = page.content()
     assert "Inactiva (dada de baja)" in body, (
         f"soft-deleted detail page must render the 'Inactiva (dada de baja)' "
         f"Estado badge; body excerpt: {body[:500]!r}"
