@@ -242,10 +242,6 @@ jobs:
         #
         # Declared findings — every remaining finding must be fixed or
         # declared here with its rationale (issue #1154):
-        # - `unexpected key "command" for "services" section`: the e2e
-        #   `services.minio` block belongs to open PR #900 (issue #894),
-        #   which removes the whole service; declared instead of touching
-        #   it here. Remove this ignore when #900 merges.
         # - SC2129 / SC2086 in deploy.yml scripts: deploy.yml is a
         #   deployment workflow outside this change's scope; the mechanical
         #   script fixes belong to a dedicated deploy.yml change. Remove
@@ -280,7 +276,6 @@ jobs:
             export PATH="${dest}:${PATH}"
           fi
           actionlint \
-            -ignore 'unexpected key "command" for "services" section' \
             -ignore 'shellcheck reported issue in this script: SC2129' \
             -ignore 'shellcheck reported issue in this script: SC2086'
 
@@ -1340,12 +1335,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs: [build, ui-detection]
-    # Issue #879: does not read issues. Issue #973: `packages: read`
-    # lets the service pull the private GHCR MinIO replica with the
-    # ephemeral GITHUB_TOKEN.
+    # Issue #879: does not read issues. Issue #1309: `packages: read` is
+    # gone with the MinIO service container — the job no longer pulls a
+    # private package, so it keeps only what the checkout needs.
     permissions:
       contents: read
-      packages: read
     # Release events (workflow_dispatch / tag push) always run the suite
     # (issue #780/#766). Since issue #895, a pull_request or branch push
     # also runs it when the ui-detection job detected a UI-path change on
@@ -1379,34 +1373,6 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-      minio:
-        # Issue #973: the upstream `minio/minio` binary images no longer
-        # exist. MinIO Community Edition went source-only in late 2025
-        # and its binary images were removed from Docker Hub, quay.io,
-        # and every public mirror (minio/minio#21662), so no upstream
-        # pull can be authenticated into working again. This service pulls the repo-owned GHCR replica built
-        # from pinned MinIO CE source by minio-replica.yml instead. The
-        # package is private, so the pull authenticates with the
-        # ephemeral GITHUB_TOKEN (service containers accept expressions
-        # in credentials). The image is pinned by digest, recorded from
-        # replica build run 36249625652. To refresh it: re-run
-        # minio-replica.yml and update this pin. Runbook:
-        # docs/operations/minio-replica.md.
-        image: ghcr.io/ardelperal/minio@sha256:6140fe7015bd97e4e6340c9a8ead775c09bc1a226b7c36e41d24852f839dae8f
-        credentials:
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
-        command: server /data --console-address ":9001"
-        env:
-              MINIO_ROOT_USER: ${{ secrets.MINIO_E2E_ACCESS_KEY }}
-              MINIO_ROOT_PASSWORD: ${{ secrets.MINIO_E2E_SECRET_KEY }}
-        ports:
-          - 9000
-        options: >-
-          --health-cmd "curl --fail --silent http://localhost:9000/minio/health/live"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -1422,31 +1388,17 @@ jobs:
         run: echo "APAP_E2E_AUTH_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
 
 
-      - name: Wait for MinIO to be healthy
-        env:
-          MINIO_HOST_PORT: ${{ job.services.minio.ports['9000'] }}
-        run: |
-          for _ in $(seq 1 60); do
-            if curl -fsS "http://127.0.0.1:${MINIO_HOST_PORT}/minio/health/live" >/dev/null 2>&1; then
-              echo "MinIO is healthy"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "::error::MinIO did not become healthy within 60 seconds" >&2
-          exit 1
-
-      - name: Create apap-photos bucket in MinIO
-        env:
-          MINIO_HOST_PORT: ${{ job.services.minio.ports['9000'] }}
-          S3_ACCESS_KEY: ${{ secrets.MINIO_E2E_ACCESS_KEY }}
-          S3_SECRET_KEY: ${{ secrets.MINIO_E2E_SECRET_KEY }}
-        run: python3 scripts/create_minio_bucket.py
-
       - name: Start the production application against ephemeral Postgres
         env:
           POSTGRES_HOST_PORT: ${{ job.services.postgres.ports['5432'] }}
-          MINIO_HOST_PORT: ${{ job.services.minio.ports['9000'] }}
+          # Issue #1309: the storage backend under test is Cloudflare R2,
+          # so there is no per-run port to expand any more. The `apap-e2e`
+          # bucket and the lifecycle rule that expires the `e2e/` prefix
+          # are provisioned by the operator, never by CI, and this token is
+          # scoped to `apap-e2e` only — a mistake here still cannot reach
+          # a production object.
+          APAP_S3_ENDPOINT: ${{ secrets.R2_E2E_ENDPOINT }}
+          APAP_E2E_RUN_PREFIX: e2e/${{ github.run_id }}/
           APAP_DEBUG: "true"
           APAP_MODE: test
           # Issue #1005 (JD-B-011, fix round 2): this env var makes the
@@ -1469,10 +1421,10 @@ jobs:
           # the developer seed, reading the value from this env var so
           # local runs can override.
           APAP_E2E_READER_EMAIL: e2e-reader@apap.local
-          APAP_S3_ACCESS_KEY: ${{ secrets.MINIO_E2E_ACCESS_KEY }}
-          APAP_S3_SECRET_KEY: ${{ secrets.MINIO_E2E_SECRET_KEY }}
-          APAP_S3_BUCKET: apap-photos
-          APAP_S3_SECURE: "false"
+          APAP_S3_ACCESS_KEY: ${{ secrets.R2_E2E_ACCESS_KEY_ID }}
+          APAP_S3_SECRET_KEY: ${{ secrets.R2_E2E_SECRET_ACCESS_KEY }}
+          APAP_S3_BUCKET: apap-e2e
+          APAP_S3_SECURE: "true"
         run: |
           set -euo pipefail
           if [ -z "$POSTGRES_HOST_PORT" ]; then
@@ -1480,12 +1432,6 @@ jobs:
             exit 1
           fi
           export APAP_LOCAL_DB_URL="postgresql://postgres@127.0.0.1:${POSTGRES_HOST_PORT}/apap_e2e"
-          # Issue #894: the endpoint is resolved HERE, in the shell — the
-          # env: block above does not expand ${MINIO_HOST_PORT}, so the app
-          # received the literal string, the MinIO SDK rejected it, the
-          # client degraded to None and the health check passed as
-          # "unconfigured" without ever exercising MinIO.
-          export APAP_S3_ENDPOINT="http://127.0.0.1:${MINIO_HOST_PORT}"
           python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --lifespan on &
           # Grouped redirect (shellcheck SC2129): one block, one append.
           {
@@ -1500,11 +1446,13 @@ jobs:
             # and the reader email to $GITHUB_ENV once, so the pytest
             # step below inherits them. Writing to $GITHUB_ENV here keeps
             # a single source of truth (the env: block above + the
-            # MINIO_E2E_* secrets) — the pytest step cannot drift.
+            # R2_E2E_* secrets) — the pytest step cannot drift.
+            echo "APAP_S3_ENDPOINT=$APAP_S3_ENDPOINT"
             echo "APAP_S3_ACCESS_KEY=$APAP_S3_ACCESS_KEY"
             echo "APAP_S3_SECRET_KEY=$APAP_S3_SECRET_KEY"
             echo "APAP_S3_BUCKET=$APAP_S3_BUCKET"
             echo "APAP_S3_SECURE=$APAP_S3_SECURE"
+            echo "APAP_E2E_RUN_PREFIX=$APAP_E2E_RUN_PREFIX"
             echo "APAP_E2E_READER_EMAIL=$APAP_E2E_READER_EMAIL"
           } >> "$GITHUB_ENV"
           for _ in {1..45}; do
