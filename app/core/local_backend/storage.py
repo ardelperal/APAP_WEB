@@ -43,7 +43,7 @@ _UNCONFIGURED: list[dict[str, Any]] = [
 
 @router.get("/storage/buckets")
 def list_buckets() -> list[dict[str, Any]]:
-    """List all buckets from MinIO.
+    """List accessible buckets (the configured bucket for scoped S3 tokens).
 
     Falls back to a stub list when MinIO is not configured so the
     integration tests remain hermetic without a real S3 endpoint.
@@ -56,7 +56,7 @@ def list_buckets() -> list[dict[str, Any]]:
 
 @router.post("/storage/buckets")
 def ensure_bucket(payload: dict[str, Any]) -> dict[str, Any]:
-    """Create the bucket if missing. Idempotent.
+    """Verify the operator-provisioned bucket exists. Idempotent.
 
     Body shape:
         ``{"bucketName": str, "isPublic": bool}``
