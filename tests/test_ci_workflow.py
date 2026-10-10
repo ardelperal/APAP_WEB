@@ -169,15 +169,29 @@ def test_ci_workflow_e2e_job_exposes_s3_and_reader_env_to_pytest() -> None:
     # and the $GITHUB_ENV echo.
     app_start = _workflow_yaml.find_step(e2e_job, "Start the production application")
     app_env = app_start.get("env") or {}
-    assert app_env.get("APAP_S3_ACCESS_KEY") == "${{ secrets.MINIO_E2E_ACCESS_KEY }}", (
-        "the e2e app-start step must declare APAP_S3_ACCESS_KEY from the "
-        "MINIO_E2E_ACCESS_KEY secret in its env block (issue #1095 slice 4, "
-        "tramo C)"
+    assert app_env.get("APAP_S3_ENDPOINT") == "${{ secrets.R2_E2E_ENDPOINT }}", (
+        "the e2e app-start step must declare APAP_S3_ENDPOINT from the "
+        "R2_E2E_ENDPOINT secret (issue #1309): the app under test talks to "
+        "Cloudflare R2, not to a service container"
     )
-    assert app_env.get("APAP_S3_SECRET_KEY") == "${{ secrets.MINIO_E2E_SECRET_KEY }}", (
+    assert app_env.get("APAP_S3_ACCESS_KEY") == "${{ secrets.R2_E2E_ACCESS_KEY_ID }}", (
+        "the e2e app-start step must declare APAP_S3_ACCESS_KEY from the "
+        "R2_E2E_ACCESS_KEY_ID secret in its env block (issue #1095 slice 4, "
+        "tramo C; secret renamed by issue #1309)"
+    )
+    assert app_env.get("APAP_S3_SECRET_KEY") == "${{ secrets.R2_E2E_SECRET_ACCESS_KEY }}", (
         "the e2e app-start step must declare APAP_S3_SECRET_KEY from the "
-        "MINIO_E2E_SECRET_KEY secret in its env block (issue #1095 slice 4, "
-        "tramo C)"
+        "R2_E2E_SECRET_ACCESS_KEY secret in its env block (issue #1095 slice 4, "
+        "tramo C; secret renamed by issue #1309)"
+    )
+    assert app_env.get("APAP_S3_BUCKET") == "apap-e2e", (
+        "the e2e app-start step must target the dedicated apap-e2e bucket, "
+        "never the production bucket (issue #1309)"
+    )
+    assert app_env.get("APAP_E2E_RUN_PREFIX") == "e2e/${{ github.run_id }}/", (
+        "the e2e app-start step must scope every test object under a per-run "
+        "prefix so the R2 lifecycle rule can expire it without cleanup code "
+        "(issue #1309)"
     )
     assert app_env.get("APAP_E2E_READER_EMAIL") == "e2e-reader@apap.local", (
         "the e2e app-start step must declare APAP_E2E_READER_EMAIL so "
@@ -190,10 +204,12 @@ def test_ci_workflow_e2e_job_exposes_s3_and_reader_env_to_pytest() -> None:
     # structural (a future edit that drops one echo fails the gate).
     app_run = str(app_start.get("run", ""))
     for env_var in (
+        "APAP_S3_ENDPOINT",
         "APAP_S3_ACCESS_KEY",
         "APAP_S3_SECRET_KEY",
         "APAP_S3_BUCKET",
         "APAP_S3_SECURE",
+        "APAP_E2E_RUN_PREFIX",
         "APAP_E2E_READER_EMAIL",
     ):
         assert env_var in app_run, (
@@ -991,11 +1007,11 @@ def test_ci_workflow_lint_job_runs_actionlint() -> None:
         "so the CI gate is deterministic (issue #1154)"
     )
     # Findings that are declared, not fixed, must stay declared in the step
-    # itself (never dropped silently). The minio ignore is removed when PR
-    # #900 merges; the SC2129/SC2086 ignores are removed when deploy.yml
-    # scripts get their mechanical fix.
+    # itself (never dropped silently). Issue #1309 removed the
+    # `unexpected key "command" for "services" section` ignore together with
+    # the e2e MinIO service block it excused; the SC2129/SC2086 ignores are
+    # removed when deploy.yml scripts get their mechanical fix.
     for declared_ignore in (
-        'unexpected key "command" for "services" section',
         "shellcheck reported issue in this script: SC2129",
         "shellcheck reported issue in this script: SC2086",
     ):
@@ -2410,14 +2426,14 @@ def test_bare_pytest_excludes_every_suite_the_ci_test_job_excludes() -> None:
         f"addopts must also ignore {sorted(ci_ignores - local_ignores)} (issue #940)"
     )
 
-# --- issue #973: repo-owned GHCR MinIO replica ------------------------------
+# --- issue #1309: Cloudflare R2 replaces MinIO in the e2e gate ---------------
 #
-# MinIO Community Edition went source-only in late 2025 and its binary images
-# were removed from Docker Hub, quay.io, and every public mirror, so
-# `minio/minio:latest` cannot be pulled at all — not even with Docker Hub
-# credentials (minio/minio#21662). The e2e service must instead pull a
-# replica built from pinned MinIO CE source by
-# .github/workflows/minio-replica.yml.
+# The MinIO service container is gone from ci.yml: MinIO Community Edition is
+# source-only, no upstream image exists, and the repo-owned replica now survives
+# only for `make e2e-local` (issue #1146), which must keep working without R2
+# credentials. CI validates the backend production uses. The historical Docker
+# Hub constraint above (minio/minio#21662) is why neither path can go back to
+# `minio/minio:latest`.
 
 MINIO_REPLICA_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "minio-replica.yml"
 #: The MinIO CE release tag the replica is built from. Verified against
@@ -2430,59 +2446,86 @@ MINIO_REPLICA_RELEASE_TAG = "RELEASE.2025-10-15T17-29-55Z"
 MINIO_REPLICA_DIGEST = "sha256:6140fe7015bd97e4e6340c9a8ead775c09bc1a226b7c36e41d24852f839dae8f"
 
 
-def _e2e_minio_service() -> dict[str, Any]:
-    """Return the ``minio:`` service mapping of the e2e job (issue #963)."""
-    services = _job(WORKFLOW_PATH, "e2e").get("services") or {}
-    assert "minio" in services, "the e2e job must declare a minio service"
-    return services["minio"]
+def _e2e_job() -> dict[str, Any]:
+    """Return the ``e2e`` job mapping of ci.yml."""
+    return _job(WORKFLOW_PATH, "e2e")
 
 
-def test_ci_workflow_e2e_minio_service_pulls_repo_owned_ghcr_replica() -> None:
-    """Issue #973: the e2e MinIO service must pull the repo-owned GHCR replica.
+def test_ci_workflow_e2e_job_targets_r2_instead_of_a_service_container() -> None:
+    """Issue #1309: the e2e gate exercises the real Cloudflare R2 backend.
 
-    The previous fix (authenticate the Docker Hub pull with
-    DOCKERHUB_USERNAME/DOCKERHUB_TOKEN secrets) is dead by design: the
-    binary images no longer exist upstream, so authentication cannot
-    help. The service must reference the digest-pinned
-    `ghcr.io/ardelperal/minio@sha256:...` — the replica built from
-    pinned MinIO CE source by minio-replica.yml, with the digest
-    recorded by build run 36249625652 —
-    and pull it with the ephemeral GITHUB_TOKEN, since the package is
-    private. Every DOCKERHUB reference must be gone.
+    The MinIO service container is gone. MinIO Community Edition is
+    source-only and no upstream image exists, and the repo-owned replica
+    now survives only for ``make e2e-local``, which must keep working
+    without R2 credentials. CI validates the backend production uses
+    instead. The ``apap-e2e`` bucket and the lifecycle rule that expires
+    the ``e2e/`` prefix are operator-provisioned, and the credentials come
+    from secrets scoped to that bucket alone.
     """
-    service = _e2e_minio_service()
+    job = _e2e_job()
 
-    assert service.get("image") == f"ghcr.io/ardelperal/minio@{MINIO_REPLICA_DIGEST}", (
-        f"the e2e minio service must pull the digest-pinned GHCR replica; "
-        f"got {service.get('image')!r}"
+    assert not (job.get("services") or {}).get("minio"), (
+        "the e2e job must not declare a MinIO service container any more "
+        "(issue #1309)"
     )
-    # The GHCR package is private: the service container pull needs the
-    # ephemeral GITHUB_TOKEN (service containers accept expressions in
-    # credentials).
-    credentials = service.get("credentials") or {}
-    assert credentials.get("username") == "${{ github.actor }}"
-    assert credentials.get("password") == "${{ github.token }}"
-    # The Docker Hub approach is removed everywhere, comments included.
-    ci_job_text = "\n".join(
-        _workflow_yaml.job_text(entry)
-        for entry in (_doc(WORKFLOW_PATH).get("jobs") or {}).values()
+
+    job_text = _workflow_yaml.job_text(job)
+    assert "job.services.minio" not in job_text, (
+        "no e2e step may reference the removed minio service ports (issue #1309)"
     )
-    assert "DOCKERHUB" not in ci_job_text
-    assert "docker-hub-anonymous-pull" not in ci_job_text
+    for secret in (
+        "secrets.R2_E2E_ENDPOINT",
+        "secrets.R2_E2E_ACCESS_KEY_ID",
+        "secrets.R2_E2E_SECRET_ACCESS_KEY",
+    ):
+        assert secret in job_text, (
+            f"the e2e job must take {secret} from secrets so the gate fails "
+            "closed instead of silently testing nothing (issue #1309)"
+        )
+    assert "apap-e2e" in job_text, (
+        "the e2e job must target the dedicated apap-e2e bucket, never the "
+        "production bucket (issue #1309)"
+    )
+    assert "MINIO_E2E_ACCESS_KEY" not in job_text
+    assert "create_minio_bucket.py" not in job_text, (
+        "the e2e bucket is operator-provisioned; CI must not create it "
+        "(issue #1309)"
+    )
 
 
-def test_ci_workflow_e2e_job_grants_packages_read_for_ghcr_replica() -> None:
-    """Issue #973: the e2e job needs `packages: read` to pull the private replica.
+def test_e2e_local_makefile_pins_the_recorded_replica_digest() -> None:
+    """Issue #1309: `make e2e-local` keeps the recorded replica digest.
 
-    The repo scopes permissions per job (issue #879); the e2e job used to
-    declare only `contents: read`, which is not enough to pull a private
-    GHCR package with the ephemeral GITHUB_TOKEN.
+    CI no longer runs MinIO, so the digest that used to be pinned in the
+    e2e service block now lives only in the workstation target. It is the
+    same recorded build that ``docs/operations/minio-replica.md``
+    documents, and the two must not drift: an unpinned local target would
+    silently stop matching the runbook.
     """
-    perms = _workflow_yaml.permissions(_job(WORKFLOW_PATH, "e2e"))
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assert perms.get("packages") == "read", (
-        "the e2e job must grant packages: read to pull the private "
-        "ghcr.io/ardelperal/minio replica (issue #973)"
+    assert f"ghcr.io/ardelperal/minio@{MINIO_REPLICA_DIGEST}" in makefile, (
+        "make e2e-local must keep pinning the recorded replica digest "
+        f"({MINIO_REPLICA_DIGEST}); see docs/operations/minio-replica.md"
+    )
+
+
+def test_ci_workflow_e2e_job_drops_the_packages_read_permission() -> None:
+    """Issue #1309: the e2e job must not keep a dead `packages: read`.
+
+    `packages: read` existed only so the service container could pull the
+    private GHCR MinIO replica (issue #973). With that container gone the
+    permission has no consumer left, and the repo scopes permissions per
+    job (issue #879), so it must not linger.
+    """
+    perms = _workflow_yaml.permissions(_e2e_job())
+
+    assert perms.get("packages") is None, (
+        "the e2e job must not keep packages: read after the MinIO service "
+        "container was removed (issue #1309)"
+    )
+    assert perms.get("contents") == "read", (
+        "the e2e job still needs contents: read for the checkout"
     )
 
 

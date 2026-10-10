@@ -1,12 +1,22 @@
-# MinIO replica for CI — `ghcr.io/ardelperal/minio`
+# MinIO replica for `make e2e-local` — `ghcr.io/ardelperal/minio`
 
-> Last updated: 2026-09-27 — issue #973 (digest pin landed).
+> Last updated: 2026-10-10 — issue #1309 (CI moved to Cloudflare R2).
+
+## Scope
+
+This replica is a **workstation tool** only. Since issue #1309 the `e2e` job in
+`ci.yml` no longer declares a MinIO service — it validates the Cloudflare R2
+backend production uses, and nothing in CI pulls this image. `make e2e-local`
+does, so a developer can reproduce the gate without R2 credentials. Restoring
+the old service block is not a valid fallback: the upstream images are gone
+(see below), so that pull always fails.
 
 ## Recorded digest
 
 The first successful replica build
 ([36249625652](https://github.com/ardelperal/APAP_WEB/actions/runs/36249625652))
-published the image pinned by digest in the e2e job:
+published the image now pinned by digest in the `e2e-local` target of the
+`Makefile`:
 
 - Image: `ghcr.io/ardelperal/minio@sha256:6140fe7015bd97e4e6340c9a8ead775c09bc1a226b7c36e41d24852f839dae8f`
   (both tags `RELEASE.2025-10-15T17-29-55Z` and `ci` point to this digest).
@@ -96,8 +106,9 @@ recorded from build run 36249625652 (issue #973). To refresh it:
 - If a replica build fails, restore the previous `RELEASE_TAG` value in
   `minio-replica.yml` and dispatch again. GHCR keeps every previously
   pushed `RELEASE.*` tag, so the old image stays pullable.
-- If GHCR itself is unavailable, the e2e job fails at pull time. It fails
-  closed rather than running the suite without an object store.
+- If GHCR itself is unavailable, `make e2e-local` fails at pull time.
+- The CI gate no longer depends on this image at all: since issue #1309 it
+  fails closed when the R2 secrets are absent instead of falling back here.
 
 ## See also
 
