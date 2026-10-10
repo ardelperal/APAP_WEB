@@ -54,6 +54,21 @@ def _secure() -> bool:
     return val not in ("0", "false", "no")
 
 
+def _region() -> str | None:
+    """Region for the S3 client: R2 requires ``auto``, MinIO does not care.
+
+    An explicit ``APAP_S3_REGION`` always wins. Otherwise a Cloudflare R2
+    endpoint gets ``"auto"``, which R2 mandates: the ``minio`` client defaults
+    to ``us-east-1``, R2 rejects the signature and the health probe reports
+    ``storage: down`` (issue #1309). Any other endpoint keeps the client
+    default (``None``), so local MinIO setups are untouched.
+    """
+    explicit = os.environ.get("APAP_S3_REGION", "").strip()
+    if explicit:
+        return explicit
+    return "auto" if ".r2.cloudflarestorage.com" in _endpoint() else None
+
+
 # ---------------------------------------------------------------------------
 # MinioClient protocol — consumed by the local-backend API
 # ---------------------------------------------------------------------------
@@ -124,6 +139,7 @@ def _unconfigured_client() -> Minio | None:
         access_key=creds[0],
         secret_key=creds[1],
         secure=_secure(),
+        region=_region(),
     )
 
 
