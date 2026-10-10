@@ -53,16 +53,27 @@ def base_url() -> str:
 def minio_client() -> Minio:
     """Build a Minio client from APAP_S3_* env vars (available in CI).
 
-    Returns a connected client; raises ``pytest.skip`` when credentials
-    are absent (local dev without MinIO).
+    Fail-closed contract (issue #1095 slice 4, tramo C): the e2e job
+    provisions MinIO and the app-start step writes the credentials to
+    ``$GITHUB_ENV`` so they reach pytest, so a missing credential means
+    the gate itself is broken — never a silent skip. Local workstations
+    reproducing the same gate via ``make e2e-local`` set the same
+    variables in the Makefile export block, so they reach this fixture
+    too. ``Minio(...)`` itself surfaces an actionable message about
+    whichever of endpoint/access_key/secure is malformed.
     """
-    endpoint = os.environ.get("APAP_S3_ENDPOINT", "127.0.0.1:9000")
     access_key = os.environ.get("APAP_S3_ACCESS_KEY", "")
     secret_key = os.environ.get("APAP_S3_SECRET_KEY", "")
-    secure = os.environ.get("APAP_S3_SECURE", "false").lower() == "true"
-
     if not access_key or not secret_key:
-        pytest.skip("APAP_S3_ACCESS_KEY / APAP_S3_SECRET_KEY not set (MinIO not configured)")
+        raise pytest.fail(
+            "APAP_S3_ACCESS_KEY / APAP_S3_SECRET_KEY not set: the e2e gate "
+            "provisions MinIO and the app-start step exports the "
+            "credentials to $GITHUB_ENV; their absence means the gate "
+            "itself is broken (issue #1095 slice 4, tramo C — silent "
+            "skip is forbidden)."
+        )
+    endpoint = os.environ.get("APAP_S3_ENDPOINT", "127.0.0.1:9000")
+    secure = os.environ.get("APAP_S3_SECURE", "false").lower() == "true"
 
     return Minio(endpoint, access_key=access_key, secret_key=secret_key, secure=secure)
 
@@ -73,13 +84,21 @@ def e2e_db_conn():
 
     The DSN is exported by the CI workflow's app-startup step into
     ``APAP_LOCAL_DB_URL`` (same database the uvicorn app uses).
-    Raises ``pytest.skip`` when the env var is absent.
+
+    Fail-closed (issue #1095, slice 4 tramo C): the gate's environment
+    provisions that DSN — CI exports it in the app-start step and
+    ``make e2e-local`` does the same — so an absent one means a broken gate,
+    not a test to skip.
     """
     import psycopg
 
     dsn = os.environ.get("APAP_LOCAL_DB_URL")
     if not dsn:
-        pytest.skip("APAP_LOCAL_DB_URL not set (not running in CI)")
+        pytest.fail(
+            "APAP_LOCAL_DB_URL is not set: the e2e gate provisions it. A missing "
+            "DSN means the gate's environment is broken, not that the test "
+            "should be skipped."
+        )
 
     conn = psycopg.connect(dsn, autocommit=True)
     yield conn
@@ -122,14 +141,17 @@ def _seed_e2e_default_user() -> None:
         add_authorized_user(
             client, email, "developer", added_by="00000000-0000-0000-0000-000000000000"
         )
-    # Issue #1109 (DOC-01 SLICE 3): optional reader seeding for the
-    # contratos-auth e2e gate. Mirrors the ``add_authorized_user``
-    # call above and the existing ``APAP_E2E_READER_EMAIL`` pattern
-    # in ``tests/e2e/test_cesiones_auth.py`` / ``test_sanidad_auth.py``.
-    # When the env var is unset (the default for the e2e CI), no
-    # reader row is created and the reader-403 atoms skip cleanly.
-    reader_email = os.environ.get("APAP_E2E_READER_EMAIL")
-    if reader_email and get_user_by_email(client, reader_email) is None:
+    # Issue #1109 / #1095 slice 4 (tramo C): seed a reader row so the
+    # contratos-auth e2e gate can mint a reader session without falling
+    # back to pytest.skip. The OAuth mock resolves the session rol from
+    # ``usuarios_autorizados`` (issue #1073), so a reader fixture
+    # requires an allowlisted reader account wired through
+    # ``APAP_E2E_READER_EMAIL``. The CI workflow AND the ``e2e-local``
+    # Makefile target export the same default ``e2e-reader@apap.local``
+    # value, mirroring the developer seed pattern above (idempotent via
+    # the ``get_user_by_email is None`` guard).
+    reader_email = os.environ.get("APAP_E2E_READER_EMAIL", "e2e-reader@apap.local")
+    if get_user_by_email(client, reader_email) is None:
         add_authorized_user(
             client, reader_email, "reader",
             added_by="00000000-0000-0000-0000-000000000000",
