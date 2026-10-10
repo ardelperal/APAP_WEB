@@ -205,52 +205,89 @@ To restore:
 
 4. **Smoke-test** as in Phase 1 step 5.
 
-## Phase 7 — Add MinIO storage
+## Phase 7 — Add object storage (Cloudflare R2)
 
-MinIO stores animal photos (replacing the M0 in-memory placeholder). The
-web service and the MinIO service must be on the same Docker network.
+Cloudflare R2 stores animal photos, replacing the M0 in-memory placeholder.
+MinIO is not deployed: MinIO Community Edition went source-only in late 2025
+and its container images were removed from Docker Hub, quay.io and every
+public mirror, so there is nothing upstream left to run. R2 is S3-compatible,
+which is what the application's storage client already speaks.
 
-### 7a — Create the MinIO service in Coolify
+### 7a — Create the R2 buckets
 
-1. In the Coolify UI: New resource → Standalone Docker → Image.
-2. Image: ``minio/minio:latest``.
-3. Command: ``server /data --console-address ":9001"``.
-4. Port mappings:
-   - ``9000:9000`` (S3 API).
-   - ``9001:9001`` (Web console — optional, for debugging).
-5. Environment variables:
-   - ``MINIO_ROOT_USER``: same value as ``APAP_S3_ACCESS_KEY`` below.
-   - ``MINIO_ROOT_PASSWORD``: same value as ``APAP_S3_SECRET_KEY`` below.
-6. Healthcheck: ``CMD-SHELL, curl --fail --silent http://localhost:9000/minio/health/live``.
-7. Give it the same Docker network as ``apap-web`` (default: ``coolify``).
-   Without shared networking the web container cannot reach ``minio:9000``.
+Create **two** buckets in the existing R2 account, both private and both in
+the **`eu` jurisdiction**:
 
-### 7b — Configure the web service
+| Bucket | Purpose |
+|---|---|
+| ``apap-photos`` | production attachments |
+| ``apap-e2e`` | the CI gate's test objects |
+
+The jurisdiction is fixed at creation and **cannot be changed afterwards**.
+The photos are personal data, so ``eu`` is the correct choice, not the
+default.
+
+Attach a lifecycle rule to ``apap-e2e`` that expires the prefix ``e2e/``
+after 24 hours. The suite writes every object under ``e2e/<run-id>/``, so the
+rule replaces cleanup code and stops orphaned objects from accumulating.
+
+### 7b — Create a scoped R2 API token
+
+R2 → Manage R2 API Tokens → Create API token, permission **Object Read &
+Write**, scoped to ``apap-photos``. Record the endpoint host
+(``<account-id>.r2.cloudflarestorage.com``), the Access Key ID and the
+Secret Access Key.
+
+Do **not** reuse the account-level token that restic uses for backups: it can
+list and delete every bucket in the account, and the web application needs no
+such privilege.
+
+### 7c — Configure the web service
 
 In the ``apap-web`` Coolify resource → Environment, set (or update):
 
 | Variable | Value |
 |---|---|
-| ``APAP_S3_ENDPOINT`` | ``minio:9000`` |
-| ``APAP_S3_ACCESS_KEY`` | the same user you set as ``MINIO_ROOT_USER`` |
-| ``APAP_S3_SECRET_KEY`` | the same password you set as ``MINIO_ROOT_PASSWORD`` (mark as secret) |
+| ``APAP_S3_ENDPOINT`` | ``<account-id>.r2.cloudflarestorage.com`` (bare host, no scheme) |
+| ``APAP_S3_ACCESS_KEY`` | the Access Key ID of the scoped token |
+| ``APAP_S3_SECRET_KEY`` | the Secret Access Key (mark as secret) |
 | ``APAP_S3_BUCKET`` | ``apap-photos`` |
-| ``APAP_S3_SECURE`` | ``false`` |
+| ``APAP_S3_SECURE`` | ``true`` |
 
-### 7c — Verify
+### 7d — Verify
 
 ```bash
 curl -fsS https://apap.romancaba.com/healthz | python3 -c "import sys,json; d=json.load(sys.stdin); print('storage:', d.get('storage'))"
 # Expected: storage: up
 ```
 
-The bucket ``apap-photos`` is created automatically on first upload
-(``client.make_bucket()`` is idempotent).
+``storage: down`` means the credentials, the endpoint or the token scope is
+wrong.
 
-To create it manually via the MinIO console:
-1. Open ``http://<server-ip>:9001`` (the MinIO console port).
-2. Log in with ``MINIO_ROOT_USER`` / ``MINIO_ROOT_PASSWORD``.
-3. Buckets → Create Bucket → name: ``apap-photos``.
+### 7e — Provision the CI gate
+
+The ``e2e`` job in ``ci.yml`` validates this same backend through the
+``apap-e2e`` bucket. Create a **second** token, permission Object Read &
+Write, scoped to ``apap-e2e`` only, and store its values as repository
+secrets:
+
+| Secret | Value |
+|---|---|
+| ``R2_E2E_ENDPOINT`` | ``<account-id>.r2.cloudflarestorage.com`` |
+| ``R2_E2E_ACCESS_KEY_ID`` | the Access Key ID |
+| ``R2_E2E_SECRET_ACCESS_KEY`` | the Secret Access Key |
+
+Two tokens, not one shared token: CI's credential cannot reach a production
+object even if a constant or an environment variable is misconfigured, so
+the isolation does not depend on the code being right.
+
+The gate fails closed while these secrets are absent — the e2e suite raises
+instead of skipping, so a missing credential shows up as a red run rather
+than a green one that tested nothing.
+
+``make e2e-local`` is the exception: it runs the pinned MinIO replica on a
+workstation and needs no R2 credentials. See
+``docs/operations/minio-replica.md``.
 
 ## Feature flag: `APAP_AUTH_ENABLE_MAGIC_LINK` (magic-link login)
 
