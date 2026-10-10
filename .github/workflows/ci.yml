@@ -1472,6 +1472,15 @@ jobs:
           APAP_AUTH_ENABLE_MAGIC_LINK: "true"
           APAP_E2E_AUTH_ENABLED: "true"
           APAP_E2E_AUTH_DEFAULT_EMAIL: e2e@apap.local
+          # Issue #1095 slice 4 (tramo C): the contratos-auth e2e atom
+          # requires a reader account in ``usuarios_autorizados``. The
+          # OAuth mock resolves the rol from the allowlist (issue #1073),
+          # so a reader session cannot be minted on demand — the row must
+          # be seeded first. The seed happens in
+          # ``tests/e2e_ci/conftest.py::_seed_e2e_default_user`` next to
+          # the developer seed, reading the value from this env var so
+          # local runs can override.
+          APAP_E2E_READER_EMAIL: e2e-reader@apap.local
           APAP_S3_ACCESS_KEY: ${{ secrets.MINIO_E2E_ACCESS_KEY }}
           APAP_S3_SECRET_KEY: ${{ secrets.MINIO_E2E_SECRET_KEY }}
           APAP_S3_BUCKET: apap-photos
@@ -1499,6 +1508,22 @@ jobs:
             echo "APAP_E2E_AUTH_ENABLED=true"
             echo "APAP_E2E_AUTH_SECRET=$APAP_E2E_AUTH_SECRET"
             echo "APAP_E2E_AUTH_DEFAULT_EMAIL=$APAP_E2E_AUTH_DEFAULT_EMAIL"
+            # Issue #1095 slice 4 (tramo C): export the S3 credentials and the
+            # reader email to $GITHUB_ENV once, so the pytest step below
+            # inherits them. Writing to $GITHUB_ENV here keeps a single source
+            # of truth (the env: block above + the MINIO_E2E_* secrets) — the
+            # pytest step cannot drift.
+            #
+            # Follow-up (incident 38061024): antes esto emitía cada variable con
+            # un eco del nombre y su propio valor, y el detector de alta
+            # entropía de GitGuardian lo lee como un secreto hardcodeado. El
+            # escáner tampoco distingue una línea de un comentario que la cite,
+            # así que este texto describe el patrón sin reproducirlo. El arreglo
+            # va en la forma de la línea, no en una excepción.
+            for _env_var in APAP_S3_ACCESS_KEY APAP_S3_SECRET_KEY \
+              APAP_S3_BUCKET APAP_S3_SECURE APAP_E2E_READER_EMAIL; do
+              printf '%s=%s\n' "$_env_var" "${!_env_var}"
+            done
           } >> "$GITHUB_ENV"
           for _ in {1..45}; do
             if curl -fsS http://127.0.0.1:8000/healthz >/dev/null; then

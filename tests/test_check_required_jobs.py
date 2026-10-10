@@ -6,6 +6,7 @@ from pathlib import Path
 from scripts.check_required_jobs import (
     ALL_JOBS,
     DOCS_ONLY_HEAVY_JOBS,
+    GATE_SOURCE_DIRS,
     GATE_SOURCE_FILES,
     JOB_DEPENDENCIES,
     NON_UI_PATH_PREFIXES,
@@ -239,6 +240,65 @@ def test_gate_source_files_pay_the_e2e_toll() -> None:
         assert ui_changed_for_paths([gate_file, "docs/x.md"]) is True
         # The toll must not be bypassable by allowlisting tricks either.
         assert ui_changed_for_paths([gate_file], allowlist=NON_UI_PATH_PREFIXES + (gate_file,)) is True
+
+
+def test_gate_source_dirs_pay_the_e2e_toll() -> None:
+    """Issue #1095 (slice 1): the fail-closed CI browser gate's own suite
+    cannot be edited without paying the e2e toll.
+
+    Mirrors :func:`test_gate_source_files_pay_the_e2e_toll` for
+    directories: any file under ``tests/e2e_ci/`` forces
+    ``ui_changed=true`` even though ``tests/`` is in the
+    :data:`NON_UI_PATH_PREFIXES` allowlist, otherwise the gate could
+    silently rot (a PR that only touches ``tests/e2e_ci/`` would skip
+    the e2e job today).
+    """
+    # The GATE_SOURCE_DIRS toll is the one introduced for issue #1095
+    # and must keep ``tests/e2e_ci/`` (with the trailing slash the
+    # prefix-match idiom requires) as a directory prefix entry.
+    assert GATE_SOURCE_DIRS == ("tests/e2e_ci/",)
+
+    # Any file under the toll-listed directory forces the e2e job
+    # to run; we sample three representative paths (a new test, a
+    # change to the conftest, and a changes to the shared helpers).
+    for toll_path in (
+        "tests/e2e_ci/test_new_thing.py",
+        "tests/e2e_ci/conftest.py",
+        "tests/e2e_ci/_crud_helpers.py",
+    ):
+        assert ui_changed_for_paths([toll_path]) is True, (
+            f"{toll_path!r} is under GATE_SOURCE_DIRS and must pay the "
+            f"e2e toll."
+        )
+        # Toll + docs change (trivially true under the inversion,
+        # pinned so the toll cannot regress to OR-less — mirrors the
+        # file toll's transitive-test above).
+        assert ui_changed_for_paths([toll_path, "docs/x.md"]) is True
+        # The toll must not be bypassable by allowlisting tricks either;
+        # even when the explicit directory is added to the allowlist,
+        # the GATE_SOURCE_DIRS branch fires first.
+        assert (
+            ui_changed_for_paths(
+                [toll_path],
+                allowlist=NON_UI_PATH_PREFIXES + ("tests/e2e_ci/",),
+            )
+            is True
+        )
+
+
+def test_gate_source_dirs_does_not_match_outside_the_directory() -> None:
+    """The :data:`GATE_SOURCE_DIRS` prefix check fires only for paths
+    INSIDE the listed directories. A sibling like ``tests/test_x.py``
+    or ``tests/e2e_x.py`` stays under the regular :data:`NON_UI_PATH_PREFIXES`
+    rules and is not pulled into the toll. Pins the prefix-match idiom
+    so the toll cannot regress to substring/contains matching.
+    """
+    assert ui_changed_for_paths(["tests/test_x.py"]) is False
+    assert ui_changed_for_paths(["tests/e2e_external/foo.py"]) is False
+    # A file whose name literally starts with the directory prefix but
+    # lives elsewhere (e.g. ``tests/e2e_ci_x/test.py``) is NOT under
+    # the toll — the check is prefix-on-``tests/e2e_ci/``.
+    assert ui_changed_for_paths(["tests/e2e_ci_x/test.py"]) is False
 
 
 def test_two_merge_push_scenario_ui_change_in_the_first_commit_is_detected() -> None:

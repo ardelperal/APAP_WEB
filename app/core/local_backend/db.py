@@ -24,22 +24,62 @@ from typing import Any, NoReturn
 import psycopg
 from psycopg import sql
 
-from app.core.data_access import NestedTransactionError, SqlExecutor
+from app.core.data_access import (
+    CheckViolationError,
+    ConstraintViolationError,
+    DataAccessError,
+    ForeignKeyViolationError,
+    NestedTransactionError,
+    NotNullViolationError,
+    SqlExecutor,
+    UniqueViolationError,
+)
 
 
-class DatabaseError(RuntimeError):
+class DatabaseError(DataAccessError):
     """Connection-level failure (DSN bad, network down, pool exhausted).
 
     Mapped to HTTP 5xx by the FastAPI layer.
+
+    Issue #1293: reparented from :class:`RuntimeError` onto
+    :class:`DataAccessError` so the transport-level error lives in the
+    same family the domain catches. A repository-wide grep confirmed
+    nothing in ``app/``, ``migration/`` or ``tests/`` was catching
+    :class:`RuntimeError` for ``DatabaseError`` (the only mention was
+    a docstring in :mod:`app.core.e2e_auth` describing the OLD
+    hierarchy). ``__cause__`` still carries the original transport
+    error so operator postmortems can see it.
     """
 
 
-class QueryError(RuntimeError):
+class QueryError(DataAccessError):
     """The query reached Postgres but the server rejected it (syntax, FK, etc).
 
-    Mapped to HTTP 4xx by the FastAPI layer.
+    Mapped to HTTP 4xx by the FastAPI layer. The
+    ``ConstraintViolationError`` family (:class:`UniqueViolationError`,
+    :class:`ForeignKeyViolationError`, :class:`CheckViolationError`,
+    :class:`NotNullViolationError`) is a more specific subclass that
+    domain code catches when it can map a constraint rejection to a
+    user-facing 409; :class:`QueryError` itself is the catch-all for
+    any other server-rejected query.
+
+    Issue #1293: reparented from :class:`RuntimeError` onto
+    :class:`DataAccessError` for the same reason as :class:`DatabaseError`.
     """
 
+
+# Map Postgres SQLSTATE codes that have a dedicated exception class to
+# the class. The class itself is the value; ``_translate_psycopg_error``
+# looks up ``exc.sqlstate`` in this table. Any SQLSTATE class ``23`` that
+# is NOT in the table (e.g. ``23P01`` exclusion, ``23001`` restrict)
+# falls back to the bare :class:`ConstraintViolationError` so domain
+# code's ``except ConstraintViolationError`` still matches.
+_SQLSTATE_TO_CONSTRAINT_ERROR: dict[str, type[ConstraintViolationError]] = {
+    "23505": UniqueViolationError,  # unique_violation
+    "23503": ForeignKeyViolationError,  # foreign_key_violation
+    "23514": CheckViolationError,  # check_violation
+    "23502": NotNullViolationError,  # not_null_violation
+}
 
 _DOLLAR_PLACEHOLDER = re.compile(r"\$(\d+)")
 
@@ -79,17 +119,42 @@ def _bind_in_occurrence_order(order: list[int], values: list[Any]) -> list[Any]:
     return [values[n - 1] for n in order]
 
 
-def _translate_psycopg_error(exc: psycopg.Error) -> QueryError | DatabaseError:
+def _translate_psycopg_error(exc: psycopg.Error) -> DataAccessError:
     """Map a psycopg error to the Protocol-level exception callers expect.
 
-    A Postgres-rejected query (syntax, FK, unique violation) carries a
-    SQLSTATE and becomes a ``QueryError``; anything without one
-    (connection-level) becomes a ``DatabaseError``. psycopg3 exposes the
-    code as ``sqlstate`` (``pgcode`` was the psycopg2 name).
+    Discrimination rules (issue #1293):
+
+    - SQLSTATE in the constraint map (``23505``/``23503``/``23514``/``23502``)
+      → the matching :class:`ConstraintViolationError` subclass so domain
+      code can map a unique violation to 409, an FK violation to a typed
+      400, etc.
+    - Any other SQLSTATE starting with ``23`` (e.g. ``23P01`` exclusion,
+      ``23001`` restrict, ``23000`` generic integrity) → the bare
+      :class:`ConstraintViolationError`. The class prefix is the
+      family marker; an unmapped code still lands in the family so a
+      ``except ConstraintViolationError`` clause catches it.
+    - Any other SQLSTATE (syntax error ``42P01``, undefined column
+      ``42703``, ...) → :class:`QueryError`. The query reached Postgres
+      but was rejected; mapping keeps the legacy "4xx" semantics for
+      the rawsql API.
+    - No SQLSTATE (connection refused, pool exhausted, DSN bad) →
+      :class:`DatabaseError`. The query never reached the server; this
+      is the legacy "5xx" bucket.
+
+    psycopg3 exposes the code as ``sqlstate`` (``pgcode`` was the
+    psycopg2 name). The returned exception carries ``str(exc)`` as its
+    message; the call sites use ``raise ... from exc`` so
+    ``__cause__`` keeps the psycopg error (and therefore the SQLSTATE)
+    available for operator postmortems.
     """
-    if getattr(exc, "sqlstate", None) is not None:
-        return QueryError(str(exc))
-    return DatabaseError(str(exc))
+    sqlstate = getattr(exc, "sqlstate", None)
+    if sqlstate is None:
+        return DatabaseError(str(exc))
+    if sqlstate in _SQLSTATE_TO_CONSTRAINT_ERROR:
+        return _SQLSTATE_TO_CONSTRAINT_ERROR[sqlstate](str(exc))
+    if sqlstate.startswith("23"):
+        return ConstraintViolationError(str(exc))
+    return QueryError(str(exc))
 
 
 def _fetch_rows(cur: Any) -> list[Any]:
@@ -193,7 +258,15 @@ class LocalPostgresExecutor:
             try:
                 rows = _run_on_cursor(cur, query, params)
                 conn.commit()
-            except (QueryError, DatabaseError):
+            except DataAccessError:
+                # Issue #1293: every translated psycopg error is now a
+                # ``DataAccessError`` (UniqueViolationError, ForeignKeyViolationError,
+                # CheckViolationError, NotNullViolationError, ConstraintViolationError,
+                # QueryError, DatabaseError) — so we catch the Protocol base
+                # here and roll back. The connection's CONTEXT MANAGER
+                # (``with connection as conn:``) also rolls back on uncaught
+                # exceptions, but doing it explicitly lets the translator
+                # run on a still-clean state for the ``__cause__`` chain.
                 conn.rollback()
                 raise
             except psycopg.Error as exc:

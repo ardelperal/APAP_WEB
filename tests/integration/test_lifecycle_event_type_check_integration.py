@@ -12,11 +12,12 @@ from uuid import uuid4
 
 import pytest
 
+from app.core.data_access import CheckViolationError
 from app.core.domain_lifecycle import (
     ANIMAL_LIFECYCLE_EVENTS_ADD_EVENT_TYPE_CHECK_SQL,
     ANIMAL_LIFECYCLE_EVENTS_DROP_EVENT_TYPE_CHECK_SQL,
 )
-from app.core.local_backend.db import LocalPostgresExecutor, QueryError
+from app.core.local_backend.db import LocalPostgresExecutor
 from tests.integration.conftest import _EphemeralPostgres
 
 pytestmark = pytest.mark.integration
@@ -53,7 +54,7 @@ def test_bootstrap_upgrade_lets_an_existing_table_accept_intake_closed_by_foster
     executor.execute_sql(ANIMAL_LIFECYCLE_EVENTS_DROP_EVENT_TYPE_CHECK_SQL)
     executor.execute_sql(_OLD_CHECK_SQL)
     animal_id = _seed_animal(ep)
-    with pytest.raises(QueryError, match="event_type_check"):
+    with pytest.raises(CheckViolationError, match="event_type_check"):
         executor.execute_sql(_INSERT_EVENT_SQL, [animal_id, str(uuid4())])
 
     for _ in range(2):  # the bootstrap replays on every start: must be idempotent
