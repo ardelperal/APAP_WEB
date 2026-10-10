@@ -1502,12 +1502,13 @@ jobs:
             # a single source of truth (the env: block above + the
             # MINIO_E2E_* secrets) — the pytest step cannot drift.
             #
-            # Follow-up (incident 38061024): escrito con un bucle, no con
-            # literales `NAME=$NAME`. GitGuardian lee
-            # `APAP_S3_SECRET_KEY=$APAP_S3_SECRET_KEY` como un secreto
-            # hardcodeado ("Generic High Entropy Secret") y el arreglo
-            # corresponde a la forma de la línea, no a una regla de ignore
-            # que dejaría ciego al escáner para este camino.
+            # Follow-up (incident 38061024): la version anterior emitia cada
+            # variable con un eco literal del nombre y su valor. GitGuardian
+            # lee ese eco como un secreto hardcodeado ("Generic High Entropy
+            # Secret") — incluso copiado dentro de un comentario, como quedo
+            # demostrado al intentarlo — asi que el arreglo va en la forma de
+            # la linea y no en una regla de ignore, que dejaria ciego al
+            # escaner para este fichero.
             for _env_var in APAP_S3_ACCESS_KEY APAP_S3_SECRET_KEY \
               APAP_S3_BUCKET APAP_S3_SECURE APAP_E2E_READER_EMAIL; do
               printf '%s=%s\n' "$_env_var" "${!_env_var}"
