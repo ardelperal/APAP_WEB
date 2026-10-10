@@ -320,24 +320,18 @@ def _register_health_handler(app: FastAPI, settings) -> None:
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
-        # Probe MinIO connectivity.
-        from app.core.local_backend.s3 import _build_minio_client, _credentials  # lazy-import: avoids loading minio at module load time  # noqa: I001
-
-        storage = "unconfigured"
-        if _credentials() is not None:
-            try:
-                client = _build_minio_client()
-                if client is not None:
-                    client.list_buckets()
-                    storage = "up"
-            except Exception:  # noqa: BLE001
-                storage = "down"
+        # Issue #1309: reuse the shared probe so production and the
+        # local-backend router cannot drift. Both must stay bucket-scoped:
+        # listing buckets is an account-level operation, so a credential
+        # scoped to a single bucket is denied and this probe would report a
+        # perfectly healthy bucket as down.
+        from app.core.local_backend.healthz import _storage_status  # lazy-import: avoids loading minio at module load time  # noqa: I001
 
         return {
             "status": "ok",
             "app": settings.app_name,
             "revision": settings.build_sha,
-            "storage": storage,
+            "storage": _storage_status(),
         }
 
 
