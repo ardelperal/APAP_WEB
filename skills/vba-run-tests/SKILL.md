@@ -1,6 +1,6 @@
 ---
 name: vba-run-tests
-description: Trigger: run VBA tests, validate a VBA manifest, execute an Access regression subset, diagnose Access test cleanup. Executes manifest-driven VBA tests with compilation, authorization, and process-ownership gates.
+description: 'Trigger: run VBA tests, validate a VBA manifest, execute an Access regression subset, diagnose Access test cleanup. Executes manifest-driven VBA tests with compilation, authorization, and process-ownership gates.'
 license: Apache-2.0
 metadata:
   author: Andrés Román

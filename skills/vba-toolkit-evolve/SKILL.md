@@ -1,6 +1,6 @@
 ---
 name: vba-toolkit-evolve
-description: Trigger: detecta fricciones en dysflow y codegraph-vba cuando el usuario audita, escanea, o nota drift. Redacta un issue auto-aprobado por sesión. NO verifica post-fix (eso es responsabilidad de la maintainer AI), NO modifica código de los toolkits. La parte de detect + redactar es el alcance de esta skill; el resto lo cubren `dysflow-codegraph-update` (post-release alignment) y `maintainer-prompt-drafter` (post-fix verification).
+description: 'Trigger: detecta fricciones en dysflow y codegraph-vba cuando el usuario audita, escanea, o nota drift. Redacta un issue auto-aprobado por sesión. NO verifica post-fix (eso es responsabilidad de la maintainer AI), NO modifica código de los toolkits. La parte de detect + redactar es el alcance de esta skill; el resto lo cubren `dysflow-codegraph-update` (post-release alignment) y `maintainer-prompt-drafter` (post-fix verification).'
 license: Apache-2.0
 metadata:
   author: Andrés Román

@@ -1,6 +1,6 @@
 ---
 name: vba-workflow
-description: Trigger: empezando trabajo vba, modificando codigo vba, escribiendo sql contra backend access, tocando .accdb, abriendo access repo, dysflow import modulos, dysflow export modulos, antes de pasar tests access, formularios desacoplados, generacion de ERD, sincronizando source vba. Cargue esta skill cuando una IA trabaja en un proyecto VBA / Access (.accdb/.bas/.cls/.form.txt) y necesita respetar el flujo antes de modificar el binario o de generar fixtures sin ERD. Forma parte del arnes DysTelefonica para VBA, no es para diagnostico read-only (use vba-binary-drift, vba-event-tracer o vba-sql-impact para esos casos).
+description: 'Trigger: empezando trabajo vba, modificando codigo vba, escribiendo sql contra backend access, tocando .accdb, abriendo access repo, dysflow import modulos, dysflow export modulos, antes de pasar tests access, formularios desacoplados, generacion de ERD, sincronizando source vba. Cargue esta skill cuando una IA trabaja en un proyecto VBA / Access (.accdb/.bas/.cls/.form.txt) y necesita respetar el flujo antes de modificar el binario o de generar fixtures sin ERD. Forma parte del arnes DysTelefonica para VBA, no es para diagnostico read-only (use vba-binary-drift, vba-event-tracer o vba-sql-impact para esos casos).'
 license: Apache-2.0
 metadata:
   author: ardelperal

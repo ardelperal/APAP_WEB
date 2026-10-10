@@ -1,14 +1,13 @@
 ---
 name: intake-roadmap-loop
-description: Trigger: intake, sprint intake, client meeting, requirements doc, acta de requisitos, fuente de intake, tasks.md del SDD, features nuevas, fixes a arreglar, qué entra en este sprint, qué quedó pendiente, roadmap activo, qué va después, ciclo intake a UAT, governance sprint, owner del ciclo, ADR discipline, retomemos el ciclo, sigue con el ciclo, dónde quedamos, qué ciclo tengo abierto, cycle recovery fallback, worktree aislado por cambio, issue + PR + CI, trazabilidad por PR. Owner del ciclo completo intake → ADR → dev → UAT → archive para sprints con puesta en producción y validación por el cliente. Cada cambio de código del ciclo se ejecuta en un worktree aislado con el ciclo completo (HR-14): issue → worktree → PR con CI → merge → close → borrado → trazabilidad. Para cada pregunta del ciclo, una sola fuente es autoritativa (HR-15): issue tracker para ¿está hecho?, engram para notas explícitas, ADR para decisiones, roadmap vivo para estado+motivo. El roadmap vivo es un mapa al estado, no un duplicado; las decisiones arquitectónicas viven en archivos planos por tema; el ciclo se ancla en engram con un topic_key estable para sobrevivir entre sesiones. La sección Session start ritual define el prompt estándar de apertura y la cadena de fallback para cuando el usuario no recuerda el cycle-id.
+description: >-
+  Trigger: intake, sprint intake, client meeting, requirements doc, acta de requisitos, fuente de intake, tasks.md del SDD, features nuevas, fixes a arreglar, qué entra en este sprint, qué quedó pendiente, roadmap activo, qué va después, ciclo intake a UAT, governance sprint, owner del ciclo, ADR discipline, retomemos el ciclo, sigue con el ciclo, dónde quedamos, qué ciclo tengo abierto, cycle recovery fallback, worktree aislado por cambio, issue + PR + CI, trazabilidad por PR. Owner del ciclo completo intake → ADR → dev → UAT → archive. Cada cambio corre en un worktree aislado (HR-14): issue → worktree → PR con CI → merge → close. Una única fuente autoritativa por pregunta (HR-15): issue tracker para estado, engram para notas, ADR para decisiones, roadmap vivo para estado y motivo. El roadmap es un mapa al estado, no un duplicado; el ciclo se ancla en engram con topic_key estable. Session start ritual: prompt de apertura y fallback si no se recuerda el cycle-id.
 license: Apache-2.0
 metadata:
   author: Gentleman AI Contributors
   version: 1.4
   language: es-ES
   last_verified: 2026-08-28
-  references: 
-  - "https: //github.com/Gentleman-Programming/gentle-ai/tree/main/docs/architecture
   scope: ['universal']
   auto_invoke: ['running the intake/roadmap cycle']
   tiers: ['universal']

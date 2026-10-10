@@ -1,6 +1,6 @@
 ---
 name: access-vba-capability-docs
-description: Trigger: Access/VBA capability docs, business rules, what the app does, regression-proof specs, legacy→web migration, generate SDDs from docs. Reverse-engineers features into SDD-grade, migration-ready docs with code as source of truth.
+description: 'Trigger: Access/VBA capability docs, business rules, what the app does, regression-proof specs, legacy→web migration, generate SDDs from docs. Reverse-engineers features into SDD-grade, migration-ready docs with code as source of truth.'
 license: Apache-2.0
 metadata:
   author: Andrés Román

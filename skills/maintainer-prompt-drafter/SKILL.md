@@ -1,6 +1,6 @@
 ---
 name: maintainer-prompt-drafter
-description: Trigger: maintainer prompt, upstream escalation. Generates structured, verifiable prompts for the maintainer AI of any tool. Use when you detect a bug or gap in a tool you use and want to escalate to the maintainer with TDD discipline. Produces ready-to-forward prompts with reproducibility evidence, "what NOT to touch" guardrails, and acceptance outputs.
+description: 'Trigger: maintainer prompt, upstream escalation. Generates structured, verifiable prompts for the maintainer AI of any tool. Use when you detect a bug or gap in a tool you use and want to escalate to the maintainer with TDD discipline. Produces ready-to-forward prompts with reproducibility evidence, "what NOT to touch" guardrails, and acceptance outputs.'
 metadata:
   author: Andrés Román
   version: 1.0

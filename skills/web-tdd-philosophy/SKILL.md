@@ -1,6 +1,6 @@
 ---
 name: web-tdd-philosophy
-description: Trigger: TDD, fixture-first, refactor-safety, dependency injection, no humo, cardinality, Playwright E2E, harden a test suite. Apply web-TDD discipline to any web project (Python, Node, Go, Ruby, etc.) without VBA noise.
+description: 'Trigger: TDD, fixture-first, refactor-safety, dependency injection, no humo, cardinality, Playwright E2E, harden a test suite. Apply web-TDD discipline to any web project (Python, Node, Go, Ruby, etc.) without VBA noise.'
 license: Apache-2.0
 metadata:
   author: Andrés Román

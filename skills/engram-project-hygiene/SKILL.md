@@ -1,12 +1,12 @@
 ---
 name: engram-project-hygiene
-description: Trigger: salud de sincronización engram, están sincronizadas mis memorias, auditar engram cloud, proyectos duplicados en engram, normalizar nombres de proyectos, proyectos fragmentados, reasignar proyecto al canónico, engram projects consolidate, proyectos enrolados vs allowlist, cuántas memorias no suben a cloud. Audita la salud de sincronización local↔cloud de Engram proyecto por proyecto y normaliza los nombres de proyecto fragmentados reasignándolos a su canónico enrolado, con backup consistente y escritura nativa por node:sqlite.
+description: 'Trigger: salud de sincronización engram, están sincronizadas mis memorias, auditar engram cloud, proyectos duplicados en engram, normalizar nombres de proyectos, proyectos fragmentados, reasignar proyecto al canónico, engram projects consolidate, proyectos enrolados vs allowlist, cuántas memorias no suben a cloud. Audita la salud de sincronización local↔cloud de Engram proyecto por proyecto y normaliza los nombres de proyecto fragmentados reasignándolos a su canónico enrolado, con backup consistente y escritura nativa por node:sqlite.'
 license: Apache-2.0
 metadata:
   author: Andrés Román
   version: 1.0
-  last_verified: 2026-08-31
-  tested_on: Windows 11 + Node 26.4.0 (node:sqlite) + engram 1.20.0 + engram.db 267MB/WAL
+  last_verified: 2026-09-22
+  tested_on: Windows 11 + Node 26.4.0 (node:sqlite) + engram 2.0.1-HEAD + engram.db 451MB/WAL
   scope: ['engram', 'runtime']
   auto_invoke: ['auditing engram project state']
   tiers: ['engram', 'runtime']
@@ -46,6 +46,7 @@ Esta skill es el **auditor y normalizador**. `engram-sync-doctor` es el **repara
 - **HR-10** — MUST NO usar `last_sync_at` de `GET /sync/status` como indicador de salud del autosync. Devuelve vacío aun con el autosync funcionando. Use `acked_at` reciente en `sync_mutations` sin sync manual previo.
 - **HR-11** — MUST preguntar antes de borrar filas de `observations`, `sessions` o `user_prompts`. Solo proceda sin preguntar cuando la fila tenga contenido de longitud 0 y el usuario haya mandado reparar.
 - **HR-12** — MUST NO confiar en el check `allowlist.collision` de `engram-sync-doctor/assets/diagnose.ps1`. Reporta `[OK]` con 1022 filas fuera de la allowlist. Calcule la colisión con la consulta de §4.
+- **HR-13** — MUST ejecutar `go install github.com/Gentleman-Programming/engram/v2/cmd/engram@main` antes de cualquier auditoría. El path `.../engram/cmd/engram` (sin `/v2`) es v1 y devuelve un commit stale (1.20.x de hace meses). Verifique `engram --version` post-update: el suffix esperado es `2.0.x-0.<timestamp>-<hash>` o un tag `v2.x.y`.
 
 ## §3 Decision Gates
 
@@ -58,10 +59,12 @@ Esta skill es el **auditor y normalizador**. `engram-sync-doctor` es el **repara
 | El fragmento NO tiene canónico enrolado | Reporte y PARE. Consolidar no lo hace sincronizar; requiere decisión de allowlist. |
 | El contenido no coincide con el nombre | NO reasigne por nombre. Reporte el conflicto al usuario y pare. |
 | El proyecto es un cubo mezclado (varios proyectos dentro) | NO renombre en bloque. Reporte que requiere troceo por sesión. |
-| `enrolled` > `allowlist` | Reporte el volumen bloqueado y PARE. La allowlist la edita el usuario. |
+| `enrolled` > `allowlist` | Reporte el volumen bloqueado y PARE. La allowlist la edita el usuario con aprobación explícita (HR-9) usando `references/coolify-env-commands.md`. |
 | El daemon reporta estado distinto al de `sync_state` | Estado cacheado en memoria: reinicie el daemon (HR-5). |
 
 ## §4 Execution Steps
+
+0. **Actualizar el binario de engram** — Corra `go install github.com/Gentleman-Programming/engram/v2/cmd/engram@main` antes de cualquier auditoría. Confirme con `engram --version`. El path `/v2` es obligatorio (HR-13); el path sin `/v2` sirve la rama v1 legacy y devuelve un commit stale. Si la actualización falla por permisos, pare y reporte (NO continue con un binario viejo, los diagnósticos serán incorrectos).
 
 1. **Inventariar** — Corra `assets/audit.mjs`. Es read-only y produce el Output Contract completo: cola por proyecto, gaps `last_enqueued_seq` vs `last_acked_seq`, mutaciones inválidas, enrolados vs allowlist, y grupos candidatos a normalización.
 
@@ -203,3 +206,4 @@ Cumple: 5 secciones canónicas §1–§5 en orden, 12 HR-N con verbo observable,
 | `engram-sync-doctor` | La cola está atascada por mutaciones inválidas o el daemon no levanta. Esta skill audita y normaliza; aquella repara la cola. |
 | `skill-style-guide` | Refactorice o audite esta skill contra el rubric de authoring. |
 | `skill-propagation` | Tras crear o modificar esta skill, para reconciliar el catálogo y los enlaces. |
+| `references/coolify-env-commands.md` | Actualice `ENGRAM_CLOUD_ALLOWED_PROJECTS` via Coolify MCP. Incluye el workaround de `stop_application`+`start_application` cuando `restart_application` deja `last_restart_at: null`. |

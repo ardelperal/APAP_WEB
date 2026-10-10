@@ -1,6 +1,6 @@
 ---
 name: vba-access
-description: Trigger: write or review Access VBA, DAO repositories, form code, VBA signatures, error handling, source and binary separation. Defines mandatory Access VBA authoring and review rules with verifiable runtime boundaries.
+description: 'Trigger: write or review Access VBA, DAO repositories, form code, VBA signatures, error handling, source and binary separation. Defines mandatory Access VBA authoring and review rules with verifiable runtime boundaries.'
 license: Apache-2.0
 metadata:
   author: Andrés Román

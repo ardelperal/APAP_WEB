@@ -1,6 +1,6 @@
 ---
 name: access-vba-tdd-quality
-description: Trigger: cobertura, refactor-safety, cardinalidad, aserciones, deuda tecnica, harness consistency, smoke vs atómico, telemetría de performance. Contiene §4 (calidad real), §6 (telemetría). Load cuando se debate cobertura, humo vs comportamiento real, pirámide de tests, manifests, o se optimiza performance.
+description: 'Trigger: cobertura, refactor-safety, cardinalidad, aserciones, deuda tecnica, harness consistency, smoke vs atómico, telemetría de performance. Contiene §4 (calidad real), §6 (telemetría). Load cuando se debate cobertura, humo vs comportamiento real, pirámide de tests, manifests, o se optimiza performance.'
 license: Apache-2.0
 metadata:
   author: Andrés Román

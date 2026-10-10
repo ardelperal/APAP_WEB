@@ -1,6 +1,6 @@
 ---
 name: ai-model-profile-manager
-description: Trigger: switch model profile, apply model profile, select model profile, set models across agents. Manages safe everyday model-profile selection across supported agents.
+description: 'Trigger: switch model profile, apply model profile, select model profile, set models across agents. Manages safe everyday model-profile selection across supported agents.'
 license: Apache-2.0
 metadata:
   author: Andrés Román

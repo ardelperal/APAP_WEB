@@ -1,6 +1,6 @@
 ---
 name: oci-functions-troubleshoot
-description: Trigger: OCIR auth and registry issues. Diagnose OCI Functions setup, control-plane, deployment, invocation, and observability issues using a deterministic triage workflow. Use when asked to classify Fn CLI errors, deploy or invoke failures, OCIR auth and registry issues, app-limit symptoms, logs, tracing, metrics, or limits. Diagnose first, prefer read-only checks, and do not execute fixes unless the user explicitly asks.
+description: 'Trigger: OCIR auth and registry issues. Diagnose OCI Functions setup, control-plane, deployment, invocation, and observability issues using a deterministic triage workflow. Use when asked to classify Fn CLI errors, deploy or invoke failures, OCIR auth and registry issues, app-limit symptoms, logs, tracing, metrics, or limits. Diagnose first, prefer read-only checks, and do not execute fixes unless the user explicitly asks.'
 license: Apache-2.0
 metadata:
   author: ardelperal

@@ -1,6 +1,6 @@
 ---
 name: gentle-stack-a-main
-description: Trigger: actualiza todo gentle a main, gentle stack a main, todo gentle al main, actualiza gentle stack, refresh todo gentle. Sube el binario gentle-ai, el binario engram y el paquete gentle-pi (el plugin de gentle-ai para Pi) al HEAD de main y corre gentle-ai sync al final.
+description: 'Trigger: actualiza todo gentle a main, gentle stack a main, todo gentle al main, actualiza gentle stack, refresh todo gentle. Sube el binario gentle-ai, el binario engram y el paquete gentle-pi (el plugin de gentle-ai para Pi) al HEAD de main y corre gentle-ai sync al final.'
 license: MIT
 metadata:
   author: ardelperal

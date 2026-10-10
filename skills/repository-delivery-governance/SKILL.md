@@ -1,6 +1,6 @@
 ---
 name: repository-delivery-governance
-description: Trigger: CI/CD audit, pipeline quality, issue policy, PR policy, labels, branch protection, merge permissions, deployment governance. Audit and harden a repository's path from issue intake to production.
+description: 'Trigger: CI/CD audit, pipeline quality, issue policy, PR policy, labels, branch protection, merge permissions, deployment governance. Audit and harden a repository''s path from issue intake to production.'
 license: Apache-2.0
 metadata:
   author: ardelperal

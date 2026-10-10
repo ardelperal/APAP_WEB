@@ -1,6 +1,6 @@
 ---
 name: vba-handler-backtrace
-description: Trigger: trace handler for control X, what does cmdSave_Click call, backtrace event flow to the database, diagnose form control to SQL path. Traces a VBA form control event handler forward through the call chain to its DAO database operations, extracting SQL hints and custom UDT parameters.
+description: 'Trigger: trace handler for control X, what does cmdSave_Click call, backtrace event flow to the database, diagnose form control to SQL path. Traces a VBA form control event handler forward through the call chain to its DAO database operations, extracting SQL hints and custom UDT parameters.'
 license: Apache-2.0
 status: active
 requires: codegraph MCP (codegraph_explore) with an initialized .codegraph/ index for the target VBA/Access project

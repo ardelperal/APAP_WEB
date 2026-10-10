@@ -1,6 +1,6 @@
 ---
 name: feature-acceptance-uat
-description: Trigger: staging acceptance, feature intake, acceptance criteria, criterios de aceptación, UAT, client sign-off, dev validation, acceptance web. Drive everything in staging that is not yet in the latest main release to a signed acceptance: clarifying questions, testable criteria, the contract, derived validation cases, and self-contained Telefónica-branded acceptance webs for BOTH user-validatable changes and developer-only (infra) validation.
+description: 'Trigger: staging acceptance, feature intake, acceptance criteria, criterios de aceptación, UAT, client sign-off, dev validation, acceptance web. Drive everything in staging that is not yet in the latest main release to a signed acceptance: clarifying questions, testable criteria, the contract, derived validation cases, and self-contained Telefónica-branded acceptance webs for BOTH user-validatable changes and developer-only (infra) validation.'
 license: Apache-2.0
 metadata:
   author: Andrés Román

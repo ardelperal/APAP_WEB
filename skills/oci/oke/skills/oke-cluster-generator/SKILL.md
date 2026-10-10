@@ -1,6 +1,6 @@
 ---
 name: oke-cluster-generator
-description: Trigger: OCI Kubernetes infrastructure, ORM schema, build an OKE stack, create OKE Terraform, generate ORM schema. Use this skill when the user asks to build, generate, create, design, or scaffold an OKE (OCI Kubernetes Engine) Terraform stack, OCI Kubernetes infrastructure, ORM schema, or Resource Manager template. Trigger phrases include "build an OKE stack", "create OKE Terraform", "generate ORM schema", "deploy OKE cluster", "OKE infrastructure", "terraform-oci-oke", or any request to design OCI Kubernetes infrastructure with Terraform. Do not use it for active incident RCA, GVA secondary VNIC node-pool creation, or Multus pod manifest validation; use the troubleshooting, GVA, or multihome skills for those surfaces.
+description: 'Trigger: OCI Kubernetes infrastructure, ORM schema, build an OKE stack, create OKE Terraform, generate ORM schema. Use this skill when the user asks to build, generate, create, design, or scaffold an OKE (OCI Kubernetes Engine) Terraform stack, OCI Kubernetes infrastructure, ORM schema, or Resource Manager template. Trigger phrases include "build an OKE stack", "create OKE Terraform", "generate ORM schema", "deploy OKE cluster", "OKE infrastructure", "terraform-oci-oke", or any request to design OCI Kubernetes infrastructure with Terraform. Do not use it for active incident RCA, GVA secondary VNIC node-pool creation, or Multus pod manifest validation; use the troubleshooting, GVA, or multihome skills for those surfaces.'
 license: Apache-2.0
 metadata:
   author: ardelperal

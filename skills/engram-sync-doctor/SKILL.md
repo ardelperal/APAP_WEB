@@ -1,12 +1,12 @@
 ---
 name: engram-sync-doctor
-description: Trigger: engram cloud sync, sync status, autosync roto, mutaciones inválidas, sync queue atascado, doctor engram, desatascar engram, repair sync_mutations, repair engram cloud, materializer postgres caído, daemon engram no levanta. Diagnostica y repara el autosync local↔cloud de Engram: valida daemon, Postgres materializer, env vars, integridad SQLite, mutaciones inválidas (title/session_id/content/id), huérfanos contra allowlist, y descongestiona la cola de sync_mutations siguiendo los patrones validados en sesiones reales.
+description: 'Trigger: engram cloud sync, sync status, autosync roto, mutaciones inválidas, sync queue atascado, doctor engram, desatascar engram, repair sync_mutations, repair engram cloud, materializer postgres caído, daemon engram no levanta. Diagnostica y repara el autosync local↔cloud de Engram: valida daemon, Postgres materializer, env vars, integridad SQLite, mutaciones inválidas (title/session_id/content/id), huérfanos contra allowlist, y descongestiona la cola de sync_mutations siguiendo los patrones validados en sesiones reales.'
 license: Apache-2.0
 metadata:
   author: Andrés Román
   version: 1.0
   tested_on: Windows 11 + WSL2 Ubuntu 22.04 + engram 1.19.0 + PostgreSQL 16
-  last_verified: 2026-09-05
+  last_verified: 2026-09-22
   scope: ['engram', 'runtime']
   auto_invoke: ['diagnosing engram sync failures']
   tiers: ['engram', 'runtime']
@@ -42,6 +42,7 @@ The skill is **read-first, write-with-consent**: diagnose never mutates; repair 
 8. **Always REINDEX + `PRAGMA integrity_check` after any SQL mutation.** WAL corruption has been observed on this machine when copying between WSL and Windows paths; the only reliable recovery is REINDEX.
 9. **Never overwrite the live `engram.db` while the daemon is alive.** Stop daemon → WAL checkpoint → copy → REINDEX → integrity_check → copy back → restart. Skip none.
 10. **Always ask before deleting.** The repair script lists every category of invalid/orphan mutation with counts and asks per-category before applying.
+11. **Coolify container restart requires stop+start, not restart_application.** When updating env vars on the Coolify-managed engram-cloud container, `restart_application` queues but does not actually restart (`last_restart_at` stays `null` in `list_containers`). MUST use `stop_application` followed by `start_application` with ~12s between calls. A stale env var makes the new `ENGRAM_CLOUD_ALLOWED_PROJECTS` invisible to running code, so a successful `bulk_update` without a real restart still produces `403 forbidden` on `engram sync --cloud --project X`.
 
 ## Decision Gates
 

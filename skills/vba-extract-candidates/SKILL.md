@@ -1,6 +1,6 @@
 ---
 name: vba-extract-candidates
-description: Trigger: qué helpers extraigo de X, divide X en helpers, planifica extracción de X, X es muy largo. Identifica candidatos a extracción en un procedure VBA largo y propone 2-3 helpers respetando boundaries de statements (With/End With, If/End If, For/Next).
+description: 'Trigger: qué helpers extraigo de X, divide X en helpers, planifica extracción de X, X es muy largo. Identifica candidatos a extracción en un procedure VBA largo y propone 2-3 helpers respetando boundaries de statements (With/End With, If/End If, For/Next).'
 license: Apache-2.0
 status: active
 requires: dysflow MCP, codegraph; for current tool names and flags → see `dysflow-usage` skill.
