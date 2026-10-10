@@ -19,3 +19,17 @@ ignore:
       - policy: Detecting secrets in source code
         incident_id: "37153240"
         note: "Docker Compose env var placeholders are not hardcoded secrets; values come from Coolify secret store or .env"
+  # Incident 38061024: the e2e job used to emit each variable into
+  # $GITHUB_ENV by echoing the variable name and its own value, which the
+  # Generic High Entropy detector reads as a hardcoded secret. That echo is
+  # gone (a loop emits them now), but the same text also appeared inside an
+  # explanatory comment in an intermediate commit, and repository policy
+  # forbids rewriting pushed history, so the historical occurrence is
+  # recorded here. Scoped to this single incident: no path-wide matcher and
+  # no detector override, so the scanner keeps watching the file.
+  - paths:
+      - ".github/workflows/ci.yml"
+    occurrences:
+      - policy: Detecting secrets in source code
+        incident_id: "38061024"
+        note: "False positive: an explanatory comment quoted the echo that this PR replaced with a loop; the echo no longer exists in the workflow"
