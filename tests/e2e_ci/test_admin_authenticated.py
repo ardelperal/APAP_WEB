@@ -28,78 +28,23 @@ Three tests:
   ``require_authorized_user`` (the single cache writer) then serves
   the following requests from the in-process cache (issue #1073).
 
-The fixture skips gracefully when ``Settings.e2e_auth_enabled`` is
-False (i.e. production / local dev without the env var set). The
-unit tests in ``tests/test_e2e_auth.py`` cover the contract directly;
-this file covers the contract as observed through a real browser.
+Fail-closed under the e2e_ci gate (issue #1096, tramo B): the
+shared ``authenticated_session`` fixture from ``tests/e2e_ci/conftest.py``
+already raises ``KeyError`` when ``APAP_E2E_AUTH_SECRET`` is unset
+and hard-asserts ``/e2e/login`` answered 200; this module does
+not define its own auth fixture. The ``/login`` 503 skip that the
+tests/e2e/ version carried is gone — the gate's contract forbids
+skips, and the empirical status (Google OAuth is intentionally
+not configured under the gate) is reported from the run, not
+absorbed by a skip branch.
+
+The unit tests in ``tests/test_e2e_auth.py`` cover the contract
+directly; this file covers the contract as observed through a
+real browser.
 """
 from __future__ import annotations
 
-import os
-
-import pytest
-from playwright.sync_api import BrowserContext, Page
-
-# Sentinel header name shared with app.core.e2e_auth. Duplicated here
-# on purpose: tests/e2e/ does not import from app.core to keep the
-# Playwright suite transport-agnostic (the suite might run against a
-# production build where the dev module is not importable).
-E2E_SECRET_HEADER = "X-E2E-Secret"
-
-
-def _e2e_secret() -> str | None:
-    """Return the test-suite shared secret, or None if unset.
-
-    CI exports ``APAP_E2E_AUTH_SECRET`` from the workflow's variable
-    pool; local dev sets it in the dev environment. ``None`` means
-    the mock is not wired and the whole module skips.
-    """
-    return os.environ.get("APAP_E2E_AUTH_SECRET")
-
-
-@pytest.fixture
-def authenticated_page(browser_context: BrowserContext, base_url: str) -> Page:
-    """A Page with a valid session cookie minted by ``/e2e/login``.
-
-    The flow:
-
-    1. POST ``/e2e/login`` via the browser context's request
-       client so the response's ``Set-Cookie`` lands on the
-       context (NOT on a separate ``requests`` session, which the
-       browser would not see).
-    2. Verify the response is 200 + JSON shape ``authenticated: true``
-       — the contract that ``tests/test_e2e_auth.py`` pins at the
-       unit-test layer.
-    3. Hand back a Page bound to the same context so subsequent
-       navigations carry the cookie.
-
-    Skips the whole fixture when ``APAP_E2E_AUTH_SECRET`` is unset so
-    developers running ``pytest tests/e2e/`` locally without the env
-    var get a clear skip rather than a confusing 401 traceback.
-    """
-    secret = _e2e_secret()
-    if secret is None:
-        pytest.skip(
-            "APAP_E2E_AUTH_SECRET not set — the OAuth mock cannot "
-            "authenticate this test. CI sets the variable; local dev "
-            "needs to export it to run authenticated E2E flows."
-        )
-
-    response = browser_context.request.get(
-        f"{base_url}/e2e/login",
-        headers={E2E_SECRET_HEADER: secret},
-    )
-    assert response.status == 200, (
-        f"/e2e/login must return 200 in the e2e suite, got {response.status}. "
-        f"The OAuth mock contract is broken; see tests/test_e2e_auth.py."
-    )
-    payload = response.json()
-    assert payload.get("authenticated") is True, (
-        f"/e2e/login must report authenticated: true, got {payload!r}."
-    )
-
-    page = browser_context.new_page()
-    return page
+from playwright.sync_api import Page
 
 
 def test_unauthenticated_admin_redirects_to_login(page: Page, base_url: str) -> None:
@@ -109,46 +54,68 @@ def test_unauthenticated_admin_redirects_to_login(page: Page, base_url: str) -> 
     browser to ``/login`` whenever the cookie is absent. The
     negative case is what protects the admin panel from a session
     regression — the first line of defence, even before the
-    ``/login`` 503 ever comes into play.
+    ``/login`` body renders.
 
-    Skips when ``/login`` returns 503: that happens when Google
-    OAuth is not configured AND the OAuth mock is not enabled (the
-    legacy dev-server path). The redirect chain still works — the
-    auth dep sent us to ``/login`` — but the landing page is 503,
-    so we cannot observe the final URL. The existing
-    ``test_login_form`` tests already skip on this condition; this
-    test follows the same pattern.
+    FAIL-CLOSED under the e2e_ci gate (issue #1096, tramo B): the
+    previous ``tests/e2e/`` copy carried a 503-skip branch that
+    absorbed the case where ``/login`` answers 503 because Google
+    OAuth is not configured. The gate's contract forbids skips —
+    a missing OAuth provider is the gate's reality (the gate
+    provisions the OAuth mock at ``/e2e/login``, not Google OAuth
+    on ``/login``). Empirical observation of this gate run is
+    captured in the issue's handoff, not in this assertion:
+
+    - Final status from the redirect chain is 200 when ``/login``
+      renders (Google OAuth configured).
+    - Final status is 503 + the OAuth-unconfigured JSON body when
+      the gate runs without ``APAP_GOOGLE_CLIENT_ID`` /
+      ``APAP_GOOGLE_CLIENT_SECRET`` (the e2e_ci posture today).
+    - ``page.url`` still ends in ``/login`` and the request still
+      carries a ``redirected_from`` predecessor in both cases —
+      the auth gate did its job and the redirect target is what
+      the operator sees.
+
+    The assertion pins the redirect contract (server-side 302 to
+    ``/login``, not a JS bounce). Whether the rendered ``/login``
+    page is the 200 template or the 503 JSON is a property of the
+    target environment, not of the auth gate, and is documented
+    separately by ``app/core/auth_flow.py::_oauth_unconfigured_response``.
     """
     response = page.goto(f"{base_url}/admin")
 
     assert response is not None
-    if response.status == 503:
-        pytest.skip(
-            "/admin redirected to /login which returned 503 (OAuth "
-            "not configured and mock not enabled); the auth gate is "
-            "still doing its job — the existing public-flow E2E "
-            "tests cover this scenario via _skip_if_oauth_not_configured."
-        )
-
     # Final-response semantics (issues #1153/#1160): the auth dep's
-    # server-side 302 to /login surfaces as a 200 rendered /login — the
-    # old 303/307 assertion was un-passable against any target where
-    # /login renders. The final request must still carry a
-    # ``redirected_from`` predecessor (a JS bounce would not).
-    assert response.status == 200, (
-        f"/admin without auth must land on a rendered /login (final response of "
-        f"the redirect chain), got {response.status} @ {response.url}"
-    )
+    # server-side 302 to /login surfaces as a 200 rendered /login when
+    # Google OAuth is configured; on the gate (no OAuth) it surfaces
+    # as 503 + the OAuth-unconfigured JSON. The redirect chain still
+    # passed through ``/login`` and ``response.request.redirected_from``
+    # is non-None in both branches — that is the auth-gate contract
+    # this atom pins.
     assert page.url.endswith("/login"), (
         f"/admin must redirect to /login, got {page.url}"
     )
     assert response.request.redirected_from is not None, (
         "/admin must reach /login through a server redirect, not a client-side bounce"
     )
+    # Final-response semantics (issues #1153/#1160): the auth dep's
+    # server-side 302 to /login surfaces as a 200 rendered /login when Google
+    # OAuth is configured, and as the OAuth-unconfigured 503 in the CI gate
+    # (which provisions /e2e/login instead). The final request must still carry
+    # a ``redirected_from`` predecessor (a JS bounce would not).
+    assert response.status in (200, 503), (
+        f"/admin without auth must land on /login (200 rendered, or the "
+        f"OAuth-unconfigured 503), got {response.status} @ {response.url}"
+    )
+    if response.status == 503:
+        body = response.text()
+        assert "OAuth no est\u00e1 configurado" in body, (
+            "the 503 landing must be the OAuth-unconfigured /login payload, "
+            f"got: {body[:200]!r}"
+        )
 
 
 def test_authenticated_admin_renders_panel(
-    authenticated_page: Page, base_url: str
+    authenticated_session: tuple[Page, str], base_url: str
 ) -> None:
     """The happy path: mock mints a session, the auth gate lets us through.
 
@@ -169,7 +136,9 @@ def test_authenticated_admin_renders_panel(
     data-fetching path. The data-fetching path needs LocalBackend
     (separate work unit).
     """
-    response = authenticated_page.goto(f"{base_url}/admin")
+    page, _csrf_token = authenticated_session
+
+    response = page.goto(f"{base_url}/admin")
 
     assert response is not None
     # 303 / 307 → middleware redirected us back to /login (cookie
@@ -191,7 +160,7 @@ def test_authenticated_admin_renders_panel(
 
 
 def test_session_cookie_persists_across_requests(
-    authenticated_page: Page, base_url: str
+    authenticated_session: tuple[Page, str], base_url: str
 ) -> None:
     """After the mock sets the cookie, every subsequent request carries it.
 
@@ -210,8 +179,10 @@ def test_session_cookie_persists_across_requests(
     configured; the admin panel's ``AuthUsersPort`` call 500s on
     data fetch). What we pin is the auth path.
     """
+    page, _csrf_token = authenticated_session
+
     for attempt in range(3):
-        response = authenticated_page.goto(f"{base_url}/admin")
+        response = page.goto(f"{base_url}/admin")
         assert response is not None
         assert response.status not in (303, 307, 401), (
             f"authenticated /admin attempt {attempt + 1}/3 must "
