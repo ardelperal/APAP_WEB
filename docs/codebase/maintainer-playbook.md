@@ -29,7 +29,7 @@ Esta página posee el workflow operativo de mantenedor: pre-flight, triaje, SDD,
 
 | Tipo | Checklist |
 |---|---|
-| `type:feature` | [ ] Spec en `openspec/specs/<slice>/spec.md` o `propose.md` en `openspec/changes/<name>/`. [ ] Tests rojos primero (TDD). [ ] Si toca UI: E2E en `tests/e2e/`. [ ] Si toca auth/secretos/CSRF/PII/migración: audit en [`docs/audits/`](../../docs/audits/). |
+| `type:feature` | [ ] Spec en `openspec/specs/<slice>/spec.md` o `propose.md` en `openspec/changes/<name>/`. [ ] Tests rojos primero (TDD). [ ] Si toca UI: E2E en `tests/e2e_ci/` (el gate de CI; `tests/e2e/` es del gate de producción, issue #1096). [ ] Si toca auth/secretos/CSRF/PII/migración: audit en [`docs/audits/`](../../docs/audits/). |
 | `type:bug` | [ ] Reproducir con test rojo antes del fix. [ ] Si rompe P1 (fidelidad legacy): label `gap:legacy`. [ ] Si toca un path sensible: audit y runbook asociados. [ ] Cita SHA + path de test en el comentario de cierre. |
 | `type:refactor` | [ ] Sin cambio de comportamiento; los tests existentes siguen verdes. [ ] Si toca un módulo en `app/modules/` y lo mueve a hexagonal, sigue §33.3. [ ] Si rompe el ratchet de tamaño, el `BASELINE` decrece (no crece) (§21, §28). |
 | `type:docs` | [ ] Sigue el contrato de la skill [documentation-alan-style](../../../../../../.config/opencode/skills/documentation-alan-style/SKILL.md). [ ] Sin emojis, sin marketing fluff, párrafos < 200 chars. [ ] Castellano peninsular formal, usted. |
