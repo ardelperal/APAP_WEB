@@ -11,7 +11,7 @@ surface used by the local-backend API.
 Environment variables
 --------------------
 ``APAP_S3_ENDPOINT``
-    MinIO server address, e.g. ``minio:9000``.  Defaults to ``localhost:9000``.
+    S3 server address, with or without an HTTP(S) scheme. Defaults to ``minio:9000``.
 ``APAP_S3_ACCESS_KEY``
     MinIO access key.  Required when ``APAP_S3_SECRET_KEY`` is set.
 ``APAP_S3_SECRET_KEY``
@@ -19,7 +19,8 @@ Environment variables
 ``APAP_S3_BUCKET``
     Default bucket name for photo assets.  Defaults to ``apap-photos``.
 ``APAP_S3_SECURE``
-    Set to ``0`` or ``false`` to disable TLS.  Default: ``true``.
+    Set to ``0`` or ``false`` to disable TLS. Default: ``true``.
+    An explicit endpoint scheme overrides this setting.
 """
 
 from __future__ import annotations
@@ -33,7 +34,8 @@ if TYPE_CHECKING:
 
 
 def _endpoint() -> str:
-    return os.environ.get("APAP_S3_ENDPOINT", "minio:9000")
+    endpoint = os.environ.get("APAP_S3_ENDPOINT", "minio:9000").strip()
+    return endpoint.removeprefix("http://").removeprefix("https://")
 
 
 def _credentials() -> tuple[str, str] | None:
@@ -45,6 +47,9 @@ def _credentials() -> tuple[str, str] | None:
 
 
 def _secure() -> bool:
+    endpoint = os.environ.get("APAP_S3_ENDPOINT", "minio:9000").strip()
+    if endpoint.startswith(("http://", "https://")):
+        return endpoint.startswith("https://")
     val = os.environ.get("APAP_S3_SECURE", "true").strip().lower()
     return val not in ("0", "false", "no")
 
@@ -55,6 +60,20 @@ def _secure() -> bool:
 
 if TYPE_CHECKING:
     from minio import Minio
+
+
+class BucketNotProvisionedError(RuntimeError):
+    """The configured bucket does not exist and this client cannot create it.
+
+    Production credentials are scoped to a single bucket, so ``CreateBucket``
+    is denied by the backend. A missing bucket is therefore an operator
+    provisioning error (see ``docs/runbooks/operator-deploy-2026.md``,
+    Phase 7), not something the application can repair.
+    """
+
+    def __init__(self, bucket_name: str) -> None:
+        super().__init__(f"bucket {bucket_name!r} does not exist")
+        self.bucket_name = bucket_name
 
 
 class MinioClient:
@@ -68,30 +87,22 @@ class MinioClient:
         self._client = client
 
     def list_buckets(self) -> list[dict[str, Any]]:
-        """Return the real bucket list from MinIO.
+        """List buckets, falling back to the configured bucket for scoped tokens."""
+        from minio.error import S3Error  # lazy-import: storage operations only
 
-        Each dict has ``name``, ``isPublic`` (always ``False``), and
-        ``files`` (count of objects, always ``0`` in this implementation).
-        """
-        buckets = self._client.list_buckets()
-        return [
-            {
-                "name": b.name,
-                "isPublic": False,
-                "files": 0,
-            }
-            for b in buckets
-        ]
+        try:
+            buckets = self._client.list_buckets()
+        except S3Error as exc:
+            if exc.code != "AccessDenied":
+                raise
+            return [self.ensure_bucket(os.environ.get("APAP_S3_BUCKET", "apap-photos"))]
+        return [{"bucketName": b.name, "isPublic": False, "files": 0} for b in buckets]
 
     def ensure_bucket(self, bucket_name: str) -> dict[str, Any]:
-        """Create ``bucket_name`` if it does not exist.
-
-        Returns the bucket dict.  Idempotent — calling twice with the same
-        name is safe.
-        """
+        """Verify an operator-provisioned bucket without account-level creation."""
         if not self._client.bucket_exists(bucket_name):
-            self._client.make_bucket(bucket_name)
-        return {"name": bucket_name, "isPublic": False, "files": 0}
+            raise BucketNotProvisionedError(bucket_name)
+        return {"bucketName": bucket_name, "isPublic": False, "files": 0}
 
 
 # ---------------------------------------------------------------------------
@@ -106,17 +117,14 @@ def _unconfigured_client() -> Minio | None:
     creds = _credentials()
     if creds is None:
         return None
-    try:
-        from minio import Minio  # lazy-import: only needed when S3 credentials exist
+    from minio import Minio  # lazy-import: only needed when S3 credentials exist
 
-        return Minio(
-            _endpoint(),
-            access_key=creds[0],
-            secret_key=creds[1],
-            secure=_secure(),
-        )
-    except Exception:  # noqa: BLE001
-        return None
+    return Minio(
+        _endpoint(),
+        access_key=creds[0],
+        secret_key=creds[1],
+        secure=_secure(),
+    )
 
 
 def _build_minio_client() -> Minio | None:
@@ -143,16 +151,14 @@ class PhotoStorageClient:
         self._client: Minio | None = _build_minio_client()
         self._bucket = os.environ.get("APAP_S3_BUCKET", "apap-photos")
 
-    def download_object_stream(
-        self, bucket: str, key: str
-    ) -> Iterator[bytes]:
+    def download_object_stream(self, bucket: str, key: str) -> Iterator[bytes]:
         """Stream the object ``key`` from ``bucket``.
 
-        Raises ``StopIteration`` when the object does not exist.
+        Returns an empty iterator when storage is unconfigured.
         Raises any MinIO error when the connection fails.
         """
         if self._client is None:
-            raise StopIteration
+            return
         response = self._client.get_object(bucket, key)
         try:
             while chunk := response.read(8192):
@@ -186,6 +192,7 @@ def reset_minio_client() -> None:
 
 
 __all__ = [
+    "BucketNotProvisionedError",
     "PhotoStorageClient",
     "MinioClient",
     "get_minio_client",
