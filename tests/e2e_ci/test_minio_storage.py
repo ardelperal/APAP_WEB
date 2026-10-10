@@ -2,14 +2,14 @@
 
 These tests run against the full application stack in CI:
 - PostgreSQL (via the app's LocalPostgresExecutor)
-- MinIO (seeded with the ``apap-photos`` bucket)
+- S3-compatible storage (R2 in CI, MinIO locally)
 - The FastAPI app itself
 
 Fail-closed contract (issue #1095 slice 4, tramo C): the shared
 ``minio_client`` fixture raises ``pytest.fail`` when
 ``APAP_S3_ACCESS_KEY`` / ``APAP_S3_SECRET_KEY`` are absent instead of
-silently skipping. The e2e job provisions MinIO and the app-start step
-exports the credentials to ``$GITHUB_ENV`` for pytest to inherit
+silently skipping. CI uses an operator-provisioned R2 bucket with a
+bucket-scoped token and an ``e2e/`` expiry rule
 (``make e2e-local`` does the same on a workstation). A missing
 credential therefore reports a broken gate, not a green run with empty
 coverage.
@@ -26,7 +26,10 @@ from minio import Minio
 from playwright.sync_api import BrowserContext
 
 # The bucket that the app's PhotoStorageClient targets.
-PHOTO_BUCKET = "apap-photos"
+PHOTO_BUCKET = os.environ.get("APAP_S3_BUCKET", "apap-photos")
+RUN_PREFIX = os.environ.get("APAP_E2E_RUN_PREFIX", "e2e/local").strip("/")
+if not RUN_PREFIX.startswith("e2e/"):
+    raise ValueError("APAP_E2E_RUN_PREFIX must be under e2e/")
 
 # Predictable photo content for the test.
 _MINIO_TEST_PNG = (
@@ -133,12 +136,11 @@ class TestMinioPhotoServing:
         # Generate a unique test identity so parallel test runs don't collide.
         test_id = uuid.uuid4().hex[:8]
         animal_id = f"e2e-minio-{test_id}"
-        photo_key = f"test-minio-{test_id}.png"
+        photo_key = f"{RUN_PREFIX}/test-minio-{test_id}.png"
 
         try:
-            # 1. Ensure the bucket exists.
-            if not minio_client.bucket_exists(PHOTO_BUCKET):
-                minio_client.make_bucket(PHOTO_BUCKET)
+            # 1. Verify the operator-provisioned bucket exists.
+            assert minio_client.bucket_exists(PHOTO_BUCKET)
 
             # 2. Upload a predictable PNG to MinIO.
             content = _MINIO_TEST_PNG
@@ -194,11 +196,6 @@ class TestMinioPhotoServing:
             )
 
         finally:
-            # Teardown: remove test artifacts so they don't pollute subsequent runs.
-            try:
-                minio_client.remove_object(PHOTO_BUCKET, photo_key)
-            except Exception:
-                pass  # best-effort cleanup
-
+            # R2 lifecycle expires objects under e2e/; only DB rows need teardown.
             with e2e_db_conn.cursor() as cur:
                 cur.execute("DELETE FROM animales WHERE id = %s", (animal_id,))
