@@ -61,12 +61,8 @@ _DEFAULT_TEMPLATES_DIR: Path = (
 _SLUG_POR_TIPO: dict[str, str] = {
     TipoContrato.ENTRADA.value: "entrada",
     TipoContrato.ACOGIDA.value: "acogida",
-    TipoContrato.ACOGIDA_JUDICIAL.value: "acogida_judicial",
     TipoContrato.ADOPCION.value: "adopcion",
-    TipoContrato.PREADOPCION.value: "preadopcion",
     TipoContrato.CESION.value: "cesion",
-    TipoContrato.RESERVA.value: "reserva",
-    TipoContrato.ENTREGA.value: "entrega",
 }
 
 
