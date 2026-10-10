@@ -80,7 +80,7 @@ def test_ensure_bucket_verifies_preprovisioned_bucket() -> None:
 
 def test_ensure_bucket_does_not_create_missing_bucket() -> None:
     client = s3.MinioClient(BucketScopedClient(exists=False))
-    with pytest.raises(ValueError, match="does not exist"):
+    with pytest.raises(s3.BucketNotProvisionedError, match="does not exist"):
         client.ensure_bucket("apap-e2e")
 
 

@@ -62,6 +62,20 @@ if TYPE_CHECKING:
     from minio import Minio
 
 
+class BucketNotProvisionedError(RuntimeError):
+    """The configured bucket does not exist and this client cannot create it.
+
+    Production credentials are scoped to a single bucket, so ``CreateBucket``
+    is denied by the backend. A missing bucket is therefore an operator
+    provisioning error (see ``docs/runbooks/operator-deploy-2026.md``,
+    Phase 7), not something the application can repair.
+    """
+
+    def __init__(self, bucket_name: str) -> None:
+        super().__init__(f"bucket {bucket_name!r} does not exist")
+        self.bucket_name = bucket_name
+
+
 class MinioClient:
     """MinIO / S3-compatible client for the storage API.
 
@@ -87,7 +101,7 @@ class MinioClient:
     def ensure_bucket(self, bucket_name: str) -> dict[str, Any]:
         """Verify an operator-provisioned bucket without account-level creation."""
         if not self._client.bucket_exists(bucket_name):
-            raise ValueError(f"bucket {bucket_name!r} does not exist")
+            raise BucketNotProvisionedError(bucket_name)
         return {"bucketName": bucket_name, "isPublic": False, "files": 0}
 
 
@@ -178,6 +192,7 @@ def reset_minio_client() -> None:
 
 
 __all__ = [
+    "BucketNotProvisionedError",
     "PhotoStorageClient",
     "MinioClient",
     "get_minio_client",
