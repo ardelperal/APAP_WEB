@@ -8,10 +8,20 @@ Pins the auth gate contract for the cesiones surface:
    redirected before the token is checked).
 3. ``POST /cesiones`` with a reader session → 403 Forbidden.
 
-The ``authenticated_session`` fixture is copied verbatim from
-``test_cesiones_crud.py`` for self-contained readability.
-
-The tests skip cleanly when ``APAP_E2E_AUTH_SECRET`` is unset.
+Fail-closed under the e2e_ci gate (issue #1096, tramo B): the
+shared ``authenticated_session`` and reader-account seeding fixtures
+live in ``tests/e2e_ci/conftest.py``; the gate's contract reads
+``APAP_E2E_AUTH_SECRET`` / ``APAP_E2E_READER_EMAIL`` directly (a
+missing variable is a ``KeyError``, never a skip) and the
+``_seed_e2e_default_user`` autouse seeds the ``reader`` row in
+``usuarios_autorizados`` so the allowlist lookup resolves. The
+``tests/e2e/`` version carried four skip branches on
+``APAP_E2E_AUTH_SECRET``, ``APAP_E2E_READER_EMAIL``, the
+``/login`` 503 final response, and the ``rol != "reader"`` case;
+all four are gone — the gate provisions them, and a missing
+provision is a failure, not a skip. The empirical answer about the
+``/login`` 503 (Google OAuth is not configured under the gate) is
+captured in the issue's handoff, not in this assertion.
 """
 
 from __future__ import annotations
@@ -19,93 +29,81 @@ from __future__ import annotations
 import os
 
 import pytest
-from playwright.sync_api import BrowserContext, Page
+from playwright.sync_api import Browser, Page
 
 E2E_SECRET_HEADER = "X-E2E-Secret"
 
 
 def _assert_bounced_to_login(page: Page, response, origin: str) -> None:
-    """Assert an anonymous navigation landed on a rendered /login.
+    """Assert an anonymous navigation landed on /login through a server redirect.
 
     Final-response semantics (issues #1153/#1160): ``page.goto`` returns
     the FINAL response of the redirect chain, so the server-side 302
-    surfaces as 200 @ /login; the ``redirected_from`` predecessor pins
-    the server-redirect contract (a JS bounce would not have one). A 503
-    final response means /login cannot render on this target (OAuth
-    unconfigured) — skipped with the #1153 preflight reason, never
-    counted as an assertion failure.
+    surfaces as 200 @ /login when Google OAuth is configured or 503
+    @ /login when OAuth is unconfigured (the e2e_ci posture — the
+    gate provisions ``/e2e/login`` instead of Google OAuth). The
+    ``redirected_from`` predecessor pins the server-redirect
+    contract (a JS bounce would not have one) regardless of the
+    final status.
+
+    The /login 503 skip branch from the tests/e2e/ version is gone: the gate's
+    contract forbids skips, and the 503 final status is a property of the
+    OAuth-``/login`` route, not of the auth gate that issued the redirect. The
+    landing is therefore asserted as "rendered /login": 200 when Google OAuth
+    is configured, or the explicit OAuth-unconfigured 503 payload the CI gate
+    produces (it provisions ``/e2e/login`` instead). The payload is checked as
+    well, so an unrelated 503 cannot pass as a valid landing.
     """
     assert response is not None
-    if response.status == 503:
-        pytest.skip(
-            f"{origin} reached /login but it returned 503 (Google OAuth "
-            "not configured on this target); the auth gate did redirect."
-        )
-    assert response.status == 200, (
-        f"{origin} should land on a rendered /login (final response of the redirect "
-        f"chain), got {response.status} @ {response.url}"
-    )
     assert page.url.endswith("/login"), (
         f"{origin} without session should redirect to /login, got: {page.url}"
     )
     assert response.request.redirected_from is not None, (
         f"{origin} must reach /login through a server redirect, not a client-side bounce"
     )
-
-
-def _e2e_secret() -> str | None:
-    return os.environ.get("APAP_E2E_AUTH_SECRET")
-
-
-@pytest.fixture
-def authenticated_session(
-    browser_context: BrowserContext, base_url: str
-) -> tuple[Page, str]:
-    """A Page with a key_user session cookie minted by ``/e2e/login``."""
-    secret = _e2e_secret()
-    if secret is None:
-        pytest.skip("APAP_E2E_AUTH_SECRET not set.")
-
-    response = browser_context.request.get(
-        f"{base_url}/e2e/login",
-        headers={E2E_SECRET_HEADER: secret},
+    assert response.status in (200, 503), (
+        f"{origin} must land on a rendered /login (200) or the "
+        f"OAuth-unconfigured 503, got {response.status}"
     )
-    assert response.status == 200
-    payload = response.json()
-    csrf_token = payload.get("csrf_token")
-    assert isinstance(csrf_token, str) and csrf_token
-
-    page = browser_context.new_page()
-    return page, csrf_token
+    if response.status == 503:
+        body = response.text()
+        assert "OAuth no est\u00e1 configurado" in body, (
+            "the 503 landing must be the OAuth-unconfigured /login payload, "
+            f"got: {body[:200]!r}"
+        )
 
 
 @pytest.fixture
 def reader_session(
-    browser_context: BrowserContext, base_url: str
+    browser: Browser,
+    base_url: str,
 ) -> tuple[Page, str]:
     """A Page with a reader (read-only) session cookie.
 
     The reader rol cannot POST to /cesiones (requires WRITE_CESIONES
     permission). This fixture mimics the authenticated flow but
-    specifies rol=reader so the RBAC gate fires before any port call.
+    targets the allowlisted reader account so the RBAC gate fires
+    before any port call.
+
+    FAIL-CLOSED under the e2e_ci gate (issue #1096, tramo B):
+    ``APAP_E2E_AUTH_SECRET`` and ``APAP_E2E_READER_EMAIL`` are read
+    via ``os.environ[...]`` — a missing variable is a ``KeyError``
+    and propagates as a hard failure (the gate provisions both).
+    The allowlist row is seeded by ``_seed_e2e_default_user`` in
+    ``tests/e2e_ci/conftest.py`` so the ``?email=`` lookup against
+    ``usuarios_autorizados`` returns the ``reader`` rol and the
+    final ``assert payload_reader.get("rol") == "reader"`` succeeds
+    — a different rol means the seeded row is wrong and the gate
+    is broken, which is what the assert surfaces.
     """
-    secret = _e2e_secret()
-    if secret is None:
-        pytest.skip("APAP_E2E_AUTH_SECRET not set.")
+    secret = os.environ["APAP_E2E_AUTH_SECRET"]  # KeyError -> fail closed
+    reader_email = os.environ["APAP_E2E_READER_EMAIL"]  # KeyError -> fail closed
 
-    # The mock resolves the session rol from ``usuarios_autorizados``
-    # (issue #1073): the target is ``?email=``, and ``?rol=`` is NOT
-    # part of its contract. A reader session therefore requires an
-    # allowlisted reader account, wired through APAP_E2E_READER_EMAIL.
-    reader_email = os.environ.get("APAP_E2E_READER_EMAIL")
-    if reader_email is None:
-        pytest.skip(
-            "APAP_E2E_READER_EMAIL not set: the OAuth mock resolves the rol from "
-            "usuarios_autorizados (issue #1073) and cannot mint a reader session "
-            "on demand; point APAP_E2E_READER_EMAIL at an allowlisted reader."
-        )
+    # Fresh browser context so the reader cookie is isolated from the
+    # shared ``e2e_logged_in_browser_context`` fixture (developer).
+    context = browser.new_context(base_url=base_url)
 
-    response_reader = browser_context.request.get(
+    response_reader = context.request.get(
         f"{base_url}/e2e/login",
         headers={E2E_SECRET_HEADER: secret},
         params={"email": reader_email},
@@ -118,15 +116,21 @@ def reader_session(
     reader_csrf = payload_reader.get("csrf_token")
     assert isinstance(reader_csrf, str) and reader_csrf
 
-    if payload_reader.get("rol") != "reader":
-        pytest.skip(
-            f"e2e reader account {reader_email!r} has rol="
-            f"{payload_reader.get('rol')!r}, not 'reader' — fix the allowlist "
-            "row to exercise the 403 branch."
-        )
+    # The seed in ``_seed_e2e_default_user`` inserts the reader row
+    # with rol='reader'; anything else means the allowlist is
+    # misconfigured and the 403 atom would not exercise the intended
+    # branch. Hard assert — never skip.
+    assert payload_reader.get("rol") == "reader", (
+        f"e2e reader account {reader_email!r} has rol="
+        f"{payload_reader.get('rol')!r}, not 'reader' — fix the allowlist "
+        "row to exercise the 403 branch."
+    )
 
-    page = browser_context.new_page()
-    return page, reader_csrf
+    page = context.new_page()
+    try:
+        yield page, reader_csrf
+    finally:
+        context.close()
 
 
 # --- 1. unauthenticated GET /cesiones/new → 302 ---------------------------
@@ -192,8 +196,6 @@ def test_reader_cannot_post_cesiones(
     A reader rol is authenticated (has a valid session) but lacks the
     required permission — the RBAC gate returns 403 before any port
     call is made.
-
-    Skips when the OAuth mock does not support minting a reader session.
     """
     page, csrf_token = reader_session
 
