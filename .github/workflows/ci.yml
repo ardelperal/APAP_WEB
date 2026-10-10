@@ -1391,12 +1391,10 @@ jobs:
       - name: Start the production application against ephemeral Postgres
         env:
           POSTGRES_HOST_PORT: ${{ job.services.postgres.ports['5432'] }}
-          # Issue #1309: the storage backend under test is Cloudflare R2,
-          # so there is no per-run port to expand any more. The `apap-e2e`
-          # bucket and the lifecycle rule that expires the `e2e/` prefix
-          # are provisioned by the operator, never by CI, and this token is
-          # scoped to `apap-e2e` only — a mistake here still cannot reach
-          # a production object.
+          # Issue #1309: the storage under test is Cloudflare R2, so there is
+          # no per-run port to expand. The `apap-e2e` bucket and the lifecycle
+          # rule on its `e2e/` prefix are operator-provisioned, never CI's job,
+          # and this token is scoped to `apap-e2e` alone.
           APAP_S3_ENDPOINT: ${{ secrets.R2_E2E_ENDPOINT }}
           APAP_E2E_RUN_PREFIX: e2e/${{ github.run_id }}/
           APAP_DEBUG: "true"
