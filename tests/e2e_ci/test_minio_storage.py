@@ -44,26 +44,22 @@ _MINIO_TEST_PNG = (
 class TestMinioStorageHealth:
     """Smoke tests for the MinIO service availability."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "issue #894: with APAP_S3_* configured the application still reports "
-            "storage='unconfigured' on /healthz, so the env-to-storage-client "
-            "wiring never reaches the health check"
-        ),
-    )
     def test_healthz_storage_up(
         self,
         page,
         base_url: str,
     ) -> None:
-        """``/healthz`` reports ``storage: up`` when MinIO is configured and reachable.
+        """``/healthz`` reports ``storage: up`` when the store is configured.
 
-        Pinned as ``xfail(strict=True)`` against issue #894, never as a skip:
-        these atoms only started executing once the CI job handed the S3
-        credentials to the pytest step (issue #1095, slice 4 tramo C), and they
-        immediately exposed that two of the three were broken. A strict xfail
-        goes red the moment #894 lands, so the marker cannot outlive the fix.
+        Issue #894 pinned this as ``xfail(strict=True)``: the atoms only started
+        executing once the CI job handed the S3 credentials to the pytest step
+        (issue #1095, slice 4 tramo C), and they immediately exposed that the
+        env-to-storage-client wiring never reached the health check, so
+        ``storage`` came back ``unconfigured``. Issue #1309 fixed the wiring —
+        the endpoint is normalized and the probe asks the bucket instead of
+        listing the account — and the strict xfail turned into an ``XPASS``,
+        which is the suite refusing to let the marker outlive the fix. The
+        marker is gone and the atom asserts the behaviour.
         """
         response = page.goto(f"{base_url}/healthz")
 
