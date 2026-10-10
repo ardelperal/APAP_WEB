@@ -14,8 +14,12 @@ and reader-403 atoms (the closest established pattern for an
 browser_context`` fixture in ``tests/e2e_ci/conftest.py`` mints a
 developer session; the reader fixture below follows the
 ``APAP_E2E_READER_EMAIL`` pattern documented in
-``tests/e2e/test_cesiones_auth.py`` so a CI that does not configure a
-reader allowlist account skips cleanly instead of failing.
+``tests/e2e/test_cesiones_auth.py``, now driven by an
+idempotent seed in ``_seed_e2e_default_user`` (issue #1095
+slice 4, tramo C): the e2e job's app-start step exports the
+reader email to ``$GITHUB_ENV`` and the conftest provisions the
+reader row on every run. A missing env var raises ``KeyError``
+— a hard failure that the gate cannot silently ignore.
 
 Live application stack required by CI:
 - PostgreSQL via the app's ``LocalPostgresExecutor``
@@ -33,10 +37,6 @@ from playwright.sync_api import Page
 E2E_SECRET_HEADER = "X-E2E-Secret"
 
 
-def _e2e_secret() -> str | None:
-    return os.environ.get("APAP_E2E_AUTH_SECRET")
-
-
 # ---------------------------------------------------------------------------
 # Reader fixture (mirrors tests/e2e/test_cesiones_auth.py::reader_session)
 # ---------------------------------------------------------------------------
@@ -52,26 +52,18 @@ def reader_session(
     A reader rol can GET the download route (READ_CONTRATOS is in
     ``_LEGACY_READ_MATRIX["reader"]``) but cannot POST to it
     (WRITE_CONTRATOS requires admin/staff or a legacy writer rol).
-    This fixture mirrors ``tests/e2e/test_cesiones_auth.py``'s
-    reader_session so the test follows the same skip-on-missing
-    contract; the optional reader seeding in ``conftest.py``
-    provisions the row when ``APAP_E2E_READER_EMAIL`` is configured.
-    """
-    secret = _e2e_secret()
-    if secret is None:
-        pytest.skip("APAP_E2E_AUTH_SECRET not set.")
 
-    # The mock resolves the session rol from ``usuarios_autorizados``
-    # (issue #1073): the target is ``?email=``, and ``?rol=`` is NOT
-    # part of its contract. A reader session therefore requires an
-    # allowlisted reader account, wired through APAP_E2E_READER_EMAIL.
-    reader_email = os.environ.get("APAP_E2E_READER_EMAIL")
-    if reader_email is None:
-        pytest.skip(
-            "APAP_E2E_READER_EMAIL not set: the OAuth mock resolves the rol from "
-            "usuarios_autorizados (issue #1073) and cannot mint a reader session "
-            "on demand; point APAP_E2E_READER_EMAIL at an allowlisted reader."
-        )
+    Fail-closed contract (issue #1095 slice 4, tramo C): the CI e2e
+    job's app-start step exports ``APAP_E2E_AUTH_SECRET`` and
+    ``APAP_E2E_READER_EMAIL`` to ``$GITHUB_ENV`` and
+    ``_seed_e2e_default_user`` seeds the ``e2e-reader@apap.local``
+    row idempotently. Missing variables therefore raise ``KeyError``
+    instead of silently skipping — the gate forbids skips, so a
+    broken env reports a loud failure rather than a green run with
+    the atom missing.
+    """
+    secret = os.environ["APAP_E2E_AUTH_SECRET"]  # KeyError -> fail closed
+    reader_email = os.environ["APAP_E2E_READER_EMAIL"]  # KeyError -> fail closed
 
     # Fresh browser context so the reader cookie is isolated from the
     # shared ``e2e_logged_in_browser_context`` fixture (developer).
@@ -90,12 +82,15 @@ def reader_session(
     reader_csrf = payload_reader.get("csrf_token")
     assert isinstance(reader_csrf, str) and reader_csrf
 
-    if payload_reader.get("rol") != "reader":
-        pytest.skip(
-            f"e2e reader account {reader_email!r} has rol="
-            f"{payload_reader.get('rol')!r}, not 'reader' -- fix the allowlist "
-            "row to exercise the 403 branch."
-        )
+    # The seeded row must be a ``reader`` -- anything else is a setup
+    # regression, not a tested state, and would exercise the wrong branch
+    # of the RBAC gate. Hard assertion replaces the previous skip (which
+    # would silently land the test on whichever branch was requested).
+    assert payload_reader.get("rol") == "reader", (
+        f"e2e reader account {reader_email!r} has rol="
+        f"{payload_reader.get('rol')!r}, not 'reader' -- the seed in "
+        "conftest.py::_seed_e2e_default_user must provision a reader row."
+    )
 
     page = context.new_page()
     yield page, reader_csrf
@@ -205,9 +200,10 @@ def test_reader_cannot_post_contratos(
     The route requires ``WRITE_CONTRATOS`` permission (admin / staff /
     legacy writer). A reader rol is authenticated (valid session, valid
     CSRF token) but lacks the required permission: the RBAC gate
-    returns 403 before any port call is made. Skips when the OAuth
-    mock cannot mint a reader session (``APAP_E2E_READER_EMAIL``
-    unset).
+    returns 403 before any port call is made. The reader fixture raises
+    ``KeyError`` on a missing ``APAP_E2E_READER_EMAIL`` /
+    ``APAP_E2E_AUTH_SECRET`` instead of skipping (issue #1095 slice 4,
+    tramo C).
     """
     page, csrf_token = reader_session
 
