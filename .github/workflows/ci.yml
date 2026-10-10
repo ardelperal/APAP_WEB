@@ -592,12 +592,24 @@ jobs:
         # .gitleaksignore EXISTS and is load-bearing: issue #903 triaged the
         # full-history scan (gitleaks detect on the same pinned digest below)
         # and allowlisted all 11 findings — every one a false positive or test
-        # data, zero real secrets — as per-fingerprint history entries pinned
-        # to the exact <commit>:<file>:<rule>:<line>. Entries are never
-        # path-wide and never value-quoted, so a new secret of the same shape
-        # still fails the gate. This comment previously claimed no allowlist
-        # file existed, and before that claimed the opposite — see #495 and
-        # #903 for the two corrections.
+        # data, zero real secrets. The runtime accepts two per-fingerprint
+        # history entry shapes, and both have an adjacent reason comment in
+        # the file (governed by tests/test_security_scanning.py):
+        #
+        #   pinned: <commit>:<file>:<rule>:<line>  (commit-pinned fingerprint;
+        #     a new secret of the same shape at the same line still fails the
+        #     gate. The default shape for any new allowlist entry.)
+        #   bare:   <file>:<rule>:<line>           (no commit prefix; the only
+        #     rebase-proof shape in `gitleaks dir .` mode used by the security
+        #     job. The trade-off is a wider masking window — any future commit
+        #     that re-introduces the same `<file>:<rule>:<line>` triplet will
+        #     not fail the gate. Use sparingly and always with a dated reason
+        #     block immediately above the entry.)
+        #
+        # This comment previously claimed no allowlist file existed, and before
+        # that claimed the opposite — see #495 and #903 for the two
+        # corrections. Issue #1112 added the bare-vs-pinned distinction that
+        # was missing and pinned both shapes to the governance test.
         #
         # If the rule ever fires again, add an allowlist entry with its reason
         # and date — never weaken the ruleset and never narrow the scan path.
