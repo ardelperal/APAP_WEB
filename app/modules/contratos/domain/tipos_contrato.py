@@ -30,16 +30,96 @@ pytest invocation and is the guard that replaces the import-time
 assert of the previous iteration (the assert triggered the S101
 ruff ratchet, which is shrink-only and forbids new top-level
 asserts; the test is the same coverage, with the ratchet respected).
+
+The :func:`build_tipo_contrato_enum` factory is the dynamic-API
+entry point used by tests and any caller that needs a ``StrEnum``
+over a narrower or wider subset of the catalog.
 """
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from enum import StrEnum
+from typing import Final, cast
 
 __all__ = [
     "TipoContrato",
+    "build_tipo_contrato_enum",
     "tipo_contrato_codigos_del_catalogo",
 ]
+
+
+_NORMALISE_RE: Final[re.Pattern[str]] = re.compile(r"\W+")
+
+
+def _normalise(codigo: str) -> str:
+    """Convert a catalog ``codigo`` into a Python identifier-safe name.
+
+    ``"Adopción"`` -> ``"ADOPCION"``; ``"Ficha de Seguimiento"`` ->
+    ``"FICHA_DE_SEGUIMIENTO"``.  Raises ``ValueError`` for inputs that
+    would not produce a valid identifier (empty or all-punctuation).
+    """
+    if not codigo or not codigo.strip():
+        raise ValueError(f"catalog codigo must not be empty: {codigo!r}")  # noqa: TRY003
+    # Strip accents (NFKD) so ``Adopción`` and ``Adopcion`` collide on
+    # the same member name — that collision is exactly the drift #1270
+    # was about, and the factory is where it would surface.
+    ascii_form = unicodedata.normalize("NFKD", codigo).encode("ascii", "ignore").decode("ascii")
+    name = _NORMALISE_RE.sub("_", ascii_form.strip()).upper().strip("_")
+    if not name or not name.isidentifier():
+        raise ValueError(  # noqa: TRY003
+            f"catalog codigo {codigo!r} normalises to {name!r}, which is not a valid identifier"
+        )
+    return name
+
+
+def build_tipo_contrato_enum(codigos: list[str]) -> type[StrEnum]:
+    """Build a ``StrEnum`` whose values are the supplied ``codigos``.
+
+    Useful for tests and for any caller that needs a ``StrEnum`` over
+    a narrower or wider subset of the catalog.  The returned class is
+    a *fresh* subclass of :class:`StrEnum` per call, which makes it
+    safe to instantiate with different fixtures in tests.  Member
+    names are the ``codigo`` uppercased and stripped of
+    non-identifier characters (accents via NFKD); member values are
+    the ``codigo`` themselves (preserving the Spanish spelling).
+
+    Args:
+        codigos: The list of catalog ``codigo`` values.  Must be
+            non-empty, free of duplicates, and free of normalise-time
+            collisions.
+
+    Returns:
+        A new :class:`StrEnum` subclass named ``TipoContrato`` whose
+        members map each normalised name to its original ``codigo``.
+
+    Raises:
+        ValueError: When ``codigos`` is empty, contains duplicates, or
+            contains two entries that normalise to the same member
+            name.
+    """
+    if not codigos:
+        raise ValueError("build_tipo_contrato_enum requires at least one codigo")  # noqa: TRY003
+    seen_values: set[str] = set()
+    seen_names: dict[str, str] = {}
+    members: dict[str, str] = {}
+    for codigo in codigos:
+        if codigo in seen_values:
+            raise ValueError(f"build_tipo_contrato_enum: duplicate codigo {codigo!r}")  # noqa: TRY003
+        seen_values.add(codigo)
+        name = _normalise(codigo)
+        if name in seen_names:
+            raise ValueError(  # noqa: TRY003
+                f"build_tipo_contrato_enum: codigos {seen_names[name]!r} and {codigo!r} "
+                f"collide on member name {name!r}"
+            )
+        seen_names[name] = codigo
+        members[name] = codigo
+    # ``StrEnum(name, members)`` builds a *class* (functional Enum API);
+    # mypy infers the return as the StrEnum type, but it is in fact a
+    # subclass. The cast is the documented escape hatch for this case.
+    return cast("type[StrEnum]", StrEnum("TipoContrato", members))
 
 
 def tipo_contrato_codigos_del_catalogo() -> list[str]:

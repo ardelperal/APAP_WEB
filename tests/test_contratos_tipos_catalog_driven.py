@@ -17,9 +17,83 @@ These tests pin the contract:
 
 from __future__ import annotations
 
+from enum import StrEnum
+
+import pytest
+
 from app.modules.contratos.domain.tipos_contrato import (
+    build_tipo_contrato_enum,
     tipo_contrato_codigos_del_catalogo,
 )
+
+CATALOG_CODIGOS = [
+    "Acogida",
+    "Adopción",
+    "Cesión",
+    "Entrada",
+    "Entregado a Propietario",
+    "Ficha de Seguimiento",
+    "Ficha Sanitaria Gatos",
+    "Ficha Sanitaria Perros",
+]
+
+
+def test_factory_returns_str_enum_subclass() -> None:
+    """The factory must return a type that is a StrEnum subclass."""
+    EnumClass = build_tipo_contrato_enum(CATALOG_CODIGOS)
+    assert isinstance(EnumClass, type)
+    assert issubclass(EnumClass, StrEnum)
+
+
+def test_factory_member_names_are_uppercased_identifier_safe() -> None:
+    """Member names must be valid Python identifiers, uppercased."""
+    EnumClass = build_tipo_contrato_enum(CATALOG_CODIGOS)
+    expected_names = {
+        "ACOGIDA",
+        "ADOPCION",
+        "CESION",
+        "ENTRADA",
+        "ENTREGADO_A_PROPIETARIO",
+        "FICHA_DE_SEGUIMIENTO",
+        "FICHA_SANITARIA_GATOS",
+        "FICHA_SANITARIA_PERROS",
+    }
+    assert {m.name for m in EnumClass} == expected_names
+
+
+def test_factory_member_values_match_catalog_codigos() -> None:
+    """The member value must equal the catalog ``codigo`` (Spanish with accents)."""
+    EnumClass = build_tipo_contrato_enum(CATALOG_CODIGOS)
+    by_value = {m.value: m.name for m in EnumClass}
+    for codigo in CATALOG_CODIGOS:
+        assert codigo in by_value, f"catalog codigo {codigo!r} missing from enum"
+
+
+def test_factory_equality_with_legacy_string_keys() -> None:
+    """``EnumClass.ADOPCION == 'Adopción'`` must hold (the drift is gone)."""
+    EnumClass = build_tipo_contrato_enum(CATALOG_CODIGOS)
+    assert EnumClass.ADOPCION == "Adopción"
+    assert EnumClass.CESION == "Cesión"
+    assert EnumClass.ENTRADA == "Entrada"
+    assert EnumClass.ACOGIDA == "Acogida"
+
+
+def test_factory_rejects_empty_codigos() -> None:
+    """Empty input is a programmer error, not a valid catalog."""
+    with pytest.raises(ValueError, match="at least one"):
+        build_tipo_contrato_enum([])
+
+
+def test_factory_rejects_duplicate_codigos() -> None:
+    """Duplicates are a programmer error; the catalog unique key is codigo."""
+    with pytest.raises(ValueError, match="duplicate"):
+        build_tipo_contrato_enum(["Entrada", "Entrada"])
+
+
+def test_factory_rejects_codigos_that_collide_after_normalization() -> None:
+    """Two codigos that normalise to the same member name must fail loudly."""
+    with pytest.raises(ValueError, match="collide"):
+        build_tipo_contrato_enum(["Adopción", "Adopcion"])
 
 
 def test_codigos_del_catalogo_returns_list() -> None:
