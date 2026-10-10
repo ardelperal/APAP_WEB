@@ -29,14 +29,14 @@ def _storage_status() -> str:
         return "down"
     else:
         if client is None:
-            return "unconfigured"
+            return "down"
         try:
-            # list_buckets() makes a real HTTP request.
-            client.list_buckets()
+            # Bucket-scoped tokens need no account-level listing permission.
+            exists = client.bucket_exists(os.environ.get("APAP_S3_BUCKET", "apap-photos"))
         except Exception:  # noqa: BLE001
             return "down"
         else:
-            return "up"
+            return "up" if exists else "down"
 
 
 @router.get("/healthz")

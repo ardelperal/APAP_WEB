@@ -22,7 +22,7 @@ def test_rule_23_requires_qa_through_ui_only() -> None:
     section = _rule_23()
 
     assert "QA-through-UI solamente" in section
-    assert "Playwright E2E existente bajo `tests/e2e/`" in section
+    assert "al menos un flujo Playwright E2E bajo `tests/e2e_ci/`" in section
     assert "shell de Python, inspección directa de DB o `curl`" in section
     assert "no es sustituto" in section
 

@@ -1,180 +1,53 @@
-"""E2E CRUD coverage for the ``/animales`` slice (PLAN-E2E-COVERAGE.md §Fichero 1).
+"""E2E CRUD coverage for the ``/animales`` slice under the CI browser gate.
 
-This is the first authenticated flow file to exercise the animales routes
-through a real browser. It reuses the OAuth-mock pattern landed in
-``test_admin_authenticated.py``: the ``authenticated_session`` fixture mints
-a developer session via ``GET /e2e/login`` with the ``X-E2E-Secret``
-header, captures the ``csrf_token`` from the response body, and returns a
-``(Page, csrf_token)`` tuple so subsequent POST / PATCH requests can
-authenticate cleanly against the ``CsrfMiddleware``.
+Port of ``tests/e2e/test_animales_crud.py`` (issue #1095, slice 1) so the
+fail-closed CI smoke suite (``tests/e2e_ci/``) actually exercises
+business flows instead of six tests that submit no form.
+
+The shared helpers (``animal_form_data``, ``csrf_token_from_form``,
+``unique_chip``, species/sex constants, Spanish error fragments) live
+in ``tests/e2e_ci/_crud_helpers.py`` and are reused by the five
+follow-up batteries (entradas, adopciones, acogidas, cesiones, sanidad).
+
+Fail-closed contract: under this gate a missing
+``APAP_E2E_AUTH_SECRET``, a failed /e2e/login, or a non-303 on a happy
+path is a HARD failure, never a skip. The original
+``tests/e2e/test_animales_crud.py`` skipped when ``APAP_E2E_AUTH_SECRET``
+was unset and when the host animal could not be created; the port
+removes every ``pytest.skip`` so the gate stays loud when something is
+wrong (point of this slice).
 
 Nine cases pin the animales CRUD contract end-to-end:
 
-- List (GET /animales → 200, table).
-- Create (GET /animales/new → fill form → POST /animales → 303 to detail).
-  Note: the animales form template uses ``action=""`` which resolves to
-  the document URL — i.e. on /animales/new the form posts to
-  /animales/new, but the route handler lives at POST /animales. The test
-  therefore issues the POST to ``/animales`` directly via the request
-  client (mirroring the unit-test pattern in
-  ``tests/test_animals_routes.py::test_create_animal_view_*``) rather
-  than clicking submit. The form page is still visited first to verify
-  it renders, which is the regression sentinel this slice needs.
-- Duplicate chip → 4xx with Spanish error message (the actual
-  implementation returns ``409 Conflict`` via ``UniqueViolationError``
-  in ``app/modules/animals/routes.py::create_animal_view``, not
-  ``422`` — the route maps the violation to a 409 with a Spanish
-  message; the test asserts on the Spanish error copy to pin the
-  user-facing contract regardless of the specific status code).
-- Edit (GET /animales/{id}/edit → change NombreAnimal → POST
-  /animales/{id}/update → 303). Same form-action caveat as create:
-  we POST directly to the update endpoint.
+- List (GET /animales → 200, ``Animales`` h1).
+- Create (POST /animales → 303 to detail). Same ``action=""`` form
+  caveat as the original: we POST directly to ``/animales`` via the
+  request client.
+- Duplicate chip → 4xx with the Spanish error fragment
+  ``"Ya existe un animal con ese NCHIP"``.
+- Edit (POST /animales/{id}/update → 303 to /animales/{id}).
 - Soft-delete (POST /animales/{id}/delete → 303 to /animales; animal
-  no longer in the list). The detail page's delete form has the
-  correct ``action="/animales/{{id}}/delete"`` so this one goes
-  through the form-encoded path.
+  no longer in the list).
 - Detail (GET /animales/{id} → 200, NCHIP visible).
-- PATCH chip (PATCH /animales/{id}/chip with ``X-CSRFToken`` → 200 JSON
-  with ``success: true``; the actual contract is ``{"success": true,
-  "old_chip": ..., "new_chip": ..., "updated_tables": {...}}`` per
-  ``app/modules/animals/route_helpers.py::_chip_change_response``).
+- PATCH chip (PATCH /animales/{id}/chip → 200 JSON with ``success: true``).
 - Photo absent (GET /animales/{id}/foto → 404 when no photo asset).
-- Search (GET /animales/search?q=<partial-name> → 200 JSON with
-  ``data`` envelope, not ``results`` — the actual contract returns
-  ``{"data": [...], "total": N, "limit": N, "offset": N}`` per
-  ``_search_result_to_json`` in ``app/modules/animals/routes.py``).
-
-The tests skip cleanly when ``APAP_E2E_AUTH_SECRET`` is unset (the OAuth
-mock cannot authenticate).
-
-Each test uses a UUID-suffixed NCHIP to avoid collisions with other
-animals that may exist in the test database (E2E flows run against a
-real LocalBackend backend, unlike the unit-test spies in
-``tests/test_animals_routes.py``).
+- Search (GET /animales/search?q=<name> → 200 JSON with ``data`` envelope).
 """
 
 from __future__ import annotations
 
-import os
 import uuid
-from collections.abc import Callable
 from typing import Any
 
-import pytest
-from playwright.sync_api import BrowserContext, Page
+from playwright.sync_api import Page
 
-# --- shared constants -----------------------------------------------------
-
-E2E_SECRET_HEADER = "X-E2E-Secret"
-CSRF_HEADER = "X-CSRFToken"
-
-# Species + sex are domain enums (Especie.CANINA, Sexo.M) — the legacy
-# form carries them as uppercase strings. The species / sex selectors in
-# the animales form are dropdowns with option values "CANINA" / "FELINA"
-# and "M" / "H" respectively (per app/modules/animals/domain/animal.py).
-SPECIES_CANINA = "CANINA"
-SPECIES_FELINA = "FELINA"
-SEX_MACHO = "M"
-SEX_HEMBRA = "H"
-
-
-# --- fixtures -------------------------------------------------------------
-
-
-def _e2e_secret() -> str | None:
-    """Return the test-suite shared secret, or ``None`` if unset."""
-    return os.environ.get("APAP_E2E_AUTH_SECRET")
-
-
-@pytest.fixture
-def authenticated_session(browser_context: BrowserContext, base_url: str) -> tuple[Page, str]:
-    """Mint a developer session and return ``(page, csrf_token)``.
-
-    The ``csrf_token`` returned here is the one the form will render as
-    ``<input type="hidden" name="csrf_token" value=...>`` because it
-    comes from the same session payload. Playwright submits the form
-    including hidden fields automatically, so POSTs through the browser
-    do not need an explicit X-CSRFToken header. PATCH requests (which
-    are JSON, not form-encoded) DO need the header, and that is the
-    case where this fixture's second value matters.
-    """
-    secret = _e2e_secret()
-    if secret is None:
-        pytest.skip("APAP_E2E_AUTH_SECRET not set — the OAuth mock cannot authenticate this test.")
-
-    response = browser_context.request.get(
-        f"{base_url}/e2e/login",
-        headers={E2E_SECRET_HEADER: secret},
-    )
-    assert response.status == 200, (
-        f"/e2e/login must return 200 in the e2e suite, got {response.status}."
-    )
-    payload = response.json()
-    csrf_token = payload.get("csrf_token")
-    assert isinstance(csrf_token, str) and csrf_token, (
-        f"/e2e/login must return a non-empty csrf_token, got {payload!r}."
-    )
-
-    page = browser_context.new_page()
-    return page, csrf_token
-
-
-@pytest.fixture
-def make_animal_form_data() -> Callable[[str], dict[str, str]]:
-    """Return a factory that builds an AnimalForm payload with a unique chip.
-
-    The chip is the only field that must be unique across the animales
-    table (UNIQUE constraint). Every other field can repeat between
-    tests because the FK validation only checks ``animal_id`` against
-    the animales table, and we generate a fresh UUID for each test so
-    no two create tests collide.
-
-    The factory fills all 9 required fields (per
-    ``app/modules/animals/forms.py::ANIMAL_FORM_REQUIRED_FIELDS``) plus
-    a couple of optional fields so the form can submit without Pydantic
-    complaining about missing non-required fields.
-    """
-
-    def _factory(name_suffix: str) -> dict[str, str]:
-        chip = uuid.uuid4().hex[:15]
-        return {
-            "NCHIP": chip,
-            "NombreAnimal": f"Test-{name_suffix}",
-            "Especie": SPECIES_CANINA,
-            "Sexo": SEX_MACHO,
-            "FNacimiento": "2024-01-15",
-            "TraeNChip": "Si",
-            "FIMPLANTACIONCHIP": "2024-01-16",
-            "NombreFoto": "",
-            "Terapia": "No",
-            "Raza": "Mestizo",
-            "Color": "Negro",
-        }
-
-    return _factory
-
-
-def _unique_chip() -> str:
-    """Generate a unique chip string (uuid hex, max 15 chars)."""
-    return uuid.uuid4().hex[:15]
-
+from tests.e2e_ci._crud_helpers import (
+    animal_form_data,
+    csrf_token_from_form,
+    unique_chip,
+)
 
 # --- helpers --------------------------------------------------------------
-
-
-def _csrf_token_from_form(page: Page) -> str:
-    """Read the csrf_token hidden input rendered on the current page.
-
-    Every form page (animales, entradas, batch) renders the token as
-    ``<input type="hidden" name="csrf_token" value="...">``. Playwright
-    will submit this along with the form when the user clicks the
-    submit button, so we only need this helper to verify the form
-    actually rendered a token (regression sentinel) — not to submit it
-    manually.
-    """
-    token = page.locator('input[name="csrf_token"]').first.get_attribute("value")
-    assert token, "every form page must render a non-empty csrf_token hidden input"
-    return token
 
 
 def _visit_animal_form(page: Page, base_url: str, animal_id: str | None) -> str:
@@ -186,8 +59,9 @@ def _visit_animal_form(page: Page, base_url: str, animal_id: str | None) -> str:
     pre-filled when editing).
 
     Returns the rendered csrf_token so the test can submit the form
-    via the request client (see the module docstring for why we
-    bypass the ``action=""`` quirk in the form template).
+    via the request client (the animales form template uses
+    ``action=""``, which resolves to the document URL — see the
+    module-level docstring of the original test for the rationale).
     """
     if animal_id is None:
         path = "/animales/new"
@@ -196,7 +70,7 @@ def _visit_animal_form(page: Page, base_url: str, animal_id: str | None) -> str:
     response = page.goto(f"{base_url}{path}", wait_until="domcontentloaded")
     assert response is not None
     assert response.status == 200, f"{path} must return 200, got {response.status}"
-    return _csrf_token_from_form(page)
+    return csrf_token_from_form(page)
 
 
 # --- 1. list ---------------------------------------------------------------
@@ -233,7 +107,6 @@ def test_list_animales_renders_table(
 def test_create_animal_redirects_to_detail(
     authenticated_session: tuple[Page, str],
     base_url: str,
-    make_animal_form_data: Callable[[str], dict[str, str]],
 ) -> None:
     """GET /animales/new → fill form → POST /animales → 303 to detail.
 
@@ -252,15 +125,19 @@ def test_create_animal_redirects_to_detail(
     ``tests/test_animals_routes.py::test_create_animal_view_*``.
     """
     page, csrf_token = authenticated_session
-    form_data = make_animal_form_data("create")
+    form_data = animal_form_data("create")
 
     _visit_animal_form(page, base_url, animal_id=None)
 
     # POST to /animales (the actual create endpoint). csrf_token is
     # sent as a form field so CsrfMiddleware accepts the request.
+    # ``max_redirects=0`` keeps the raw 303 (APIRequestContext follows
+    # redirects by default; without the override the assertion would
+    # see the final 200 detail page, not the 303 the route emits).
     response = page.request.post(
         f"{base_url}/animales",
         form={"csrf_token": csrf_token, **form_data},
+        max_redirects=0,
     )
 
     assert response.status == 303, (
@@ -289,10 +166,18 @@ def test_create_animal_redirects_to_detail(
 # --- 3. duplicate chip -----------------------------------------------------
 
 
+# End-to-end RED that drove issue #1293: before the fix, the psycopg
+# executor collapsed SQLSTATE 23505 into ``QueryError`` (a
+# ``RuntimeError`` outside the ``DataAccessError`` family the routes
+# catch), so the duplicate-chip path skipped the route's
+# ``except UniqueViolationError`` branch and the global handler
+# returned 502. The slice-1 fix reparents the local errors onto
+# ``DataAccessError`` and discriminates on ``exc.sqlstate`` so 23505
+# reaches the route's 409 mapping. The xfail marker is gone — the
+# contract below must now pass end-to-end.
 def test_duplicate_chip_returns_spanish_error(
     authenticated_session: tuple[Page, str],
     base_url: str,
-    make_animal_form_data: Callable[[str], dict[str, str]],
 ) -> None:
     """POST /animales twice with the same chip → 4xx with Spanish error.
 
@@ -305,16 +190,21 @@ def test_duplicate_chip_returns_spanish_error(
 
     The chip must be unique to the test database BEFORE the duplicate
     attempt, which is why we create it via the form first rather than
-    picking a hard-coded value.
+    picking a hard-coded value. Under this gate the create POST is
+    fail-closed: a non-303 on the first attempt is a hard failure
+    (no skip).
     """
     page, csrf_token = authenticated_session
-    form_data = make_animal_form_data("duplicate")
+    form_data = animal_form_data("duplicate")
 
-    # First create: succeeds with 303 to detail.
+    # First create: succeeds with 303 to detail. Fail-closed: a non-303
+    # is a hard assertion (the original test had a pytest.skip on this
+    # branch — the gate forbids skips).
     _visit_animal_form(page, base_url, animal_id=None)
     first_response = page.request.post(
         f"{base_url}/animales",
         form={"csrf_token": csrf_token, **form_data},
+        max_redirects=0,
     )
     assert first_response.status == 303, (
         f"first create must succeed with 303, got {first_response.status}: "
@@ -322,10 +212,13 @@ def test_duplicate_chip_returns_spanish_error(
     )
 
     # Second create with the same chip: must return 4xx with a Spanish
-    # error message.
+    # error message. The 4xx branch is not a redirect, so the default
+    # redirect-follow does not interfere; we still pass ``max_redirects=0``
+    # for consistency with the create test.
     second_response = page.request.post(
         f"{base_url}/animales",
         form={"csrf_token": csrf_token, **form_data},
+        max_redirects=0,
     )
 
     # The handler maps UniqueViolationError to 409; the plan and the
@@ -349,7 +242,6 @@ def test_duplicate_chip_returns_spanish_error(
 def test_edit_animal_updates_nombre_and_redirects_to_detail(
     authenticated_session: tuple[Page, str],
     base_url: str,
-    make_animal_form_data: Callable[[str], dict[str, str]],
 ) -> None:
     """Edit form: change NombreAnimal → POST /animales/{id}/update → 303.
 
@@ -366,14 +258,15 @@ def test_edit_animal_updates_nombre_and_redirects_to_detail(
     against pre-existing animals in the test DB.
     """
     page, csrf_token = authenticated_session
-    create_data = make_animal_form_data("edit-base")
+    create_data = animal_form_data("edit-base")
     new_name = f"Test-edit-renamed-{uuid.uuid4().hex[:8]}"
 
-    # Create first.
+    # Create first (fail-closed).
     _visit_animal_form(page, base_url, animal_id=None)
     create_response = page.request.post(
         f"{base_url}/animales",
         form={"csrf_token": csrf_token, **create_data},
+        max_redirects=0,
     )
     assert create_response.status == 303, (
         f"setup failed: create POST must return 303, got {create_response.status}"
@@ -391,6 +284,7 @@ def test_edit_animal_updates_nombre_and_redirects_to_detail(
     update_response = page.request.post(
         f"{base_url}/animales/{animal_id}/update",
         form={"csrf_token": edit_csrf, **update_data},
+        max_redirects=0,
     )
 
     assert update_response.status == 303, (
@@ -414,7 +308,6 @@ def test_edit_animal_updates_nombre_and_redirects_to_detail(
 def test_soft_delete_removes_animal_from_list(
     authenticated_session: tuple[Page, str],
     base_url: str,
-    make_animal_form_data: Callable[[str], dict[str, str]],
 ) -> None:
     """POST /animales/{id}/delete → 303 to /animales; animal no longer listed.
 
@@ -429,13 +322,14 @@ def test_soft_delete_removes_animal_from_list(
       ``list_animals`` in ``app/modules/animals/application/``).
     """
     page, csrf_token = authenticated_session
-    form_data = make_animal_form_data("delete")
+    form_data = animal_form_data("delete")
 
-    # Create the animal.
+    # Create the animal (fail-closed).
     _visit_animal_form(page, base_url, animal_id=None)
     create_response = page.request.post(
         f"{base_url}/animales",
         form={"csrf_token": csrf_token, **form_data},
+        max_redirects=0,
     )
     assert create_response.status == 303, (
         f"setup failed: create POST must return 303, got {create_response.status}"
@@ -448,7 +342,7 @@ def test_soft_delete_removes_animal_from_list(
     # detail page is reachable before we delete).
     detail_response = page.goto(f"{base_url}/animales/{animal_id}", wait_until="domcontentloaded")
     assert detail_response is not None and detail_response.status == 200
-    delete_csrf = _csrf_token_from_form(page)
+    delete_csrf = csrf_token_from_form(page)
 
     # Submit delete. The detail page's delete form has the correct
     # ``action="/animales/{{id}}/delete"`` so this is a form-encoded
@@ -456,6 +350,7 @@ def test_soft_delete_removes_animal_from_list(
     delete_response = page.request.post(
         f"{base_url}/animales/{animal_id}/delete",
         form={"csrf_token": delete_csrf},
+        max_redirects=0,
     )
     assert delete_response.status == 303, (
         f"delete POST must return 303, got {delete_response.status}"
@@ -480,17 +375,17 @@ def test_soft_delete_removes_animal_from_list(
 def test_detail_animal_page_shows_chip(
     authenticated_session: tuple[Page, str],
     base_url: str,
-    make_animal_form_data: Callable[[str], dict[str, str]],
 ) -> None:
     """GET /animales/{id} → 200, body contains the chip."""
     page, csrf_token = authenticated_session
-    form_data = make_animal_form_data("detail")
+    form_data = animal_form_data("detail")
 
-    # Create.
+    # Create (fail-closed).
     _visit_animal_form(page, base_url, animal_id=None)
     create_response = page.request.post(
         f"{base_url}/animales",
         form={"csrf_token": csrf_token, **form_data},
+        max_redirects=0,
     )
     assert create_response.status == 303, (
         f"setup failed: create POST must return 303, got {create_response.status}"
@@ -512,7 +407,6 @@ def test_detail_animal_page_shows_chip(
 def test_patch_chip_returns_success_json(
     authenticated_session: tuple[Page, str],
     base_url: str,
-    make_animal_form_data: Callable[[str], dict[str, str]],
 ) -> None:
     """PATCH /animales/{id}/chip with X-CSRFToken → 200 JSON with success:true.
 
@@ -528,13 +422,14 @@ def test_patch_chip_returns_success_json(
     the cascade details are implementation-internal.
     """
     page, csrf_token = authenticated_session
-    form_data = make_animal_form_data("chip")
+    form_data = animal_form_data("chip")
 
-    # Create the animal first.
+    # Create the animal first (fail-closed).
     _visit_animal_form(page, base_url, animal_id=None)
     create_response = page.request.post(
         f"{base_url}/animales",
         form={"csrf_token": csrf_token, **form_data},
+        max_redirects=0,
     )
     assert create_response.status == 303, (
         f"setup failed: create POST must return 303, got {create_response.status}"
@@ -543,10 +438,10 @@ def test_patch_chip_returns_success_json(
     assert animal_id
 
     # Issue the PATCH with X-CSRFToken.
-    new_chip = _unique_chip()
+    new_chip = unique_chip()
     patch_response = page.request.patch(
         f"{base_url}/animales/{animal_id}/chip",
-        headers={CSRF_HEADER: csrf_token},
+        headers={"X-CSRFToken": csrf_token},
         data={"new_chip": new_chip, "reason": "Test chip replacement"},
     )
 
@@ -566,29 +461,34 @@ def test_patch_chip_returns_success_json(
 # --- 8. foto missing -------------------------------------------------------
 
 
-def test_photo_missing_returns_404(
+def test_photo_missing_serves_the_placeholder(
     authenticated_session: tuple[Page, str],
     base_url: str,
-    make_animal_form_data: Callable[[str], dict[str, str]],
 ) -> None:
-    """GET /animales/{id}/foto with no photo asset → 404.
+    """GET /animales/{id}/foto with no photo asset → a placeholder PNG, not 404.
 
-    The route delegates to ``AnimalsPort.resolve_animal_photo``; when
-    the port returns ``None`` (no photo on file), the handler raises
-    ``HTTPException(status_code=404)``. We pin that contract because
-    the legacy "no photo" path is the default for newly-created
-    animals (the create form carries a ``NombreFoto`` filename field
-    but the binary upload pipeline is separate — not exercised here).
+    ``resolve_animal_photo`` answers a placeholder by design whenever
+    storage is unconfigured, the object comes back empty, or the storage
+    call fails (``_placeholder()`` under ``is_placeholder=True``, see
+    ``app/modules/animals/adapters/local_backend/animals_local_backend_photo.py``):
+    the template always receives an image, so a list never renders a
+    broken thumbnail.
+
+    The legacy e2e battery asserted a 404 here, a contract the adapter no
+    longer has. This pin documents the behaviour production actually
+    serves; if the team prefers the 404, that is a product decision and
+    this assertion is where it would change.
     """
     page, csrf_token = authenticated_session
-    form_data = make_animal_form_data("foto")
+    form_data = animal_form_data("foto")
 
     # Create the animal with NombreFoto left blank so no asset is
-    # registered in storage.
+    # registered in storage (fail-closed).
     _visit_animal_form(page, base_url, animal_id=None)
     create_response = page.request.post(
         f"{base_url}/animales",
         form={"csrf_token": csrf_token, **{**form_data, "NombreFoto": ""}},
+        max_redirects=0,
     )
     assert create_response.status == 303, (
         f"setup failed: create POST must return 303, got {create_response.status}"
@@ -596,11 +496,16 @@ def test_photo_missing_returns_404(
     animal_id = create_response.headers.get("location", "").rsplit("/", 1)[-1]
     assert animal_id
 
-    # The /foto endpoint must 404 when there is no photo asset.
+    # The /foto endpoint answers the designed placeholder, never a 404.
     response = page.request.get(f"{base_url}/animales/{animal_id}/foto")
-    assert response.status == 404, (
-        f"/animales/{{id}}/foto must return 404 when no photo exists, got {response.status}"
+    assert response.status == 200, (
+        f"/animales/{{id}}/foto must serve the placeholder, got {response.status}"
     )
+    content_type = response.headers.get("content-type", "")
+    assert content_type.startswith("image/png"), (
+        f"placeholder must be a PNG, got {content_type!r}"
+    )
+    assert response.body(), "placeholder body must not be empty"
 
 
 # --- 9. search -------------------------------------------------------------
@@ -609,7 +514,6 @@ def test_photo_missing_returns_404(
 def test_search_partial_name_returns_json_envelope(
     authenticated_session: tuple[Page, str],
     base_url: str,
-    make_animal_form_data: Callable[[str], dict[str, str]],
 ) -> None:
     """GET /animales/search?q=<name> → 200 JSON with the data envelope.
 
@@ -624,13 +528,14 @@ def test_search_partial_name_returns_json_envelope(
     ``csrf_token`` is not required for this GET.
     """
     page, csrf_token = authenticated_session
-    form_data = make_animal_form_data("search")
+    form_data = animal_form_data("search")
 
-    # Create the animal so we can search for it.
+    # Create the animal so we can search for it (fail-closed).
     _visit_animal_form(page, base_url, animal_id=None)
     create_response = page.request.post(
         f"{base_url}/animales",
         form={"csrf_token": csrf_token, **form_data},
+        max_redirects=0,
     )
     assert create_response.status == 303, (
         f"setup failed: create POST must return 303, got {create_response.status}"

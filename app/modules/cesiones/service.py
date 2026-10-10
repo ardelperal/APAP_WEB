@@ -60,16 +60,14 @@ from typing import Any
 
 from app.core.data_access import BackendError, SqlExecutor, TransactionalSqlExecutor
 from app.core.forms import optional_text
+from app.modules.cesiones.domain.cesion import CesionConflictError
 
-
-class CesionConflictError(ValueError):
-    """Raised when an attempt to create a cesión collides with the
-    1-a-1 UNIQUE FK on ``cesiones_propietario.entrada_id``. Mirrors
-    ``EntradaConflictError`` in the entradas module — both translate
-    LocalBackend's 409 envelope into a domain-meaningful exception that
-    routes can render as a 409 form error without depending on the
-    LocalBackend envelope shape.
-    """
+# Issue #1072: ``CesionConflictError`` is re-exported from the domain module
+# instead of being redefined here (it used to be a second, unrelated class). The
+# route catches the domain class, so the real UNIQUE-conflict path fell through
+# to ``except ValueError`` and answered 422 instead of 409. One class now travels
+# the whole path: route -> application -> port -> adapter -> service. It stays
+# importable as ``service.CesionConflictError`` for backwards compatibility.
 
 
 @dataclass(frozen=True, slots=True)

@@ -189,13 +189,76 @@ class NestedTransactionError(DataAccessError):
     """
 
 
-class UniqueViolationError(DuplicateKeyError):
+class ConstraintViolationError(DataAccessError):
+    """Base for "Postgres rejected the write on a constraint" (issue #1293).
+
+    SQLSTATE class ``23`` (integrity constraint violation) is the umbrella
+    for every kind of constraint Postgres enforces — ``23505`` unique,
+    ``23503`` foreign key, ``23514`` check, ``23502`` not-null, plus
+    ``23P01`` exclusion and ``23001`` restrict. Domain code that wants
+    to handle "the write was rejected by the database for a constraint
+    reason" uniformly catches this class without caring which
+    constraint it was.
+
+    The exception's ``str()`` carries the upstream message verbatim so
+    a domain caller that wants to inspect the message can do so without
+    re-fetching it from the original transport error; ``__cause__``
+    keeps the psycopg error so the operator postmortem can still see
+    the SQLSTATE in the traceback (the message itself does not embed
+    the SQLSTATE — Postgres does not include it in ``str(psycopg.Error)``).
+    """
+
+
+class ForeignKeyViolationError(ConstraintViolationError):
+    """Postgres SQLSTATE ``23503`` — a foreign-key constraint was violated.
+
+    Raised when an INSERT/UPDATE references a parent row that does not
+    exist (or, with ``ON DELETE`` / ``ON UPDATE`` actions, when the
+    action is ``RESTRICT`` and child rows would orphan). ``__cause__``
+    is the original psycopg error so a debug traceback still shows
+    the failing row's columns and the missing reference.
+    """
+
+
+class CheckViolationError(ConstraintViolationError):
+    """Postgres SQLSTATE ``23514`` — a CHECK constraint was violated.
+
+    Raised when an INSERT/UPDATE produces a row that fails a ``CHECK``
+    predicate (``CHECK (sexo IN ('M', 'H'))``, range checks, etc.).
+    ``__cause__`` is the original psycopg error so a debug traceback
+    still shows the predicate that failed and the offending column.
+    """
+
+
+class NotNullViolationError(ConstraintViolationError):
+    """Postgres SQLSTATE ``23502`` — a NOT NULL column was set to NULL.
+
+    Raised when an INSERT/UPDATE omits a NOT-NULL column or explicitly
+    sets it to NULL. ``__cause__`` is the original psycopg error so a
+    debug traceback still names the offending column.
+    """
+
+
+class UniqueViolationError(DuplicateKeyError, ConstraintViolationError):
     """Postgres SQLSTATE ``23505`` specifically — a unique-constraint violation.
 
-    A subclass of :class:`DuplicateKeyError` so existing
-    ``except DuplicateKeyError`` handlers keep working; code that wants
-    to differentiate "PK duplicate" from "any uniqueness violation"
-    can catch :class:`UniqueViolationError` first.
+    A subclass of both :class:`DuplicateKeyError` (for backward
+    compatibility with the HTTP-envelope path and the existing
+    ``except DuplicateKeyError`` / ``except BackendError`` handlers —
+    ``UniqueViolationError`` is still ``isinstance``-equivalent to
+    both) AND :class:`ConstraintViolationError` (so a new
+    ``except ConstraintViolationError`` clause catches every
+    constraint-rejection case uniformly — issue #1293).
+
+    Multiple inheritance is deliberate: the linear
+    ``DataAccessError → BackendError → DuplicateKeyError`` chain
+    must keep matching the Phase 1 world (route handlers that catch
+    ``DuplicateKeyError`` or ``BackendError`` for 409 mapping, the
+    ``sql_executor_fake`` that raises ``UniqueViolationError``
+    directly), and the new ``ConstraintViolationError`` axis must
+    match for the 23505 case so domain code can write
+    ``except ConstraintViolationError`` once and have it cover
+    unique/FK/check/not-null.
 
     The name carries the ``Error`` suffix required by ruff N818 to
     match the rest of the project's exception hierarchy (DataAccessError,
@@ -203,7 +266,13 @@ class UniqueViolationError(DuplicateKeyError):
     ``UniqueViolation`` was the Phase 1 task-spec draft; the suffix is
     what survived into the actual implementation.
 
-    Inherits the message-only ``__init__`` from :class:`DuplicateKeyError`;
-    callers raise :class:`UniqueViolationError` with the lower-cased
-    upstream message and nothing else.
+    Inherits the message-only ``__init__`` from :class:`DuplicateKeyError`
+    (intentionally NOT overridden) and a default ``__init__`` from
+    :class:`ConstraintViolationError` — the message-only form is
+    the only one callers use (``raise UniqueViolationError(str(exc))``
+    inside ``_translate_psycopg_error``). When both bases define
+    ``__init__`` and neither is a strict subclass of the other, Python
+    raises ``TypeError`` at class-definition time unless one is named
+    explicitly; :class:`DuplicateKeyError` wins here because the
+    existing call sites raise ``UniqueViolationError(message)``.
     """

@@ -328,7 +328,7 @@ def test_create_rejects_fallecido_animal_via_disambiguation() -> None:
         # 1st: CTE INSERT — 0 rows
         [],
         # 2nd: animal disambiguation — activo but FDefuncion set
-        [{"id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "activo": True, "fecha_alta": None, "f_defuncion": "2024-08-15"}],
+        [{"id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "activo": True, "fecha_alta": None, "fdefuncion": "2024-08-15"}],
     )
 
     with pytest.raises(ValueError, match="fallecido"):
@@ -349,7 +349,7 @@ def test_create_rejects_incoherente_animal_via_disambiguation() -> None:
         # 1st: CTE INSERT — 0 rows
         [],
         # 2nd: animal disambiguation — activo, no FDefuncion, current_state=Incoherente
-        [{"id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "activo": True, "fecha_alta": None, "f_defuncion": None, "current_state": "Incoherente"}],
+        [{"id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "activo": True, "fecha_alta": None, "fdefuncion": None, "current_state": "Incoherente"}],
     )
 
     with pytest.raises(ValueError, match="Incoherente"):
