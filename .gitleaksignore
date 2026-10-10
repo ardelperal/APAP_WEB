@@ -20,10 +20,12 @@
 #     tokens issued by `secrets.token_hex`/`secrets.token_urlsafe`.
 tests/integration/test_magic_link_routes.py:generic-api-key:84
 
-# 2026-09-26 — issue #917 follow-up. The #917 real-app integration suite
-# (tests/integration/test_magic_link_real_app.py:115) sets the same
-# hardcoded test-only APAP_SESSION_SECRET padding to satisfy
-# _validate_secrets in its lifespan; never a live secret.
+# 2026-09-26 — issue #917 follow-up. Three test-only generic-api-key
+# findings, all hardcoded fixture values, never live secrets:
+#   - tests/integration/test_magic_link_real_app.py:115 — APAP_SESSION_SECRET
+#     padding in the lifespan of the #917 real-app integration suite.
+#   - tests/test_maildev_helper.py:77 and :83 — fake hex/urlsafe tokens
+#     issued by `secrets.token_hex`/`secrets.token_urlsafe`.
 tests/integration/test_magic_link_real_app.py:generic-api-key:115
 tests/test_maildev_helper.py:generic-api-key:77
 tests/test_maildev_helper.py:generic-api-key:83
@@ -111,6 +113,17 @@ bacd2f4fb45ebbef4ae8c0b8ef753de62c06d573:tests/integration/test_magic_link_state
 # of the magic-link state binding; the file itself was deleted from the
 # tree in that commit (state now travels in a cookie). Historical-only.
 01de084620a68d38ee62f6b4d3adf9ff17a793e1:tests/integration/test_magic_link_state.py:generic-api-key:334
+
+# 2026-10-07 — issue #1112. The two entries below are BARE
+# (`<file>:<rule>:<line>`, no commit prefix). The security job runs
+# `gitleaks dir .`, whose fingerprints are bare; a pinned entry would
+# never match. This is the only rebase-proof way to silence the gate
+# for the magic-link state fixture. The trade-off: any future commit
+# that re-introduces `generic-api-key` at the same two lines in
+# `tests/integration/test_magic_link_state.py` will not fail the gate.
+# Window is narrow (a test fixture, not a production path). If the
+# job ever migrates to `gitleaks git` with commit-pinned fingerprints,
+# these two entries become redundant and can be removed.
 tests/integration/test_magic_link_state.py:generic-api-key:74
 tests/integration/test_magic_link_state.py:generic-api-key:334
 
