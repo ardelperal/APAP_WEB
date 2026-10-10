@@ -1501,11 +1501,17 @@ jobs:
             # step below inherits them. Writing to $GITHUB_ENV here keeps
             # a single source of truth (the env: block above + the
             # MINIO_E2E_* secrets) — the pytest step cannot drift.
-            echo "APAP_S3_ACCESS_KEY=$APAP_S3_ACCESS_KEY"
-            echo "APAP_S3_SECRET_KEY=$APAP_S3_SECRET_KEY"
-            echo "APAP_S3_BUCKET=$APAP_S3_BUCKET"
-            echo "APAP_S3_SECURE=$APAP_S3_SECURE"
-            echo "APAP_E2E_READER_EMAIL=$APAP_E2E_READER_EMAIL"
+            #
+            # Follow-up (incident 38061024): escrito con un bucle, no con
+            # literales `NAME=$NAME`. GitGuardian lee
+            # `APAP_S3_SECRET_KEY=$APAP_S3_SECRET_KEY` como un secreto
+            # hardcodeado ("Generic High Entropy Secret") y el arreglo
+            # corresponde a la forma de la línea, no a una regla de ignore
+            # que dejaría ciego al escáner para este camino.
+            for _env_var in APAP_S3_ACCESS_KEY APAP_S3_SECRET_KEY \
+              APAP_S3_BUCKET APAP_S3_SECURE APAP_E2E_READER_EMAIL; do
+              printf '%s=%s\n' "$_env_var" "${!_env_var}"
+            done
           } >> "$GITHUB_ENV"
           for _ in {1..45}; do
             if curl -fsS http://127.0.0.1:8000/healthz >/dev/null; then
