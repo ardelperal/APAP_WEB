@@ -57,3 +57,44 @@ def test_absent_credentials_are_unconfigured(monkeypatch) -> None:
     monkeypatch.delenv("APAP_S3_ACCESS_KEY", raising=False)
     monkeypatch.delenv("APAP_S3_SECRET_KEY", raising=False)
     assert healthz._storage_status() == "unconfigured"
+
+
+def test_production_health_handler_delegates_to_the_shared_probe(monkeypatch) -> None:
+    """Issue #1309: production /healthz must not probe the account either.
+
+    ``app.main`` registers its own ``/healthz``, separate from the
+    local-backend router. It used to call ``list_buckets()`` directly, so
+    the bucket-scoped fix in this module never reached production — and
+    production is exactly where Coolify restarts the container after three
+    consecutive failures.
+    """
+    from types import SimpleNamespace  # noqa: PLC0415
+
+    from fastapi import FastAPI  # noqa: PLC0415
+
+    from app.main import _register_health_handler  # noqa: PLC0415
+
+    calls: list[str] = []
+
+    def _probe() -> str:
+        calls.append("probe")
+        return "up"
+
+    monkeypatch.setattr(healthz, "_storage_status", _probe)
+
+    app = FastAPI()
+    _register_health_handler(
+        app, SimpleNamespace(app_name="APAP_WEB", build_sha="deadbeef")
+    )
+    route = next(r for r in app.routes if getattr(r, "path", None) == "/healthz")
+
+    assert route.endpoint() == {
+        "status": "ok",
+        "app": "APAP_WEB",
+        "revision": "deadbeef",
+        "storage": "up",
+    }
+    assert calls == ["probe"], (
+        "production /healthz must delegate to the shared bucket probe instead "
+        "of probing the account itself (issue #1309)"
+    )
